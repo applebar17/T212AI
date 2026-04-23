@@ -11,6 +11,8 @@ from typing import Any, Callable, Iterable
 
 from pydantic import BaseModel
 
+from t212ai.app.config import load_env_file
+
 from .models import ToolError, ToolResult, ToolSpec
 from .tokenizer import TokenCounter
 from .tools import CHAT_TOOLBOX, ToolBox, build_tool_mapping
@@ -73,6 +75,7 @@ class GenAISettings:
 
 
 def get_genai_settings() -> GenAISettings:
+    load_env_file()
     embed_dimensions_raw = os.getenv("OPENAI_EMBED_DIMENSIONS")
     embed_dimensions = None
     if embed_dimensions_raw and embed_dimensions_raw.strip():
