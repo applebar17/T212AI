@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "t212ai"
+version = "0.1.0"
+description = "Telegram-first AI investment agent for Trading 212."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+db = [
+    "alembic>=1.13.0",
+    "SQLAlchemy>=2.0.0",
+]
+telegram = [
+    "python-telegram-bot>=21.0",
+]
+research = [
+    "beautifulsoup4>=4.12.0",
+    "trafilatura>=1.8.0",
+]
+tracing = [
+    "langsmith>=0.1.0",
+]
+tokens = [
+    "tiktoken>=0.7.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

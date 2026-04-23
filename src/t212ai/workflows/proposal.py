@@ -1,0 +1,2 @@
+"""Trade proposal workflow placeholder."""
+
