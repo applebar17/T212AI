@@ -1,14 +1,10 @@
-"""External market, research, news, calendar, and community data sources."""
-"""External data-source integrations."""
+"""External data-source integrations.
 
-from .alpha_vantage import (
-    ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX,
-    AlphaVantageClient,
-)
-from .yahoo import YahooFinanceClient
+Import concrete providers from their own packages, for example:
 
-__all__ = [
-    "ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX",
-    "AlphaVantageClient",
-    "YahooFinanceClient",
-]
+- `t212ai.data_sources.alpha_vantage`
+- `t212ai.data_sources.yahoo`
+
+The package root intentionally stays lightweight to avoid import cycles between
+provider-specific toolboxes and the generic GenAI tool registry.
+"""

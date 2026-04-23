@@ -11,6 +11,7 @@ from .auth import TelegramAccessPolicy
 from .bridge import (
     TelegramMessageHandler,
     TelegramUpdateRouter,
+    build_agent_message_handler_if_configured,
     build_default_message_handler,
 )
 
@@ -34,7 +35,7 @@ class TelegramBotService:
         return cls(
             token=resolved.telegram_bot_token,
             access_policy=TelegramAccessPolicy.from_settings(resolved),
-            message_handler=message_handler or build_default_message_handler(),
+            message_handler=message_handler or build_agent_message_handler_if_configured(),
         )
 
     def build_application(self) -> Any:

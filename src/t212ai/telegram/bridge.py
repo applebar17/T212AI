@@ -7,8 +7,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
+from t212ai.agent.history import ChatHistoryManager
 from t212ai.agent.intents import IntentKind
-from t212ai.agent.orchestrator import AgentOrchestrator
+from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
+from t212ai.agent.reasoning import AgentReasoner
+from t212ai.agent.schemas import AgentRequest
 
 from .auth import TelegramAccessPolicy
 from .commands import HELP_COMMANDS, render_help_text
@@ -74,8 +77,40 @@ class TelegramUpdateRouter:
 
 def build_default_message_handler(
     orchestrator: AgentOrchestrator | None = None,
+    *,
+    main_agent: MainOrchestratorAgent | None = None,
+    history_manager: ChatHistoryManager | None = None,
 ) -> TelegramMessageHandler:
     resolved_orchestrator = orchestrator or AgentOrchestrator()
+    resolved_history = history_manager or ChatHistoryManager()
+
+    if main_agent is not None:
+
+        def _agent_handle(message: TelegramInboundMessage) -> TelegramOutboundMessage:
+            if message.text.strip().lower() in {"/help", "help"}:
+                resolved_history.record_user_message(message.chat_id, message.text)
+                response = TelegramOutboundMessage(text=render_help_text())
+                resolved_history.record_assistant_message(message.chat_id, response.text)
+                return response
+
+            history = resolved_history.get_context_window(message.chat_id)
+            request = AgentRequest(
+                user_message=message.text,
+                chat_id=str(message.chat_id),
+                trigger_type="telegram_user",
+                history=history,
+                metadata={"telegram_message_id": str(message.message_id or "")},
+            )
+            resolved_history.record_user_message(message.chat_id, message.text)
+            agent_response = main_agent.handle(request)
+            resolved_history.record_assistant_message(
+                message.chat_id,
+                agent_response.final_answer,
+                metadata={"selected_agent": agent_response.selected_agent},
+            )
+            return TelegramOutboundMessage(text=agent_response.final_answer)
+
+        return _agent_handle
 
     def _handle(message: TelegramInboundMessage) -> TelegramOutboundMessage:
         intent = resolved_orchestrator.classify_fallback(message.text)
@@ -91,6 +126,23 @@ def build_default_message_handler(
         )
 
     return _handle
+
+
+def build_agent_message_handler_if_configured(
+    *,
+    history_manager: ChatHistoryManager | None = None,
+) -> TelegramMessageHandler:
+    try:
+        from t212ai.genai.client import GenAIClient
+
+        reasoner = AgentReasoner(GenAIClient())
+    except RuntimeError:
+        return build_default_message_handler(history_manager=history_manager)
+
+    return build_default_message_handler(
+        main_agent=MainOrchestratorAgent(reasoner),
+        history_manager=history_manager,
+    )
 
 
 async def _resolve_response(
