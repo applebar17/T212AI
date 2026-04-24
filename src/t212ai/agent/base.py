@@ -5,6 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from t212ai.genai.tracing import (
+    _trace_agent_handle_inputs,
+    _trace_agent_plan_outputs,
+    _trace_agent_response_outputs,
+    set_trace_metadata,
+    set_trace_name,
+    traceable,
+)
+
 from .history import ChatHistoryWindow
 from .intents import AgentIntent, IntentKind
 from .planner import AgentPlan, TaskComplexity
@@ -36,6 +45,12 @@ class BaseAgent:
     def name(self) -> str:
         return self.profile.name
 
+    @traceable(
+        name="Agent Handle",
+        run_type="chain",
+        process_inputs=_trace_agent_handle_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def handle(
         self,
         request: AgentRequest,
@@ -45,6 +60,13 @@ class BaseAgent:
     ) -> AgentResponse:
         resolved_intent = intent or AgentIntent(kind=IntentKind.UNKNOWN)
         complexity = task_complexity or self.resolve_complexity(request.user_message)
+        set_trace_name(f"{self.__class__.__name__}.handle")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_kind="specialist",
+            intent_kind=resolved_intent.kind.value,
+            task_complexity=complexity.value,
+        )
         plan = self.plan(
             request,
             intent=resolved_intent,
@@ -57,6 +79,12 @@ class BaseAgent:
             metadata={"agent": self.name, "task_complexity": complexity.value},
         )
 
+    @traceable(
+        name="Agent Plan",
+        run_type="chain",
+        process_inputs=_trace_agent_handle_inputs,
+        process_outputs=_trace_agent_plan_outputs,
+    )
     def plan(
         self,
         request: AgentRequest,
@@ -64,6 +92,12 @@ class BaseAgent:
         intent: AgentIntent,
         task_complexity: TaskComplexity,
     ) -> AgentPlan:
+        set_trace_name(f"{self.__class__.__name__}.plan")
+        set_trace_metadata(
+            agent_name=self.name,
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+        )
         return self.reasoner.build_plan(
             agent_name=self.profile.name,
             purpose=self.profile.purpose,

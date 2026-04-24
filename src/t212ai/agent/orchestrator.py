@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from t212ai.genai.tracing import (
+    _trace_agent_handle_inputs,
+    _trace_agent_response_outputs,
+    set_trace_metadata,
+    set_trace_name,
+    traceable,
+)
+
 from .base import AgentProfile, BaseAgent
 from .intents import AgentIntent, IntentKind
 from .planner import TaskComplexity
@@ -57,6 +65,12 @@ class MainOrchestratorAgent(BaseAgent):
         )
         self.specialists = specialists or build_specialist_agents(reasoner)
 
+    @traceable(
+        name="Main Orchestrator Handle",
+        run_type="chain",
+        process_inputs=_trace_agent_handle_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def handle(
         self,
         request: AgentRequest,
@@ -65,6 +79,13 @@ class MainOrchestratorAgent(BaseAgent):
         task_complexity: TaskComplexity | None = None,
     ) -> AgentResponse:
         resolved_intent = intent or classify_message(request.user_message)
+        set_trace_name(f"{self.__class__.__name__}.handle")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_kind="orchestrator",
+            intent_kind=resolved_intent.kind.value,
+            task_complexity=(task_complexity or TaskComplexity.EASY).value,
+        )
         if resolved_intent.kind == IntentKind.HELP:
             return AgentResponse(
                 final_answer=(
@@ -93,6 +114,7 @@ class MainOrchestratorAgent(BaseAgent):
                 metadata={"intent": resolved_intent.kind.value, "route": "unknown"},
             )
 
+        set_trace_metadata(route=selected.name)
         response = selected.handle(request, intent=resolved_intent)
         response.metadata.update(
             {

@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterable
 
 from pydantic import BaseModel
 
-from .models import ToolSpec
+from .models import ToolResult, ToolSpec
 
 try:  # pragma: no cover - optional dependency
     from langsmith import traceable as _traceable  # type: ignore
@@ -800,4 +800,295 @@ def _trace_execute_tool_outputs(output: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(meta, dict):
                     summary["tool"] = meta.get("tool")
                     summary["duration_ms"] = meta.get("duration_ms")
+    return summary
+
+
+def _summarize_history_window(history: Any) -> dict[str, Any] | None:
+    if history is None:
+        return None
+    messages = getattr(history, "messages", None) or []
+    roles: list[str] = []
+    for message in messages[:TRACE_ROLE_PREVIEW_LIMIT]:
+        role = getattr(message, "role", None)
+        if role:
+            roles.append(str(role))
+    summary: dict[str, Any] = {
+        "selected_count": getattr(history, "selected_count", _safe_len(messages)),
+        "retained_count": getattr(history, "retained_count", None),
+    }
+    chat_id = getattr(history, "chat_id", None)
+    if chat_id is not None:
+        summary["chat_id"] = _sanitize_trace_value(str(chat_id))
+    if roles:
+        summary["roles"] = roles
+    if len(messages) > TRACE_ROLE_PREVIEW_LIMIT:
+        summary["roles_truncated"] = len(messages) - TRACE_ROLE_PREVIEW_LIMIT
+    return summary
+
+
+def _summarize_intent(intent: Any) -> dict[str, Any] | None:
+    if intent is None:
+        return None
+    kind = getattr(intent, "kind", None)
+    confidence = getattr(intent, "confidence", None)
+    entities = getattr(intent, "entities", None)
+    summary: dict[str, Any] = {}
+    if kind is not None:
+        summary["kind"] = getattr(kind, "value", kind)
+    if confidence is not None:
+        summary["confidence"] = confidence
+    if isinstance(entities, dict) and entities:
+        summary["entities"] = _sanitize_trace_value(entities)
+    return summary or None
+
+
+def _summarize_agent_request(request: Any) -> dict[str, Any] | None:
+    if request is None:
+        return None
+    user_message = getattr(request, "user_message", None)
+    metadata = getattr(request, "metadata", None)
+    summary: dict[str, Any] = {
+        "chat_id": _sanitize_trace_value(str(getattr(request, "chat_id", ""))),
+        "trigger_type": getattr(request, "trigger_type", None),
+        "history": _summarize_history_window(getattr(request, "history", None)),
+    }
+    if isinstance(user_message, str):
+        summary["user_message_chars"] = len(user_message)
+        summary["user_message_preview"] = _trim_text(
+            user_message, TRACE_MESSAGE_PREVIEW_CHARS
+        )
+    if isinstance(metadata, dict) and metadata:
+        summary["metadata_keys"] = list(metadata.keys())[:TRACE_TOOL_NAME_LIMIT]
+    return summary
+
+
+def _summarize_agent_plan(plan: Any) -> dict[str, Any] | None:
+    if plan is None:
+        return None
+    tool_steps = getattr(plan, "tool_steps", None) or []
+    summary = {
+        "summary_chars": len(getattr(plan, "summary", "") or ""),
+        "requires_approval": bool(getattr(plan, "requires_approval", False)),
+        "tool_steps": _safe_len(tool_steps) or 0,
+        "required_context": _safe_len(getattr(plan, "required_context", None) or []),
+        "assumptions": _safe_len(getattr(plan, "assumptions", None) or []),
+        "risks": _safe_len(getattr(plan, "risks", None) or []),
+        "missing_inputs": _safe_len(getattr(plan, "missing_inputs", None) or []),
+        "task_complexity": getattr(
+            getattr(plan, "task_complexity", None),
+            "value",
+            getattr(plan, "task_complexity", None),
+        ),
+        "intent": _summarize_intent(getattr(plan, "intent", None)),
+    }
+    return summary
+
+
+def _summarize_agent_response(response: Any) -> dict[str, Any]:
+    final_answer = getattr(response, "final_answer", None)
+    metadata = getattr(response, "metadata", None)
+    summary: dict[str, Any] = {
+        "selected_agent": getattr(response, "selected_agent", None),
+        "has_plan": getattr(response, "plan", None) is not None,
+        "has_critique": getattr(response, "critique", None) is not None,
+    }
+    if isinstance(final_answer, str):
+        summary["final_answer_chars"] = len(final_answer)
+        summary["final_answer_preview"] = _trim_text(
+            final_answer, TRACE_MESSAGE_PREVIEW_CHARS
+        )
+    if isinstance(metadata, dict) and metadata:
+        summary["metadata_keys"] = list(metadata.keys())[:TRACE_TOOL_NAME_LIMIT]
+    return summary
+
+
+def _trace_agent_handle_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        pos_args = list(args)
+        if pos_args and not isinstance(pos_args[0], (str, dict, list)):
+            pos_args.pop(0)
+        request = kwargs.get("request")
+        if request is None and pos_args:
+            request = pos_args[0]
+        intent = kwargs.get("intent")
+        task_complexity = kwargs.get("task_complexity")
+        return {
+            "request": _summarize_agent_request(request),
+            "intent": _summarize_intent(intent),
+            "task_complexity": getattr(task_complexity, "value", task_complexity),
+        }
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_agent_response_outputs(output: Any) -> dict[str, Any]:
+    if output is None:
+        return {"output_type": None}
+    return _summarize_agent_response(output)
+
+
+def _trace_agent_plan_outputs(output: Any) -> dict[str, Any]:
+    if output is None:
+        return {"output_type": None}
+    return _summarize_agent_plan(output) or {"output_type": type(output).__name__}
+
+
+def _trace_reasoner_build_plan_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        pos_args = list(args)
+        if pos_args and not isinstance(pos_args[0], (str, dict, list)):
+            pos_args.pop(0)
+        agent_name = kwargs.get("agent_name")
+        purpose = kwargs.get("purpose")
+        guidelines = kwargs.get("guidelines")
+        toolbox_summary = kwargs.get("toolbox_summary")
+        task_complexity = kwargs.get("task_complexity")
+        user_request = kwargs.get("user_request")
+        chat_history = kwargs.get("chat_history")
+        intent = kwargs.get("intent")
+        return {
+            "agent_name": agent_name,
+            "purpose_chars": len(purpose) if isinstance(purpose, str) else None,
+            "guidelines_chars": len(guidelines) if isinstance(guidelines, str) else None,
+            "toolbox_summary_chars": len(toolbox_summary)
+            if isinstance(toolbox_summary, str)
+            else None,
+            "task_complexity": getattr(task_complexity, "value", task_complexity),
+            "user_request_chars": len(user_request) if isinstance(user_request, str) else 0,
+            "user_request_preview": _trim_text(user_request, TRACE_MESSAGE_PREVIEW_CHARS)
+            if isinstance(user_request, str)
+            else None,
+            "chat_history": _summarize_history_window(chat_history),
+            "intent": _summarize_intent(intent),
+        }
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_reasoner_critique_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        pos_args = list(args)
+        if pos_args and not isinstance(pos_args[0], (str, dict, list)):
+            pos_args.pop(0)
+        agent_name = kwargs.get("agent_name")
+        purpose = kwargs.get("purpose")
+        guidelines = kwargs.get("guidelines")
+        user_request = kwargs.get("user_request")
+        agent_output = kwargs.get("agent_output")
+        plan = kwargs.get("plan")
+        chat_history = kwargs.get("chat_history")
+        task_complexity = kwargs.get("task_complexity")
+        return {
+            "agent_name": agent_name,
+            "purpose_chars": len(purpose) if isinstance(purpose, str) else None,
+            "guidelines_chars": len(guidelines) if isinstance(guidelines, str) else None,
+            "user_request_chars": len(user_request) if isinstance(user_request, str) else 0,
+            "user_request_preview": _trim_text(user_request, TRACE_MESSAGE_PREVIEW_CHARS)
+            if isinstance(user_request, str)
+            else None,
+            "agent_output_chars": len(agent_output) if isinstance(agent_output, str) else 0,
+            "plan": _summarize_agent_plan(plan),
+            "chat_history": _summarize_history_window(chat_history),
+            "task_complexity": getattr(task_complexity, "value", task_complexity),
+        }
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_agent_critique_outputs(output: Any) -> dict[str, Any]:
+    if output is None:
+        return {"output_type": None}
+    return {
+        "passed": getattr(output, "passed", None),
+        "summary_chars": len(getattr(output, "summary", "") or ""),
+        "missing_context": _safe_len(getattr(output, "missing_context", None) or []),
+        "safety_concerns": _safe_len(getattr(output, "safety_concerns", None) or []),
+        "suggested_fixes": _safe_len(getattr(output, "suggested_fixes", None) or []),
+        "confidence": getattr(output, "confidence", None),
+    }
+
+
+def _trace_agent_review_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        request = kwargs.get("request")
+        response = kwargs.get("response")
+        guidelines = kwargs.get("guidelines")
+        return {
+            "request": _summarize_agent_request(request),
+            "response": _summarize_agent_response(response) if response else None,
+            "guidelines_chars": len(guidelines) if isinstance(guidelines, str) else None,
+        }
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_tool_function_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        summary: dict[str, Any] = {}
+        filtered_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in {"runtime", "client"}
+        }
+        if filtered_kwargs:
+            summary["arguments"] = _sanitize_trace_value(filtered_kwargs)
+        runtime = kwargs.get("runtime")
+        if runtime is not None:
+            summary["runtime_type"] = type(runtime).__name__
+            allow_state_changes = getattr(runtime, "allow_state_changes", None)
+            if allow_state_changes is not None:
+                summary["allow_state_changes"] = bool(allow_state_changes)
+        client = kwargs.get("client")
+        if client is not None:
+            summary["client_type"] = type(client).__name__
+        if args:
+            summary["positional_count"] = len(args)
+        return summary
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_tool_function_outputs(output: Any) -> dict[str, Any]:
+    if not isinstance(output, ToolResult):
+        return {"output_type": type(output).__name__}
+    summary: dict[str, Any] = {"status": output.status}
+    if output.output is not None:
+        summary["output_preview"] = _trim_text(
+            str(output.output), TRACE_MESSAGE_PREVIEW_CHARS
+        )
+    if output.error is not None:
+        summary["error_code"] = output.error.code
+        summary["retryable"] = output.error.retryable
+    data = output.data
+    if isinstance(data, dict):
+        summary["data_keys"] = list(data.keys())[:TRACE_COLLECTION_LIMIT]
+        if len(data) > TRACE_COLLECTION_LIMIT:
+            summary["data_keys_truncated"] = len(data) - TRACE_COLLECTION_LIMIT
+    elif isinstance(data, list):
+        summary["data_items"] = len(data)
     return summary

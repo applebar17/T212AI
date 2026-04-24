@@ -8,6 +8,12 @@ from functools import partial
 from typing import Any, Callable
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
+from t212ai.genai.tracing import (
+    _trace_tool_function_inputs,
+    _trace_tool_function_outputs,
+    set_trace_metadata,
+    traceable,
+)
 from t212ai.genai.tools.tools import ToolBox, build_tool_index
 
 from .client import AlphaVantageApiError, AlphaVantageClient
@@ -239,6 +245,12 @@ def build_alpha_vantage_intelligence_tool_mapping(
     }
 
 
+@traceable(
+    name="alpha_vantage_news_sentiment",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_news_sentiment(
     *,
     tickers: list[str] | None,
@@ -249,6 +261,11 @@ def alpha_vantage_news_sentiment(
     limit: int,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_news_sentiment",
+        intelligence_category="news",
+    )
     return _run_intelligence_call(
         "news_sentiment",
         runtime.client.news_sentiment,
@@ -261,12 +278,23 @@ def alpha_vantage_news_sentiment(
     )
 
 
+@traceable(
+    name="alpha_vantage_earnings_call_transcript",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_earnings_call_transcript(
     *,
     symbol: str,
     quarter: str,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_earnings_call_transcript",
+        intelligence_category="transcript",
+    )
     return _run_intelligence_call(
         "earnings_call_transcript",
         runtime.client.earnings_call_transcript,
@@ -275,11 +303,22 @@ def alpha_vantage_earnings_call_transcript(
     )
 
 
+@traceable(
+    name="alpha_vantage_top_gainers_losers",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_top_gainers_losers(
     *,
     entitlement: str | None,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_top_gainers_losers",
+        intelligence_category="movers",
+    )
     return _run_intelligence_call(
         "top_gainers_losers",
         runtime.client.top_gainers_losers,
@@ -287,11 +326,22 @@ def alpha_vantage_top_gainers_losers(
     )
 
 
+@traceable(
+    name="alpha_vantage_insider_transactions",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_insider_transactions(
     *,
     symbol: str,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_insider_transactions",
+        intelligence_category="ownership",
+    )
     return _run_intelligence_call(
         "insider_transactions",
         runtime.client.insider_transactions,
@@ -299,11 +349,22 @@ def alpha_vantage_insider_transactions(
     )
 
 
+@traceable(
+    name="alpha_vantage_institutional_holdings",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_institutional_holdings(
     *,
     symbol: str,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_institutional_holdings",
+        intelligence_category="ownership",
+    )
     return _run_intelligence_call(
         "institutional_holdings",
         runtime.client.institutional_holdings,
@@ -311,6 +372,12 @@ def alpha_vantage_institutional_holdings(
     )
 
 
+@traceable(
+    name="alpha_vantage_analytics_fixed_window",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_analytics_fixed_window(
     *,
     symbols: list[str],
@@ -320,6 +387,11 @@ def alpha_vantage_analytics_fixed_window(
     calculations: list[str],
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_analytics_fixed_window",
+        intelligence_category="analytics",
+    )
     return _run_intelligence_call(
         "analytics_fixed_window",
         runtime.client.analytics_fixed_window,
@@ -331,6 +403,12 @@ def alpha_vantage_analytics_fixed_window(
     )
 
 
+@traceable(
+    name="alpha_vantage_analytics_sliding_window",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def alpha_vantage_analytics_sliding_window(
     *,
     symbols: list[str],
@@ -341,6 +419,11 @@ def alpha_vantage_analytics_sliding_window(
     window_size: int,
     runtime: AlphaVantageToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_analytics_sliding_window",
+        intelligence_category="analytics",
+    )
     return _run_intelligence_call(
         "analytics_sliding_window",
         runtime.client.analytics_sliding_window,

@@ -104,6 +104,14 @@ class AppSettings:
     telegram_allowed_chat_id: str | None = None
     alpha_vantage_api_key: str | None = None
     alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_username: str | None = None
+    reddit_password: str | None = None
+    reddit_refresh_token: str | None = None
+    reddit_user_agent: str | None = None
+    reddit_base_url: str = "https://oauth.reddit.com"
+    reddit_auth_url: str = "https://www.reddit.com/api/v1/access_token"
     database_url: str = "sqlite:///./data/t212ai.db"
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
@@ -143,6 +151,20 @@ def get_app_settings(
         alpha_vantage_base_url=source.get(
             "ALPHA_VANTAGE_BASE_URL",
             "https://www.alphavantage.co/query",
+        ),
+        reddit_client_id=source.get("REDDIT_CLIENT_ID"),
+        reddit_client_secret=source.get("REDDIT_CLIENT_SECRET"),
+        reddit_username=source.get("REDDIT_USERNAME"),
+        reddit_password=source.get("REDDIT_PASSWORD"),
+        reddit_refresh_token=source.get("REDDIT_REFRESH_TOKEN"),
+        reddit_user_agent=source.get("REDDIT_USER_AGENT"),
+        reddit_base_url=source.get(
+            "REDDIT_BASE_URL",
+            "https://oauth.reddit.com",
+        ),
+        reddit_auth_url=source.get(
+            "REDDIT_AUTH_URL",
+            "https://www.reddit.com/api/v1/access_token",
         ),
         database_url=source.get("DATABASE_URL", "sqlite:///./data/t212ai.db"),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),

@@ -5,6 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Any
 
+from t212ai.genai.tracing import (
+    _trace_agent_critique_outputs,
+    _trace_agent_plan_outputs,
+    _trace_reasoner_build_plan_inputs,
+    _trace_reasoner_critique_inputs,
+    set_trace_metadata,
+    set_trace_name,
+    traceable,
+)
+
 from .history import ChatHistoryWindow
 from .intents import AgentIntent, IntentKind
 from .planner import AgentPlan, TaskComplexity
@@ -18,6 +28,12 @@ class AgentReasoner:
     def __init__(self, genai_client: "GenAIClient") -> None:
         self.genai = genai_client
 
+    @traceable(
+        name="Agent Reasoner Build Plan",
+        run_type="chain",
+        process_inputs=_trace_reasoner_build_plan_inputs,
+        process_outputs=_trace_agent_plan_outputs,
+    )
     def build_plan(
         self,
         *,
@@ -30,6 +46,12 @@ class AgentReasoner:
         chat_history: ChatHistoryWindow | None = None,
         intent: AgentIntent | None = None,
     ) -> AgentPlan:
+        set_trace_name(f"{agent_name}.build_plan")
+        set_trace_metadata(
+            agent_name=agent_name,
+            task_complexity=task_complexity.value,
+            intent_kind=intent.kind.value if intent else None,
+        )
         system_prompt = self._build_plan_prompt(
             agent_name=agent_name,
             purpose=purpose,
@@ -54,6 +76,12 @@ class AgentReasoner:
             plan = plan.model_copy(update={"task_complexity": task_complexity})
         return plan
 
+    @traceable(
+        name="Agent Reasoner Critique",
+        run_type="chain",
+        process_inputs=_trace_reasoner_critique_inputs,
+        process_outputs=_trace_agent_critique_outputs,
+    )
     def critique(
         self,
         *,
@@ -66,6 +94,12 @@ class AgentReasoner:
         chat_history: ChatHistoryWindow | None = None,
         task_complexity: TaskComplexity = TaskComplexity.CRITICAL,
     ) -> AgentCritique:
+        set_trace_name(f"{agent_name}.critique")
+        set_trace_metadata(
+            agent_name=agent_name,
+            task_complexity=task_complexity.value,
+            critique_mode=True,
+        )
         system_prompt = self._build_critique_prompt(
             agent_name=agent_name,
             purpose=purpose,

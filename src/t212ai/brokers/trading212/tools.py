@@ -8,6 +8,12 @@ from decimal import Decimal
 from typing import Any, Callable
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
+from t212ai.genai.tracing import (
+    _trace_tool_function_inputs,
+    _trace_tool_function_outputs,
+    set_trace_metadata,
+    traceable,
+)
 from t212ai.genai.tools.tools import ToolBox, build_tool_index
 
 from .models import Order, PortfolioSnapshot, Position
@@ -227,7 +233,14 @@ def build_trading212_tool_mapping(
     }
 
 
+@traceable(
+    name="t212_get_portfolio_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult:
+    set_trace_metadata(provider="trading212", tool_name="t212_get_portfolio_snapshot")
     try:
         snapshot = runtime.service.get_portfolio_snapshot()
     except Exception as exc:
@@ -250,7 +263,14 @@ def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult
     )
 
 
+@traceable(
+    name="t212_list_pending_orders",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_list_pending_orders(*, runtime: Trading212ToolRuntime) -> ToolResult:
+    set_trace_metadata(provider="trading212", tool_name="t212_list_pending_orders")
     orders = runtime.service.list_pending_orders()
     return ToolResult(
         status="ok",
@@ -259,7 +279,14 @@ def t212_list_pending_orders(*, runtime: Trading212ToolRuntime) -> ToolResult:
     )
 
 
+@traceable(
+    name="t212_get_order",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_get_order(*, order_id: int, runtime: Trading212ToolRuntime) -> ToolResult:
+    set_trace_metadata(provider="trading212", tool_name="t212_get_order")
     order = runtime.service.get_order(int(order_id))
     return ToolResult(
         status="ok",
@@ -268,6 +295,12 @@ def t212_get_order(*, order_id: int, runtime: Trading212ToolRuntime) -> ToolResu
     )
 
 
+@traceable(
+    name="t212_prepare_order",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_prepare_order(
     *,
     order_type: str,
@@ -280,6 +313,11 @@ def t212_prepare_order(
     extended_hours: bool,
     runtime: Trading212ToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="trading212",
+        tool_name="t212_prepare_order",
+        state_changing=False,
+    )
     try:
         prepared = runtime.service.prepare_order(
             order_type=order_type,
@@ -304,6 +342,12 @@ def t212_prepare_order(
     )
 
 
+@traceable(
+    name="t212_place_order",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_place_order(
     *,
     order_type: str,
@@ -318,6 +362,12 @@ def t212_place_order(
     confirmation_reference: str | None,
     runtime: Trading212ToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="trading212",
+        tool_name="t212_place_order",
+        state_changing=True,
+        runtime_allows_state_changes=runtime.allow_state_changes,
+    )
     if not runtime.allow_state_changes:
         return _tool_error(
             "Trading 212 state-changing tools are disabled for this runtime.",
@@ -358,6 +408,12 @@ def t212_place_order(
     )
 
 
+@traceable(
+    name="t212_cancel_order",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def t212_cancel_order(
     *,
     order_id: int,
@@ -365,6 +421,12 @@ def t212_cancel_order(
     reason: str | None,
     runtime: Trading212ToolRuntime,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="trading212",
+        tool_name="t212_cancel_order",
+        state_changing=True,
+        runtime_allows_state_changes=runtime.allow_state_changes,
+    )
     del reason
     if not runtime.allow_state_changes:
         return _tool_error(

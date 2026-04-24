@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
-from t212ai.genai.tracing import traceable
+from t212ai.genai.tracing import (
+    _trace_tool_function_inputs,
+    _trace_tool_function_outputs,
+    set_trace_metadata,
+    traceable,
+)
 
 from .analytics import PriceSeriesAnalytics
 from .client import YahooFinanceClient
@@ -278,7 +283,12 @@ def build_yahoo_tool_mapping(
     }
 
 
-@traceable(name="yahoo_price_history", run_type="tool")
+@traceable(
+    name="yahoo_price_history",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_price_history(
     *,
     tickers: list[str] | tuple[str, ...],
@@ -289,6 +299,7 @@ def yahoo_price_history(
     auto_adjust: bool = False,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_price_history")
     symbols = _normalize_symbols(tickers)
     if not symbols:
         return _input_error("At least one ticker is required.", "missing_tickers")
@@ -321,7 +332,12 @@ def yahoo_price_history(
     )
 
 
-@traceable(name="yahoo_price_summary", run_type="tool")
+@traceable(
+    name="yahoo_price_summary",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_price_summary(
     *,
     tickers: list[str] | tuple[str, ...],
@@ -332,6 +348,7 @@ def yahoo_price_summary(
     auto_adjust: bool = False,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_price_summary")
     symbols = _normalize_symbols(tickers)
     if not symbols:
         return _input_error("At least one ticker is required.", "missing_tickers")
@@ -357,7 +374,12 @@ def yahoo_price_summary(
     )
 
 
-@traceable(name="yahoo_price_summary_with_chart_refs", run_type="tool")
+@traceable(
+    name="yahoo_price_summary_with_chart_refs",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_price_summary_with_chart_refs(
     *,
     tickers: list[str] | tuple[str, ...],
@@ -368,6 +390,10 @@ def yahoo_price_summary_with_chart_refs(
     auto_adjust: bool = False,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(
+        provider="yahoo_finance",
+        tool_name="yahoo_price_summary_with_chart_refs",
+    )
     symbols = _normalize_symbols(tickers)
     if not symbols:
         return _input_error("At least one ticker is required.", "missing_tickers")
@@ -403,7 +429,12 @@ def yahoo_price_summary_with_chart_refs(
     )
 
 
-@traceable(name="yahoo_symbol_search", run_type="tool")
+@traceable(
+    name="yahoo_symbol_search",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_symbol_search(
     *,
     query: str,
@@ -411,6 +442,7 @@ def yahoo_symbol_search(
     news_count: int = 0,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_symbol_search")
     yf_client = client or YahooFinanceClient()
     try:
         result = yf_client.search_symbols(
@@ -432,12 +464,18 @@ def yahoo_symbol_search(
     )
 
 
-@traceable(name="yahoo_quote_snapshot", run_type="tool")
+@traceable(
+    name="yahoo_quote_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_quote_snapshot(
     *,
     tickers: list[str] | tuple[str, ...],
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_quote_snapshot")
     symbols = _normalize_symbols(tickers)
     if not symbols:
         return _input_error("At least one ticker is required.", "missing_tickers")
@@ -453,7 +491,12 @@ def yahoo_quote_snapshot(
     )
 
 
-@traceable(name="yahoo_market_snapshot", run_type="tool")
+@traceable(
+    name="yahoo_market_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_market_snapshot(
     *,
     tickers: list[str] | tuple[str, ...],
@@ -464,6 +507,7 @@ def yahoo_market_snapshot(
     auto_adjust: bool = False,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_market_snapshot")
     symbols = _normalize_symbols(tickers)
     if not symbols:
         return _input_error("At least one ticker is required.", "missing_tickers")
@@ -499,7 +543,12 @@ def yahoo_market_snapshot(
     )
 
 
-@traceable(name="yahoo_options_snapshot", run_type="tool")
+@traceable(
+    name="yahoo_options_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_options_snapshot(
     *,
     symbol: str,
@@ -507,6 +556,7 @@ def yahoo_options_snapshot(
     max_contracts: int,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_options_snapshot")
     yf_client = client or YahooFinanceClient()
     try:
         result = yf_client.get_options_chain(symbol, expiration=expiration)
@@ -520,12 +570,18 @@ def yahoo_options_snapshot(
     )
 
 
-@traceable(name="yahoo_analyst_snapshot", run_type="tool")
+@traceable(
+    name="yahoo_analyst_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
 def yahoo_analyst_snapshot(
     *,
     symbol: str,
     client: YahooFinanceClient | None = None,
 ) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_analyst_snapshot")
     yf_client = client or YahooFinanceClient()
     try:
         result = yf_client.get_analyst_snapshot(symbol)
