@@ -78,7 +78,7 @@ def build_tool_mapping(
     yahoo_client = YahooFinanceClient()
     search_registry = runtime
     searxng_base_url = os.getenv("SEARXNG_BASE_URL")
-    return {
+    mapping = {
         "yahoo_price_history": partial(yahoo_price_history, client=yahoo_client),
         "yahoo_price_summary": partial(yahoo_price_summary, client=yahoo_client),
         "yahoo_price_summary_with_chart_refs": partial(
@@ -97,6 +97,13 @@ def build_tool_mapping(
         ),
         "scrape_article": partial(scrape_article, runtime=search_registry),
     }
+    try:
+        from t212ai.data_sources.reddit import build_reddit_tool_mapping
+
+        mapping.update(build_reddit_tool_mapping())
+    except RuntimeError:
+        pass
+    return mapping
 
 
 def build_tool_mapping_for(

@@ -57,6 +57,9 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "T212_API_SECRET=file-secret",
                 "TELEGRAM_ALLOWED_CHAT_ID=123",
                 "ALPHA_VANTAGE_API_KEY=alpha-key",
+                "REDDIT_CLIENT_ID=reddit-client",
+                "REDDIT_CLIENT_SECRET=reddit-secret",
+                "REDDIT_USER_AGENT=server:t212ai:test (by /u/tester)",
                 "T212_LIVE_TRADING_ENABLED=true",
             ]
         ),
@@ -69,6 +72,9 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "T212_API_SECRET",
         "TELEGRAM_ALLOWED_CHAT_ID",
         "ALPHA_VANTAGE_API_KEY",
+        "REDDIT_CLIENT_ID",
+        "REDDIT_CLIENT_SECRET",
+        "REDDIT_USER_AGENT",
         "T212_LIVE_TRADING_ENABLED",
     ]:
         monkeypatch.delenv(key, raising=False)
@@ -81,6 +87,9 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.trading212_api_secret == "file-secret"
     assert settings.telegram_allowed_chat_id == "123"
     assert settings.alpha_vantage_api_key == "alpha-key"
+    assert settings.reddit_client_id == "reddit-client"
+    assert settings.reddit_client_secret == "reddit-secret"
+    assert settings.reddit_user_agent == "server:t212ai:test (by /u/tester)"
     assert settings.live_trading_enabled
 
 
