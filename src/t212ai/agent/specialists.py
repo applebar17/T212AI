@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from t212ai.guidelines.service import GuidelineMemoryService
+
 from .base import AgentProfile, BaseAgent
 from .planner import TaskComplexity
 
 
 class PortfolioAnalystAgent(BaseAgent):
-    def __init__(self, reasoner) -> None:
+    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -25,7 +27,10 @@ class PortfolioAnalystAgent(BaseAgent):
                     "Alpha Vantage intelligence, web search when needed."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
+                guideline_scopes=("global", "agent:portfolio"),
+                guideline_include_categories=("investment_preference",),
             ),
+            guideline_service=guideline_service,
         )
 
     def resolve_complexity(self, message: str) -> TaskComplexity:
@@ -36,7 +41,7 @@ class PortfolioAnalystAgent(BaseAgent):
 
 
 class OrderAgent(BaseAgent):
-    def __init__(self, reasoner) -> None:
+    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -52,7 +57,10 @@ class OrderAgent(BaseAgent):
                     "place order, gated cancel order, market context for order review."
                 ),
                 task_complexity=TaskComplexity.CRITICAL,
+                guideline_scopes=("global", "agent:order"),
+                guideline_include_categories=("investment_preference",),
             ),
+            guideline_service=guideline_service,
         )
 
     def resolve_complexity(self, message: str) -> TaskComplexity:
@@ -61,7 +69,7 @@ class OrderAgent(BaseAgent):
 
 
 class MarketAnalystAgent(BaseAgent):
-    def __init__(self, reasoner) -> None:
+    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -79,12 +87,14 @@ class MarketAnalystAgent(BaseAgent):
                     "Alpha Vantage commodities and intelligence; web search for source expansion."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
+                guideline_scopes=("global", "agent:market"),
             ),
+            guideline_service=guideline_service,
         )
 
 
 class CompanyAnalystAgent(BaseAgent):
-    def __init__(self, reasoner) -> None:
+    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -103,5 +113,8 @@ class CompanyAnalystAgent(BaseAgent):
                     "Alpha Vantage intelligence and fundamentals."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
+                guideline_scopes=("global", "agent:company"),
+                guideline_include_categories=("investment_preference",),
             ),
+            guideline_service=guideline_service,
         )

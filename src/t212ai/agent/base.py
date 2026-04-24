@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
     _trace_agent_plan_outputs,
@@ -31,15 +32,24 @@ class AgentProfile:
     guidelines: str
     toolbox_summary: str
     task_complexity: TaskComplexity = TaskComplexity.EASY
+    guideline_scopes: tuple[str, ...] = ("global",)
+    guideline_include_categories: tuple[str, ...] = ()
     toolbox: "ToolBox | None" = None
 
 
 class BaseAgent:
     profile: AgentProfile
 
-    def __init__(self, reasoner: AgentReasoner, profile: AgentProfile) -> None:
+    def __init__(
+        self,
+        reasoner: AgentReasoner,
+        profile: AgentProfile,
+        *,
+        guideline_service: GuidelineMemoryService | None = None,
+    ) -> None:
         self.reasoner = reasoner
         self.profile = profile
+        self.guideline_service = guideline_service
 
     @property
     def name(self) -> str:
@@ -107,6 +117,7 @@ class BaseAgent:
             user_request=request.user_message,
             chat_history=self._history_for_prompt(request.history),
             intent=intent,
+            persistent_guidance=self._persistent_guidance(),
         )
 
     def resolve_complexity(self, message: str) -> TaskComplexity:
@@ -127,3 +138,13 @@ class BaseAgent:
         )
         approval = " Approval is required." if plan.requires_approval else ""
         return f"{self.name} prepared a plan: {plan.summary}.{missing}{approval}"
+
+    def _persistent_guidance(self) -> str | None:
+        if self.guideline_service is None:
+            return None
+        rendered = self.guideline_service.render_markdown(
+            scopes=list(self.profile.guideline_scopes),
+            include_categories=list(self.profile.guideline_include_categories),
+            active_only=True,
+        )
+        return rendered or None

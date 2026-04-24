@@ -12,6 +12,7 @@ from t212ai.agent.intents import IntentKind
 from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
 from t212ai.agent.reasoning import AgentReasoner
 from t212ai.agent.schemas import AgentRequest
+from t212ai.app.runtime import AppRuntime, build_runtime
 
 from .auth import TelegramAccessPolicy
 from .commands import HELP_COMMANDS, render_help_text
@@ -131,16 +132,21 @@ def build_default_message_handler(
 def build_agent_message_handler_if_configured(
     *,
     history_manager: ChatHistoryManager | None = None,
+    runtime: AppRuntime | None = None,
 ) -> TelegramMessageHandler:
     try:
         from t212ai.genai.client import GenAIClient
 
+        resolved_runtime = runtime or build_runtime()
         reasoner = AgentReasoner(GenAIClient())
     except RuntimeError:
         return build_default_message_handler(history_manager=history_manager)
 
     return build_default_message_handler(
-        main_agent=MainOrchestratorAgent(reasoner),
+        main_agent=MainOrchestratorAgent(
+            reasoner,
+            guideline_service=resolved_runtime.guideline_memory_service,
+        ),
         history_manager=history_manager,
     )
 

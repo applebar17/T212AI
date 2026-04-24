@@ -1,6 +1,7 @@
 """Agent orchestration, planning, policies, and structured schemas."""
 
 from .base import AgentProfile, BaseAgent
+from .guideline_memory import GuidelineMemoryAgent
 from .history import (
     ChatHistoryManager,
     ChatHistoryMessage,
@@ -41,6 +42,7 @@ __all__ = [
     "ChatHistoryPolicy",
     "ChatHistoryWindow",
     "CompanyAnalystAgent",
+    "GuidelineMemoryAgent",
     "InMemoryChatHistoryStore",
     "MainOrchestratorAgent",
     "MarketAnalystAgent",

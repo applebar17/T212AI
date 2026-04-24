@@ -17,6 +17,7 @@ class IntentKind(StrEnum):
     CANCEL_ORDER = "cancel_order"
     REVIEW_PENDING_ORDERS = "review_pending_orders"
     REBALANCE = "rebalance"
+    MANAGE_GUIDELINES = "manage_guidelines"
     HELP = "help"
     UNKNOWN = "unknown"
 
@@ -25,4 +26,3 @@ class AgentIntent(BaseModel):
     kind: IntentKind
     entities: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-

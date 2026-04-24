@@ -60,6 +60,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "REDDIT_CLIENT_ID=reddit-client",
                 "REDDIT_CLIENT_SECRET=reddit-secret",
                 "REDDIT_USER_AGENT=server:t212ai:test (by /u/tester)",
+                "GUIDELINE_MEMORY_PATH=data/guidelines/test-guidelines.json",
                 "T212_LIVE_TRADING_ENABLED=true",
             ]
         ),
@@ -75,6 +76,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "REDDIT_CLIENT_ID",
         "REDDIT_CLIENT_SECRET",
         "REDDIT_USER_AGENT",
+        "GUIDELINE_MEMORY_PATH",
         "T212_LIVE_TRADING_ENABLED",
     ]:
         monkeypatch.delenv(key, raising=False)
@@ -90,6 +92,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.reddit_client_id == "reddit-client"
     assert settings.reddit_client_secret == "reddit-secret"
     assert settings.reddit_user_agent == "server:t212ai:test (by /u/tester)"
+    assert settings.guideline_memory_path == "data/guidelines/test-guidelines.json"
     assert settings.live_trading_enabled
 
 
@@ -105,3 +108,9 @@ def test_get_app_settings_can_use_explicit_env_mapping_without_mutation(monkeypa
     assert settings.trading212_environment == "live"
     assert settings.live_trading_enabled
     assert "T212_ENVIRONMENT" not in os.environ
+
+
+def test_get_app_settings_uses_default_guideline_memory_path() -> None:
+    settings = get_app_settings(env={})
+
+    assert settings.guideline_memory_path == "data/guidelines/guidelines.json"

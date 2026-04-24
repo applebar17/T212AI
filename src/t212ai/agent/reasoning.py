@@ -45,6 +45,7 @@ class AgentReasoner:
         user_request: str,
         chat_history: ChatHistoryWindow | None = None,
         intent: AgentIntent | None = None,
+        persistent_guidance: str | None = None,
     ) -> AgentPlan:
         set_trace_name(f"{agent_name}.build_plan")
         set_trace_metadata(
@@ -57,6 +58,7 @@ class AgentReasoner:
             purpose=purpose,
             guidelines=guidelines,
             toolbox_summary=toolbox_summary,
+            persistent_guidance=persistent_guidance,
         )
         messages = self._build_messages(
             user_request=user_request,
@@ -93,6 +95,7 @@ class AgentReasoner:
         plan: AgentPlan | None = None,
         chat_history: ChatHistoryWindow | None = None,
         task_complexity: TaskComplexity = TaskComplexity.CRITICAL,
+        persistent_guidance: str | None = None,
     ) -> AgentCritique:
         set_trace_name(f"{agent_name}.critique")
         set_trace_metadata(
@@ -104,6 +107,7 @@ class AgentReasoner:
             agent_name=agent_name,
             purpose=purpose,
             guidelines=guidelines,
+            persistent_guidance=persistent_guidance,
         )
         payload: dict[str, Any] = {
             "user_request": user_request,
@@ -164,7 +168,14 @@ class AgentReasoner:
         purpose: str,
         guidelines: str,
         toolbox_summary: str,
+        persistent_guidance: str | None,
     ) -> str:
+        persistent_section = ""
+        if persistent_guidance:
+            persistent_section = (
+                "\n\nPersistent guidance memory:\n"
+                f"{persistent_guidance}"
+            )
         return (
             f"You are {agent_name}.\n"
             f"Purpose: {purpose}\n\n"
@@ -173,6 +184,7 @@ class AgentReasoner:
             "missing_inputs to make the plan auditable.\n\n"
             f"Available capability/toolbox summary:\n{toolbox_summary}\n\n"
             f"Agent-specific guidelines:\n{guidelines}"
+            f"{persistent_section}"
         )
 
     def _build_critique_prompt(
@@ -181,7 +193,14 @@ class AgentReasoner:
         agent_name: str,
         purpose: str,
         guidelines: str,
+        persistent_guidance: str | None,
     ) -> str:
+        persistent_section = ""
+        if persistent_guidance:
+            persistent_section = (
+                "\n\nPersistent guidance memory:\n"
+                f"{persistent_guidance}"
+            )
         return (
             f"You are judging work from {agent_name}.\n"
             f"Agent purpose: {purpose}\n"
@@ -189,4 +208,5 @@ class AgentReasoner:
             "answer is complete, safe, grounded in available context, and clear. "
             "Do not expose hidden reasoning; use concise findings.\n\n"
             f"Judge guidelines:\n{guidelines}"
+            f"{persistent_section}"
         )

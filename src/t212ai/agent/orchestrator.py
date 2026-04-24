@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
@@ -13,6 +14,7 @@ from t212ai.genai.tracing import (
 )
 
 from .base import AgentProfile, BaseAgent
+from .guideline_memory import GuidelineMemoryAgent
 from .intents import AgentIntent, IntentKind
 from .planner import TaskComplexity
 from .reasoning import AgentReasoner
@@ -31,6 +33,7 @@ class SpecialistAgents:
     order: OrderAgent
     market: MarketAnalystAgent
     company: CompanyAnalystAgent
+    guideline_memory: GuidelineMemoryAgent
 
     def by_key(self) -> dict[str, BaseAgent]:
         return {
@@ -38,6 +41,7 @@ class SpecialistAgents:
             "order": self.order,
             "market": self.market,
             "company": self.company,
+            "guideline_memory": self.guideline_memory,
         }
 
 
@@ -45,6 +49,8 @@ class MainOrchestratorAgent(BaseAgent):
     def __init__(
         self,
         reasoner: AgentReasoner,
+        *,
+        guideline_service: GuidelineMemoryService | None = None,
         specialists: SpecialistAgents | None = None,
     ) -> None:
         super().__init__(
@@ -58,12 +64,19 @@ class MainOrchestratorAgent(BaseAgent):
                 ),
                 toolbox_summary=(
                     "Delegation tools: portfolio_analyst, order_agent, market_analyst, "
-                    "company_analyst. The orchestrator delegates; specialists plan actions."
+                    "company_analyst, guideline_memory_agent. The orchestrator delegates; "
+                    "specialists plan actions."
                 ),
                 task_complexity=TaskComplexity.EASY,
+                guideline_scopes=("global", "orchestrator"),
+                guideline_include_categories=("investment_preference",),
             ),
+            guideline_service=guideline_service,
         )
-        self.specialists = specialists or build_specialist_agents(reasoner)
+        self.specialists = specialists or build_specialist_agents(
+            reasoner,
+            guideline_service=guideline_service,
+        )
 
     @traceable(
         name="Main Orchestrator Handle",
@@ -89,8 +102,9 @@ class MainOrchestratorAgent(BaseAgent):
         if resolved_intent.kind == IntentKind.HELP:
             return AgentResponse(
                 final_answer=(
-                    "I can route requests to portfolio, order, market, and company "
-                    "analysis agents. Ask a natural-language question or use /help."
+                    "I can route requests to portfolio, order, market, company "
+                    "analysis, and guideline-memory management. Ask a natural-language "
+                    "question or use /help."
                 ),
                 selected_agent=self.name,
                 metadata={"intent": resolved_intent.kind.value},
@@ -146,6 +160,8 @@ class MainOrchestratorAgent(BaseAgent):
             return self.specialists.portfolio
         if intent.kind == IntentKind.ANALYZE_INSTRUMENT:
             return self.specialists.company
+        if intent.kind == IntentKind.MANAGE_GUIDELINES:
+            return self.specialists.guideline_memory
         if intent.kind == IntentKind.UNKNOWN and intent.entities.get("domain") == "market":
             return self.specialists.market
         if intent.kind == IntentKind.UNKNOWN:
@@ -160,12 +176,19 @@ class AgentOrchestrator:
         return classify_message(message)
 
 
-def build_specialist_agents(reasoner: AgentReasoner) -> SpecialistAgents:
+def build_specialist_agents(
+    reasoner: AgentReasoner,
+    *,
+    guideline_service: GuidelineMemoryService | None = None,
+) -> SpecialistAgents:
+    if guideline_service is None:
+        guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
     return SpecialistAgents(
-        portfolio=PortfolioAnalystAgent(reasoner),
-        order=OrderAgent(reasoner),
-        market=MarketAnalystAgent(reasoner),
-        company=CompanyAnalystAgent(reasoner),
+        portfolio=PortfolioAnalystAgent(reasoner, guideline_service=guideline_service),
+        order=OrderAgent(reasoner, guideline_service=guideline_service),
+        market=MarketAnalystAgent(reasoner, guideline_service=guideline_service),
+        company=CompanyAnalystAgent(reasoner, guideline_service=guideline_service),
+        guideline_memory=GuidelineMemoryAgent(reasoner, guideline_service),
     )
 
 
@@ -173,6 +196,9 @@ def classify_message(message: str) -> AgentIntent:
     text = message.strip().lower()
     if text in {"/help", "help"}:
         return AgentIntent(kind=IntentKind.HELP, confidence=1.0)
+    guideline_intent = _classify_guideline_message(text)
+    if guideline_intent is not None:
+        return guideline_intent
     if any(word in text for word in ("cancel", "order status")):
         return AgentIntent(kind=IntentKind.CANCEL_ORDER, confidence=0.85)
     if any(word in text for word in ("pending order", "orders", "open order")):
@@ -188,3 +214,93 @@ def classify_message(message: str) -> AgentIntent:
     if any(word in text for word in ("analyze", "company", "ticker", "earnings", "analyst")):
         return AgentIntent(kind=IntentKind.ANALYZE_INSTRUMENT, confidence=0.75)
     return AgentIntent(kind=IntentKind.UNKNOWN, entities={"message": message}, confidence=0.0)
+
+
+def _classify_guideline_message(text: str) -> AgentIntent | None:
+    if any(
+        phrase in text
+        for phrase in (
+            "remember that",
+            "remember this",
+            "save this preference",
+            "save this rule",
+            "add a rule",
+            "add guideline",
+            "create guideline",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "create"},
+            confidence=0.9,
+        )
+    if any(
+        phrase in text
+        for phrase in (
+            "update my preference",
+            "update guideline",
+            "update rule",
+            "change my preference",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "update"},
+            confidence=0.88,
+        )
+    if any(
+        phrase in text
+        for phrase in (
+            "forget that",
+            "forget this",
+            "archive guideline",
+            "archive rule",
+            "remove this rule",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "archive"},
+            confidence=0.88,
+        )
+    if any(
+        phrase in text
+        for phrase in (
+            "delete guideline",
+            "delete rule permanently",
+            "permanently delete",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "delete"},
+            confidence=0.92,
+        )
+    if any(
+        phrase in text
+        for phrase in (
+            "list saved rules",
+            "list guidelines",
+            "show saved guidelines",
+            "show my saved rules",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "list"},
+            confidence=0.85,
+        )
+    if any(
+        phrase in text
+        for phrase in (
+            "render guidelines",
+            "show guideline markdown",
+            "preview guideline render",
+        )
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_GUIDELINES,
+            entities={"operation": "render"},
+            confidence=0.85,
+        )
+    return None

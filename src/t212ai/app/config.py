@@ -112,6 +112,7 @@ class AppSettings:
     reddit_user_agent: str | None = None
     reddit_base_url: str = "https://oauth.reddit.com"
     reddit_auth_url: str = "https://www.reddit.com/api/v1/access_token"
+    guideline_memory_path: str = "data/guidelines/guidelines.json"
     database_url: str = "sqlite:///./data/t212ai.db"
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
@@ -165,6 +166,10 @@ def get_app_settings(
         reddit_auth_url=source.get(
             "REDDIT_AUTH_URL",
             "https://www.reddit.com/api/v1/access_token",
+        ),
+        guideline_memory_path=source.get(
+            "GUIDELINE_MEMORY_PATH",
+            "data/guidelines/guidelines.json",
         ),
         database_url=source.get("DATABASE_URL", "sqlite:///./data/t212ai.db"),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),
