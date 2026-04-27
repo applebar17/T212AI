@@ -1,52 +1,112 @@
 # Architecture Status
 
-This file is a simple snapshot of the current repo state vs the target in [PLAN.md](./PLAN.md).
+This file is a direct snapshot of the current repo state vs the target in [PLAN.md](./PLAN.md).
 
-For a visual view, see [ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md).
+For diagrams, see [ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md).
 
 ## Overall Status
 
-The project has a solid foundation, but it is still in a partial-wiring stage.
+The project is no longer in the design-only phase.
 
-What is already in place:
-- core repo structure
-- Telegram bridge layer
-- GenAI client, tracing, and agent baseline
-- orchestrator + specialist agent architecture
-- Trading 212 low-level client, service, and agent-facing tools
-- Yahoo, Alpha Vantage, and Reddit read-only data integrations
-- rolling chat history for agent context
-- persistent guideline memory with CRUD tools and dedicated memory agent
-
-What is not finished yet:
-- full runtime composition
-- real end-to-end workflows
-- proposal lifecycle
-- SQLite/Alembic operational persistence
-- approval-driven execution flow
-- scheduled jobs and digest automation
+The current state is:
+- bootstrap/setup layer: in place
+- capability-driven runtime baseline: in place
+- Telegram bridge baseline: in place
+- agent baseline: in place
+- provider integration baseline: in place
+- persistent guideline memory: in place
+- workflow execution layer: still missing
+- operational persistence and approval flow: still missing
 
 ## Current Architecture
 
-### 1. Telegram Layer
+### 0. V1 Delivery Strategy
+
+Implemented decision:
+- tool-first
+- thin-flow-second
+- heavy workflows later
+
+Current status:
+- v1 is intentionally not moving toward large, highly structured workflows yet
+- the current goal is to keep micro-tools and specialist agents flexible so real usage can show which repeated patterns deserve promotion into workflows later
+
+Meaning in practice:
+- market/company/portfolio exploration can remain mostly agentic and tool-driven for now
+- only repeated or sensitive paths should become thin deterministic flows in the near term
+
+### 1. Bootstrap And Startup Layer
+
+Implemented:
+- `brokerai` / `t212ai` CLI
+- `configure` wizard
+- `doctor` diagnostics
+- `run bot` startup path
+- `.env` as the canonical local config artifact
+- explicit provider selectors and enable flags
+- capability assessment and startup preflight
+
+Current status:
+- the app now has a real public-facing bootstrap surface
+- config, diagnostics, and startup are no longer ad hoc
+- local and containerized runs go through the same command surface
+
+Missing:
+- webhook mode
+- worker/scheduler run commands
+- DB init/migration operational commands
+
+### 2. Runtime Layer
+
+Implemented:
+- `AppRuntime` as the application composition root
+- config assessment + startup preflight attached to runtime
+- guideline memory store/service wiring
+- chat history manager wiring
+- GenAI client wiring from `AppSettings`
+- `AgentReasoner`, `AgentJudge`, and `MainOrchestratorAgent` wiring
+- Trading 212 runtime wiring
+- Yahoo runtime wiring
+- Alpha Vantage runtime wiring
+- Reddit runtime wiring
+- runtime status helpers like:
+  - `has_agent_runtime`
+  - `has_broker_runtime`
+  - `has_market_data_runtime`
+  - `component_errors`
+  - `startup_notes`
+
+Current status:
+- runtime is no longer just settings + guideline memory
+- runtime now owns the main app graph for the current baseline
+- Telegram no longer assembles GenAI and the orchestrator by itself
+
+Missing:
+- workflow service wiring
+- DB/session wiring
+- proposal/approval service wiring
+- unified market-context service
+
+### 3. Telegram Layer
 
 Implemented:
 - thin Telegram bridge
 - access control
 - messenger helpers
 - command/help baseline
-- free-text path into the orchestrator when GenAI is configured
+- runtime-backed free-text path into the orchestrator
+- runtime-owned chat history reuse
 
 Current status:
-- Telegram can receive messages, normalize them, keep short-term history, and call the main orchestrator
-- this layer is correctly treated as a bridge, not as the business-logic owner
+- Telegram is correctly acting as a transport/bridge layer
+- the bot now consumes a ready runtime instead of building a second hidden agent stack
 
 Missing:
-- richer command coverage
+- richer command set
 - approval UX for proposals and executions
-- tighter integration with persisted proposal/execution records
+- persisted proposal/execution integration
 
-### 2. Agent Layer
+### 4. Agent Layer
 
 Implemented:
 - `MainOrchestratorAgent`
@@ -57,156 +117,189 @@ Implemented:
 - `GuidelineMemoryAgent`
 - centralized `AgentReasoner`
 - optional `AgentJudge`
-- structured agent request/response/plan/critique models
-- short-term chat history management
+- structured request/response/plan/critique models
+- short-term rolling chat history
+- scoped persistent guideline injection
 
 Current status:
-- the architecture design is good and aligned with the target
-- the orchestrator can route user requests to specialist agents
-- agents can plan consistently and receive scoped persistent guideline context
+- the agent architecture is in place and runtime-owned
+- routing and planning are consistent
+- persistent guideline context is available to the orchestrator and specialists
 
 Missing:
-- specialists are still mostly planning-oriented
-- specialists do not yet drive robust deterministic workflows for their domains
-- the judge exists, but is not yet plugged into critical flows in a meaningful way
+- specialists still mainly return plans rather than executing real workflows
+- the judge is implemented but not yet meaningfully plugged into critical pipelines
 
-### 3. Data And Broker Integrations
+### 5. Data And Broker Integrations
 
 Implemented:
-- Trading 212 low-level API interfacing
-- Trading 212 service and baseline agent tools
-- Yahoo baseline client and tools
-- Alpha Vantage baseline client and intelligence toolbox
-- Reddit research client/service/tools
+- Trading 212 low-level API client
+- Trading 212 broker service and tools
+- Yahoo client and tools
+- Alpha Vantage client and intelligence tools
+- Reddit client, research service, and tools
 
 Current status:
-- provider integrations exist and are usable as building blocks
-- tooling shape is aligned with the intended agent design
+- the provider building blocks exist and are runtime-wired
+- configuration and degraded-mode behavior are clearer than before
 
 Missing:
-- a unified market-context layer combining providers into one normalized context object
-- stronger symbol mapping and provider arbitration
-- caching and freshness strategy
-- more deliberate workflow-level use of these providers
+- unified market-context object across providers
+- stronger provider arbitration and symbol normalization
+- caching/freshness strategy
+- workflow-level provider composition
 
-### 4. Persistence
+### 6. Persistence
 
 Implemented:
 - file-backed persistent guideline memory in JSON
 - reusable structured document store
-- CRUD operations on guideline nodes
+- CRUD operations for guideline nodes
 - scoped Markdown rendering for prompt injection
 
 Current status:
 - long-term policy/config-style memory is in place
-- this is the only real persistent storage currently wired
+- this remains the only application persistence that is actually operational today
 
 Missing:
 - SQLite operational persistence
-- Alembic migrations for real application data
+- Alembic migrations for application data
 - proposal storage
 - execution attempt storage
-- approval record storage
+- approval storage
 - reconciliation/audit persistence
 
-### 5. Workflows
+### 7. Workflows
 
 Implemented:
 - workflow modules exist as placeholders
 
 Current status:
 - `proposal.py`, `order_review.py`, `attention_scan.py`, and `digest.py` are still placeholders
-- there is no real workflow layer yet connecting agents to deterministic Python execution steps
+- there is still no real workflow layer connecting agents to deterministic Python execution logic
+- this is acceptable for v1 as long as we keep the flow strategy intentionally lightweight
 
 Missing:
-- portfolio summary workflow
-- pending orders review workflow
-- company snapshot workflow
-- market snapshot workflow
+- thin read-oriented flows where they give immediate value
+- portfolio summary flow
+- pending orders review flow
+- company snapshot flow
+- market snapshot flow
 - proposal generation workflow
 - execution/reconciliation workflow
 - scheduled digest and alert workflows
 
-### 6. Runtime Wiring
+V1 direction:
+- do not overdesign workflows yet
+- keep tools small and composable
+- promote only repeated or safety-critical patterns into deterministic flows
+
+### 8. Execution And Approval Model
 
 Implemented:
-- `AppRuntime`
-- settings loading from `.env`
-- guideline memory service wiring
+- Trading 212 `prepare_order`
+- Trading 212 `place_order`
+- Trading 212 `cancel_order`
+- state-changing tool gating
 
 Current status:
-- runtime is still too thin
-- it does not yet act as the real composition root of the application
+- execution safety is partially in place at the tool level
+- the intended v1 UX is chat-based confirmation, not necessarily Telegram buttons
+
+Agreed direction:
+- assistant prepares an action first
+- assistant presents the exact prepared action back to the user
+- user confirms in chat, for example: `Yes, proceed`
+- the system should execute the already prepared action, not reinterpret the trade from scratch through a new LLM pass
+
+Required structured behavior:
+- keep execution-related paths deterministic even if research and analysis remain tool-driven
+- model a pending prepared action internally before execution
+- treat confirmation as approval of that exact pending action
+- avoid letting a simple `yes` trigger fresh free-form trade design
+
+Expected internal state shape later:
+- `draft`
+- `prepared`
+- `awaiting_approval`
+- `approved`
+- `submitted`
+- `reconciled`
+- `rejected`
+- `expired`
 
 Missing:
-- Trading 212 client/service wiring
-- Yahoo, Alpha Vantage, Reddit wiring
-- GenAI client/runtime wiring at app level
-- workflow wiring
-- DB/session wiring
-- proposal/approval service wiring
+- persisted proposal or pending-action records
+- deterministic approval resolution
+- expiry/staleness handling
+- final reconciliation flow
+- optional Telegram button UX on top of the same approval model
 
 ## Current State Vs Target
 
 | Area | Target | Current Status |
 | --- | --- | --- |
-| Core repo structure | stable baseline repo | mostly done |
-| Telegram bridge | natural-language front door | partially done |
+| Bootstrap CLI | public setup + diagnostics + run surface | baseline done |
+| Runtime composition | runtime-owned app graph | baseline done |
+| Telegram bridge | natural-language front door | baseline done, still thin |
 | Trading 212 integration | normalized broker interface + tools | baseline done |
 | External data | multi-provider research/context layer | baseline done, not unified |
 | Orchestrator/specialists | routed agent-of-agents design | done at baseline |
 | Persistent memory | long-term guidelines/config memory | done at baseline |
-| Workflow layer | deterministic operational workflows | not done |
-| Proposal engine | structured persisted proposals | partially done conceptually, not operationally |
-| Approval flow | Telegram-driven approval for risky actions | not done |
+| Workflow layer | thin deterministic flows for repeated/sensitive paths | not done |
+| Proposal engine | structured persisted proposals | partially designed, not operational |
+| Approval flow | chat-based approval on deterministic prepared actions | not done |
 | SQLite/Alembic | operational persistence | not done |
 | Demo execution pipeline | proposal -> approval -> execution -> reconciliation | not done |
 | Scheduled jobs | digests, scans, alerts | not done |
 
 ## Main Missing Pieces
 
-In priority order, the missing pieces are:
+In priority order, the main gaps are now:
 
-1. Expand `AppRuntime` into the real composition root.
-2. Implement real workflows instead of placeholders.
-3. Make specialist agents call workflows, not only produce plans.
-4. Add SQLite/Alembic persistence for proposals, approvals, and executions.
-5. Implement the proposal lifecycle.
-6. Implement Telegram approval flow.
-7. Add reconciliation and execution audit trail.
-8. Build a unified market-context layer across providers.
-9. Add scheduled jobs only after the manual path works end-to-end.
+1. Implement thin deterministic flows only where they add immediate value.
+2. Keep specialist agents mostly tool-driven, but add structure to sensitive paths.
+3. Add SQLite/Alembic persistence.
+4. Implement the proposal or pending-action lifecycle.
+5. Implement chat-based approval resolution for prepared actions.
+6. Add demo execution and reconciliation.
+7. Add workflow-level provider composition as repeated patterns become clear.
+8. Add scheduled jobs only after the manual path works end-to-end.
 
 ## Practical Read On The Repo
 
-The repo is no longer at the design-only stage.
+The repo now has:
+- a real bootstrap/config layer
+- a real runtime/composition layer
+- a real agent baseline
+- real provider integrations
 
-It is also not yet at the “usable end-to-end copilot” stage.
+The repo still does not have:
+- thin operational flows for critical paths
+- persisted proposal/execution state
+- approval-driven execution
 
-The current state is:
-- architecture baseline: in place
-- integrations baseline: in place
-- agent baseline: in place
-- long-term guideline memory: in place
-- real operational wiring: still missing
+So the current state is best described as:
+- architectural baseline: solid
+- startup/runtime baseline: solid
+- operational behavior: still partial by design
 
 ## Recommended Next Build Order
 
-1. Expand `AppRuntime` so it owns all main services and clients.
-2. Implement the first real read-only workflows:
+1. Implement the first real read-only workflows:
    - portfolio summary
    - pending orders review
-   - company snapshot
-   - market snapshot
-3. Wire specialist agents to these workflows.
-4. Make Telegram return real workflow-backed answers.
-5. Add SQLite/Alembic persistence.
-6. Add proposal creation and retrieval.
-7. Add approval flow.
-8. Add demo execution and reconciliation.
+2. Implement thin execution safety flow:
+   - prepare action
+   - chat approval
+   - execute exact prepared action
+3. Add SQLite/Alembic persistence.
+4. Add proposal or pending-action creation and retrieval.
+5. Add company and market snapshot flows only if usage shows they are worth structuring now.
+6. Add demo execution and reconciliation.
 
 ## Short Conclusion
 
-The architecture direction is correct.
+The architecture direction remains correct.
 
-The repo already contains most of the foundational pieces needed for v1, but the main missing layer is application wiring: runtime composition, workflow execution, persistence, and approval-driven operational flow.
+The main missing layer is no longer runtime composition. That baseline is now in place. The next real gap is operational: a light workflow strategy, persistence, prepared-action lifecycle, and approval-driven execution.
