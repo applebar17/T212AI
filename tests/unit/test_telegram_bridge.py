@@ -18,6 +18,7 @@ from t212ai.brokers.trading212.models import (
 )
 from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
+from t212ai.proposals import ProposalActionKind, ProposalService, ProposalStatus
 
 from t212ai.telegram import (
     TelegramAccessPolicy,
@@ -112,11 +113,23 @@ class FakeExecutionBroker:
         )
 
 
-def _pending_action_service(tmp_path) -> tuple[PendingActionService, FakeExecutionBroker]:
+def _persistence_services(
+    tmp_path,
+) -> tuple[PendingActionService, ProposalService, FakeExecutionBroker]:
     engine = build_engine(f"sqlite:///{tmp_path / 'telegram-approvals.db'}")
     ensure_schema(engine)
+    session_factory = build_session_factory(engine)
     broker = FakeExecutionBroker()
-    return PendingActionService(build_session_factory(engine), broker_service=broker), broker
+    return (
+        PendingActionService(session_factory, broker_service=broker),
+        ProposalService(session_factory),
+        broker,
+    )
+
+
+def _pending_action_service(tmp_path) -> tuple[PendingActionService, FakeExecutionBroker]:
+    pending_action_service, _proposal_service, broker = _persistence_services(tmp_path)
+    return pending_action_service, broker
 
 
 def _prepared_order() -> PreparedOrder:
@@ -414,3 +427,132 @@ def test_router_blocks_unauthorized_user_when_allowed_user_id_is_configured(tmp_
     asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
 
     assert "not authorized" in str(bot.sent_messages[-1]["text"]).lower()
+
+
+def test_router_approve_updates_linked_proposal_and_execution_journal(tmp_path) -> None:
+    pending_action_service, proposal_service, broker = _persistence_services(tmp_path)
+    history = ChatHistoryManager()
+    proposal = proposal_service.create_submit_order_proposal(
+        chat_id="123",
+        user_id=1,
+        intent_kind="propose_trade",
+        original_user_message="buy tesla",
+        action_summary="BUY TSLA_US_EQ via MARKET order",
+        order_intent={"ticker": "TSLA_US_EQ", "side": "BUY", "quantity": "1"},
+        thesis="User asked to enter Tesla.",
+        risks=["Market volatility"],
+        confidence=0.7,
+    )
+    action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=1,
+        prepared_order=_prepared_order(),
+        original_user_message="buy tesla",
+        summary_text="Prepared TSLA order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    proposal_service.attach_pending_action(proposal.proposal_id, pending_action_id=action.action_id)
+    pending_action_service.attach_approval_message_id(action.action_id, 501)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("prepared order", message_id=501),
+        callback_query=FakeCallbackQuery(
+            data=f"pa:approve:{action.action_id}",
+            message=FakeMessage("prepared order", message_id=501),
+        ),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    detail = proposal_service.get_proposal(proposal.proposal_id)
+
+    assert len(broker.submitted_orders) == 1
+    assert detail is not None
+    assert detail.proposal.status == ProposalStatus.SUBMITTED
+    assert detail.latest_approval_event is not None
+    assert detail.latest_approval_event.decision.value == "approve"
+    assert detail.latest_execution_attempt is not None
+    assert detail.latest_execution_attempt.action_kind == ProposalActionKind.SUBMIT_ORDER
+
+
+def test_router_reject_updates_linked_proposal_and_allows_proposal_commands(tmp_path) -> None:
+    pending_action_service, proposal_service, _broker = _persistence_services(tmp_path)
+    history = ChatHistoryManager()
+    proposal = proposal_service.create_submit_order_proposal(
+        chat_id="123",
+        user_id=1,
+        intent_kind="propose_trade",
+        original_user_message="buy tesla",
+        action_summary="BUY TSLA_US_EQ via MARKET order",
+        order_intent={"ticker": "TSLA_US_EQ", "side": "BUY", "quantity": "1"},
+        thesis="User asked to enter Tesla.",
+        risks=["Market volatility"],
+        confidence=0.7,
+    )
+    action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=1,
+        prepared_order=_prepared_order(),
+        original_user_message="buy tesla",
+        summary_text="Prepared TSLA order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    proposal_service.attach_pending_action(proposal.proposal_id, pending_action_id=action.action_id)
+    pending_action_service.attach_approval_message_id(action.action_id, 601)
+
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+    bot = FakeBot()
+    reject_update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("no", message_id=700),
+    )
+
+    asyncio.run(router.handle_update(reject_update, FakeContext(bot=bot)))
+    detail = proposal_service.get_proposal(proposal.proposal_id)
+
+    assert detail is not None
+    assert detail.proposal.status == ProposalStatus.REJECTED
+    assert detail.latest_approval_event is not None
+    assert detail.latest_approval_event.decision.value == "reject"
+
+    handler = build_default_message_handler(
+        main_agent=object(),  # type: ignore[arg-type]
+        history_manager=history,
+        proposal_service=proposal_service,
+    )
+    recent_response = handler(
+        TelegramInboundMessage(
+            chat_id=123,
+            user_id=1,
+            text="/proposals",
+            message_id=701,
+        )
+    )
+    detail_response = handler(
+        TelegramInboundMessage(
+            chat_id=123,
+            user_id=1,
+            text=f"/proposal {proposal.proposal_id}",
+            message_id=702,
+        )
+    )
+
+    assert isinstance(recent_response, TelegramOutboundMessage)
+    assert proposal.proposal_id in recent_response.text
+    assert isinstance(detail_response, TelegramOutboundMessage)
+    assert "Status: rejected" in detail_response.text

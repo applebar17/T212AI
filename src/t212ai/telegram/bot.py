@@ -59,6 +59,9 @@ class TelegramBotService:
             pending_action_service=(
                 self.runtime.pending_action_service if self.runtime is not None else None
             ),
+            proposal_service=(
+                self.runtime.proposal_service if self.runtime is not None else None
+            ),
         )
         application = Application.builder().token(self.token).build()
         application.add_handler(CallbackQueryHandler(router.handle_update))

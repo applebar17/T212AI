@@ -18,9 +18,21 @@ from t212ai.pending_actions import (
     PendingActionDecisionStatus,
     PendingActionService,
 )
+from t212ai.proposals import (
+    ApprovalDecision,
+    ApprovalSource,
+    ExecutionAttemptStatus,
+    ProposalActionKind,
+    ProposalService,
+)
 
 from .auth import TelegramAccessPolicy
-from .commands import HELP_COMMANDS, render_help_text
+from .commands import (
+    HELP_COMMANDS,
+    render_help_text,
+    render_proposal_detail_text,
+    render_recent_proposals_text,
+)
 from .messenger import TelegramMessenger
 from .models import (
     TelegramApprovalRequest,
@@ -45,6 +57,7 @@ class TelegramUpdateRouter:
     message_handler: TelegramMessageHandler
     history_manager: ChatHistoryManager | None = None
     pending_action_service: PendingActionService | None = None
+    proposal_service: ProposalService | None = None
 
     async def handle_update(self, update: Any, context: Any) -> None:
         await _acknowledge_callback(update)
@@ -254,6 +267,7 @@ class TelegramUpdateRouter:
         projected_user_text: str,
         send_followup: bool,
     ) -> None:
+        self._journal_proposal_outcome(inbound, result=result)
         if self.history_manager is not None:
             self.history_manager.record_user_message(inbound.chat_id, projected_user_text)
             self.history_manager.record_assistant_message(inbound.chat_id, result.message)
@@ -283,12 +297,82 @@ class TelegramUpdateRouter:
             ),
         )
 
+    def _journal_proposal_outcome(
+        self,
+        inbound: TelegramInboundMessage,
+        *,
+        result: PendingActionDecisionResult,
+    ) -> None:
+        if self.proposal_service is None or result.action is None:
+            return
+        proposal = self.proposal_service.get_by_pending_action_id(result.action.action_id)
+        if proposal is None:
+            return
+        source = ApprovalSource.BUTTON if inbound.callback_data else ApprovalSource.TEXT
+        if result.status == PendingActionDecisionStatus.REJECTED:
+            self.proposal_service.record_approval_event(
+                proposal_id=proposal.proposal_id,
+                pending_action_id=result.action.action_id,
+                decision=ApprovalDecision.REJECT,
+                source=source,
+                chat_id=str(inbound.chat_id),
+                user_id=inbound.user_id,
+            )
+            self.proposal_service.mark_rejected(proposal.proposal_id)
+            return
+        if result.status == PendingActionDecisionStatus.SUBMITTED:
+            self.proposal_service.record_approval_event(
+                proposal_id=proposal.proposal_id,
+                pending_action_id=result.action.action_id,
+                decision=ApprovalDecision.APPROVE,
+                source=source,
+                chat_id=str(inbound.chat_id),
+                user_id=inbound.user_id,
+            )
+            broker_response = result.action.broker_result or None
+            broker_order_id = _extract_broker_order_id(broker_response)
+            self.proposal_service.record_execution_attempt(
+                proposal_id=proposal.proposal_id,
+                pending_action_id=result.action.action_id,
+                broker_provider=result.action.broker_provider,
+                action_kind=ProposalActionKind.SUBMIT_ORDER,
+                status=ExecutionAttemptStatus.SUBMITTED,
+                broker_order_id=broker_order_id,
+                broker_response=broker_response,
+            )
+            self.proposal_service.mark_submitted(proposal.proposal_id)
+            return
+        if result.status == PendingActionDecisionStatus.FAILED:
+            self.proposal_service.record_approval_event(
+                proposal_id=proposal.proposal_id,
+                pending_action_id=result.action.action_id,
+                decision=ApprovalDecision.APPROVE,
+                source=source,
+                chat_id=str(inbound.chat_id),
+                user_id=inbound.user_id,
+            )
+            self.proposal_service.record_execution_attempt(
+                proposal_id=proposal.proposal_id,
+                pending_action_id=result.action.action_id,
+                broker_provider=result.action.broker_provider,
+                action_kind=ProposalActionKind.SUBMIT_ORDER,
+                status=ExecutionAttemptStatus.FAILED,
+                broker_order_id=_extract_broker_order_id(result.action.broker_result),
+                broker_response=result.action.broker_result or None,
+                error_message=result.message,
+            )
+            self.proposal_service.mark_execution_failed(
+                proposal.proposal_id,
+                error=result.message,
+            )
+
 
 def build_default_message_handler(
     orchestrator: AgentOrchestrator | None = None,
     *,
     main_agent: MainOrchestratorAgent | None = None,
     history_manager: ChatHistoryManager | None = None,
+    proposal_service: ProposalService | None = None,
 ) -> TelegramMessageHandler:
     resolved_orchestrator = orchestrator or AgentOrchestrator()
     resolved_history = history_manager or ChatHistoryManager()
@@ -303,6 +387,18 @@ def build_default_message_handler(
                 response = TelegramOutboundMessage(text=render_help_text())
                 resolved_history.record_assistant_message(message.chat_id, response.text)
                 return response
+            if proposal_service is not None:
+                proposal_response = _handle_proposal_command(
+                    message,
+                    proposal_service=proposal_service,
+                )
+                if proposal_response is not None:
+                    resolved_history.record_user_message(message.chat_id, message.text)
+                    resolved_history.record_assistant_message(
+                        message.chat_id,
+                        proposal_response.text,
+                    )
+                    return proposal_response
 
             history = resolved_history.get_context_window(message.chat_id)
             request = AgentRequest(
@@ -337,6 +433,13 @@ def build_default_message_handler(
         return _agent_handle
 
     def _handle(message: TelegramInboundMessage) -> TelegramOutboundMessage:
+        if proposal_service is not None:
+            proposal_response = _handle_proposal_command(
+                message,
+                proposal_service=proposal_service,
+            )
+            if proposal_response is not None:
+                return proposal_response
         intent = resolved_orchestrator.classify_fallback(message.text)
         if intent.kind == IntentKind.HELP:
             return TelegramOutboundMessage(text=render_help_text())
@@ -359,11 +462,15 @@ def build_agent_message_handler_if_configured(
 ) -> TelegramMessageHandler:
     resolved_runtime = runtime or build_runtime()
     if resolved_runtime.main_orchestrator is None:
-        return build_default_message_handler(history_manager=history_manager)
+        return build_default_message_handler(
+            history_manager=history_manager,
+            proposal_service=resolved_runtime.proposal_service,
+        )
 
     return build_default_message_handler(
         main_agent=resolved_runtime.main_orchestrator,
         history_manager=history_manager or resolved_runtime.history_manager,
+        proposal_service=resolved_runtime.proposal_service,
     )
 
 
@@ -412,3 +519,51 @@ def _coerce_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _extract_broker_order_id(payload: dict[str, Any] | None) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("order_id", "orderId"):
+        if key in payload:
+            return _coerce_int(payload.get(key))
+    order = payload.get("order")
+    if isinstance(order, dict):
+        for key in ("id", "order_id", "orderId"):
+            if key in order:
+                return _coerce_int(order.get(key))
+    return None
+
+
+def _handle_proposal_command(
+    message: TelegramInboundMessage,
+    *,
+    proposal_service: ProposalService,
+) -> TelegramOutboundMessage | None:
+    raw = message.text.strip()
+    lowered = raw.lower()
+    if lowered == "/proposals":
+        proposals = proposal_service.list_recent_proposals(
+            chat_id=str(message.chat_id),
+            user_id=message.user_id,
+        )
+        return TelegramOutboundMessage(text=render_recent_proposals_text(proposals))
+    match = re.match(r"^/proposal\s+(\S+)\s*$", raw, flags=re.IGNORECASE)
+    if match is None:
+        if lowered.startswith("/proposal"):
+            return TelegramOutboundMessage(
+                text="Usage: /proposal <proposal_id>",
+            )
+        return None
+    detail = proposal_service.get_proposal(match.group(1))
+    if detail is None:
+        return TelegramOutboundMessage(text="Proposal not found.")
+    if detail.proposal.chat_id != str(message.chat_id):
+        return TelegramOutboundMessage(text="Proposal not found in this Telegram chat.")
+    if (
+        detail.proposal.user_id is not None
+        and message.user_id is not None
+        and detail.proposal.user_id != int(message.user_id)
+    ):
+        return TelegramOutboundMessage(text="Proposal not found for this Telegram user.")
+    return TelegramOutboundMessage(text=render_proposal_detail_text(detail))

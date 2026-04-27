@@ -85,3 +85,6 @@ class Trading212OrderActionRequest(BaseModel):
     target_order_id: int | None = None
     cancel_selector: CancelTargetSelector | None = None
     reason: str | None = None
+    thesis: str | None = None
+    risks: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)

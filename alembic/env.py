@@ -6,6 +6,7 @@ from pathlib import Path
 
 from alembic import context
 from t212ai.pending_actions import orm as pending_actions_orm  # noqa: F401
+from t212ai.proposals import orm as proposals_orm  # noqa: F401
 from t212ai.persistence.database import Base
 
 try:

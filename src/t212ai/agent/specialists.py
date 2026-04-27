@@ -17,6 +17,7 @@ from t212ai.pending_actions import (
     Trading212OrderAction,
     Trading212OrderActionRequest,
 )
+from t212ai.proposals import ProposalService
 from t212ai.workflows import (
     PendingOrdersReviewWorkflow,
     PortfolioSummaryWorkflow,
@@ -126,6 +127,7 @@ class OrderAgent(BaseAgent):
         pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
         broker_service: Trading212BrokerService | None = None,
         pending_action_service: PendingActionService | None = None,
+        proposal_service: ProposalService | None = None,
     ) -> None:
         super().__init__(
             reasoner,
@@ -152,6 +154,7 @@ class OrderAgent(BaseAgent):
         self.pending_orders_review_workflow = pending_orders_review_workflow
         self.broker_service = broker_service
         self.pending_action_service = pending_action_service
+        self.proposal_service = proposal_service
 
     def resolve_complexity(self, message: str) -> TaskComplexity:
         del message
@@ -225,8 +228,39 @@ class OrderAgent(BaseAgent):
                 metadata={"workflow": "order_action", "workflow_status": "error"},
             )
 
+        proposal = None
+        if (
+            action_request.action == Trading212OrderAction.PREPARE_SUBMIT_ORDER
+            and self.proposal_service is not None
+        ):
+            try:
+                proposal = self._create_submit_order_proposal(
+                    request,
+                    intent=intent,
+                    action_request=action_request,
+                )
+            except Exception as exc:
+                return AgentResponse(
+                    final_answer=(
+                        "I couldn't create the internal proposal record required for "
+                        f"this submit-order request. Reason: {exc}"
+                    ),
+                    selected_agent=self.name,
+                    plan=plan,
+                    metadata={
+                        "workflow": "order_action",
+                        "workflow_status": "error",
+                        "error_code": "proposal_creation_failed",
+                    },
+                )
+
         result = self._execute_action_request(request, action_request)
-        return self._response_from_tool_result(plan=plan, action_request=action_request, result=result)
+        return self._response_from_tool_result(
+            plan=plan,
+            action_request=action_request,
+            result=result,
+            proposal_id=proposal.proposal_id if proposal is not None else None,
+        )
 
     def _build_action_request(
         self,
@@ -245,6 +279,8 @@ class OrderAgent(BaseAgent):
             "latest, oldest, or only when the user's request clearly implies one.\n"
             "- For order submission, include order_type, side, ticker, quantity, "
             "limit_price, stop_price, time_validity, and extended_hours when known.\n"
+            "- For order submission, also include a short thesis, concise risks list, "
+            "and confidence between 0 and 1.\n"
             "- Do not invent ambiguous order ids or prices."
         )
         messages = []
@@ -302,12 +338,34 @@ class OrderAgent(BaseAgent):
             extended_hours=action_request.extended_hours,
         )
 
+    def _create_submit_order_proposal(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent,
+        action_request: Trading212OrderActionRequest,
+    ):
+        if self.proposal_service is None:
+            return None
+        return self.proposal_service.create_submit_order_proposal(
+            chat_id=request.chat_id or "",
+            user_id=_metadata_user_id(request.metadata),
+            intent_kind=intent.kind.value,
+            original_user_message=request.user_message,
+            action_summary=_order_action_summary(action_request),
+            order_intent=_order_intent_payload(action_request),
+            thesis=_proposal_thesis(action_request),
+            risks=[str(item).strip() for item in action_request.risks if str(item).strip()],
+            confidence=action_request.confidence,
+        )
+
     def _response_from_tool_result(
         self,
         *,
         plan,
         action_request: Trading212OrderActionRequest,
         result: ToolResult,
+        proposal_id: str | None,
     ) -> AgentResponse:
         metadata = {
             "workflow": "order_action",
@@ -317,13 +375,37 @@ class OrderAgent(BaseAgent):
         if result.status == "ok":
             artifacts: dict[str, Any] = {"workflow": "order_action"}
             approval = None
+            pending_action_id = None
             if isinstance(result.data, dict):
                 approval = result.data.get("telegramApproval")
                 artifacts["order_action"] = result.data
+                pending_action = result.data.get("pendingAction")
+                if isinstance(pending_action, dict):
+                    pending_action_id = str(pending_action.get("action_id") or pending_action.get("actionId") or "")
+            if proposal_id and self.proposal_service is not None:
+                if not pending_action_id:
+                    self.proposal_service.mark_preparation_failed(
+                        proposal_id,
+                        error="Order action succeeded without a pending action identifier.",
+                    )
+                else:
+                    self.proposal_service.attach_pending_action(
+                        proposal_id,
+                        pending_action_id=pending_action_id,
+                    )
             if approval:
+                if proposal_id:
+                    approval = _approval_with_proposal_reference(approval, proposal_id=proposal_id)
                 artifacts["telegram_approval_request"] = approval
+            if proposal_id:
+                metadata["proposal_id"] = proposal_id
+                artifacts["proposal_id"] = proposal_id
             return AgentResponse(
-                final_answer=result.output or "Prepared action awaiting approval.",
+                final_answer=(
+                    str(approval.get("text"))
+                    if isinstance(approval, dict) and approval.get("text")
+                    else result.output or "Prepared action awaiting approval."
+                ),
                 selected_agent=self.name,
                 plan=plan,
                 metadata=metadata,
@@ -335,6 +417,9 @@ class OrderAgent(BaseAgent):
         if error is not None and error.hint:
             message = f"{message} Hint: {error.hint}"
             metadata["error_code"] = error.code or "tool_error"
+        if proposal_id and self.proposal_service is not None:
+            self.proposal_service.mark_preparation_failed(proposal_id, error=message)
+            metadata["proposal_id"] = proposal_id
         return AgentResponse(
             final_answer=message,
             selected_agent=self.name,
@@ -404,3 +489,50 @@ def _metadata_user_id(metadata: dict[str, str]) -> int | None:
         return int(raw)
     except ValueError:
         return None
+
+
+def _proposal_thesis(action_request: Trading212OrderActionRequest) -> str:
+    thesis = str(action_request.thesis or "").strip()
+    if thesis:
+        return thesis
+    return (
+        f"User requested a {str(action_request.side or 'unknown').upper()} "
+        f"{str(action_request.order_type or 'order').upper()} order for "
+        f"{str(action_request.ticker or 'an instrument').upper()}."
+    )
+
+
+def _order_action_summary(action_request: Trading212OrderActionRequest) -> str:
+    return (
+        f"{str(action_request.side or 'BUY').upper()} "
+        f"{str(action_request.ticker or 'UNKNOWN').upper()} "
+        f"via {str(action_request.order_type or 'MARKET').upper()} order"
+    )
+
+
+def _order_intent_payload(action_request: Trading212OrderActionRequest) -> dict[str, Any]:
+    return {
+        "action": action_request.action.value,
+        "order_type": action_request.order_type,
+        "side": action_request.side,
+        "ticker": action_request.ticker,
+        "quantity": action_request.quantity,
+        "limit_price": action_request.limit_price,
+        "stop_price": action_request.stop_price,
+        "time_validity": action_request.time_validity,
+        "extended_hours": action_request.extended_hours,
+    }
+
+
+def _approval_with_proposal_reference(
+    approval: dict[str, Any],
+    *,
+    proposal_id: str,
+) -> dict[str, Any]:
+    text = str(approval.get("text", "")).rstrip()
+    if f"Proposal ref: {proposal_id}" not in text:
+        text = f"{text}\nProposal ref: {proposal_id}"
+    updated = dict(approval)
+    updated["proposalId"] = proposal_id
+    updated["text"] = text
+    return updated

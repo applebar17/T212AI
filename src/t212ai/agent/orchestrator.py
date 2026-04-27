@@ -14,6 +14,7 @@ from t212ai.genai.tracing import (
     traceable,
 )
 from t212ai.pending_actions import PendingActionService
+from t212ai.proposals import ProposalService
 
 from .base import AgentProfile, BaseAgent
 from .guideline_memory import GuidelineMemoryAgent
@@ -187,6 +188,7 @@ def build_specialist_agents(
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
     broker_service: Trading212BrokerService | None = None,
     pending_action_service: PendingActionService | None = None,
+    proposal_service: ProposalService | None = None,
 ) -> SpecialistAgents:
     if guideline_service is None:
         guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
@@ -202,6 +204,7 @@ def build_specialist_agents(
             pending_orders_review_workflow=pending_orders_review_workflow,
             broker_service=broker_service,
             pending_action_service=pending_action_service,
+            proposal_service=proposal_service,
         ),
         market=MarketAnalystAgent(reasoner, guideline_service=guideline_service),
         company=CompanyAnalystAgent(reasoner, guideline_service=guideline_service),

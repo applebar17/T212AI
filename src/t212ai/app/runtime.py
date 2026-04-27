@@ -21,6 +21,7 @@ from t212ai.guidelines.service import (
 from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
+from t212ai.proposals import ProposalService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 try:
@@ -52,6 +53,7 @@ class AppRuntime:
     db_engine: Engine | None = None
     db_session_factory: sessionmaker[Session] | None = None
     pending_action_service: PendingActionService | None = None
+    proposal_service: ProposalService | None = None
     genai_client: GenAIClient | None = None
     agent_reasoner: AgentReasoner | None = None
     agent_judge: AgentJudge | None = None
@@ -202,6 +204,7 @@ def _build_workflow_stack(runtime: AppRuntime) -> None:
             runtime.db_session_factory,
             broker_service=runtime.trading212_service,
         )
+        runtime.proposal_service = ProposalService(runtime.db_session_factory)
 
 
 def _build_agent_stack(runtime: AppRuntime) -> None:
@@ -215,6 +218,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             pending_orders_review_workflow=runtime.pending_orders_review_workflow,
             broker_service=runtime.trading212_service,
             pending_action_service=runtime.pending_action_service,
+            proposal_service=runtime.proposal_service,
         )
         runtime.main_orchestrator = MainOrchestratorAgent(
             runtime.agent_reasoner,
