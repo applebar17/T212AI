@@ -16,5 +16,4 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY scripts ./scripts
 
-CMD ["python", "-m", "t212ai"]
-
+CMD ["python", "-m", "t212ai", "run", "bot"]

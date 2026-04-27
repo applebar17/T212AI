@@ -13,6 +13,10 @@ dependencies = [
     "pydantic>=2.0.0",
 ]
 
+[project.scripts]
+brokerai = "t212ai.cli:main"
+t212ai = "t212ai.cli:main"
+
 [project.optional-dependencies]
 db = [
     "alembic>=1.13.0",

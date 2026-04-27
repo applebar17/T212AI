@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from .app.config import get_app_settings
+from .cli import main as cli_main
 
 
-def main() -> None:
-    settings = get_app_settings()
-    print(f"T212AI baseline runtime. trading212_environment={settings.trading212_environment}")
+def main(argv: list[str] | None = None) -> int:
+    return cli_main(argv)
 
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())

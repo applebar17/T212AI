@@ -7,5 +7,4 @@ services:
       - .env
     volumes:
       - ./data:/app/data
-    command: ["python", "-m", "t212ai"]
-
+    command: ["python", "-m", "t212ai", "run", "bot"]

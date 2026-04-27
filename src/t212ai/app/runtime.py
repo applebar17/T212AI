@@ -16,10 +16,8 @@ class AppRuntime:
     settings: AppSettings
     guideline_document_store: FileBackedStructuredDocumentStore
     guideline_memory_service: GuidelineMemoryService
-
-
-def build_runtime() -> AppRuntime:
-    settings = get_app_settings()
+def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
+    settings = settings or get_app_settings()
     guideline_document_store = FileBackedStructuredDocumentStore(
         settings.guideline_memory_path,
         document_factory=build_empty_guideline_document,
