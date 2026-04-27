@@ -5,6 +5,19 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      SEARXNG_ENABLED: ${SEARXNG_ENABLED:-true}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
     volumes:
       - ./data:/app/data
+    depends_on:
+      - searxng
     command: ["python", "-m", "t212ai", "run", "bot"]
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
