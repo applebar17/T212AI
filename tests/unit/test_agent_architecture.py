@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
 from t212ai.agent import (
     AgentJudge,
     AgentReasoner,
@@ -15,11 +18,23 @@ from t212ai.agent.history import ChatHistoryWindow
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan
 from t212ai.agent.schemas import AgentCritique
+from t212ai.brokers.trading212.models import (
+    AccountSummary,
+    Cash,
+    Investments,
+    Order,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PortfolioSnapshot,
+    TimeValidity,
+)
 from t212ai.telegram.bridge import (
     build_agent_message_handler_if_configured,
     build_default_message_handler,
 )
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
+from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 
 class FakeGenAIClient:
@@ -71,6 +86,60 @@ def _reasoner() -> AgentReasoner:
     return AgentReasoner(FakeGenAIClient())  # type: ignore[arg-type]
 
 
+class FakeAgentWorkflowBroker:
+    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+    def get_portfolio_snapshot(self) -> PortfolioSnapshot:
+        return PortfolioSnapshot(
+            as_of=self.reviewed_at,
+            account=AccountSummary(
+                id=1,
+                currency="EUR",
+                cash=Cash(
+                    available_to_trade=Decimal("1000"),
+                    reserved_for_orders=Decimal("100"),
+                ),
+                investments=Investments(
+                    current_value=Decimal("2500"),
+                    total_cost=Decimal("2000"),
+                    unrealized_profit_loss=Decimal("500"),
+                ),
+                total_value=Decimal("3500"),
+            ),
+            positions=[],
+            pending_orders=[
+                Order(
+                    id=1,
+                    ticker="AAPL_US_EQ",
+                    currency="EUR",
+                    quantity=Decimal("1"),
+                    side=OrderSide.BUY,
+                    status=OrderStatus.NEW,
+                    type=OrderType.LIMIT,
+                    limit_price=Decimal("180"),
+                    time_in_force=TimeValidity.DAY,
+                )
+            ],
+        )
+
+    def list_pending_orders(self) -> list[Order]:
+        return [
+            Order(
+                id=2,
+                ticker="TSLA_US_EQ",
+                currency="USD",
+                quantity=Decimal("5"),
+                filled_quantity=Decimal("1"),
+                side=OrderSide.BUY,
+                status=OrderStatus.PARTIALLY_FILLED,
+                type=OrderType.LIMIT,
+                limit_price=Decimal("170"),
+                time_in_force=TimeValidity.DAY,
+                created_at=self.reviewed_at - timedelta(hours=30),
+            )
+        ]
+
+
 def test_chat_history_retains_and_selects_recent_messages() -> None:
     policy = ChatHistoryPolicy(max_messages_per_chat=3, context_messages=2)
     manager = ChatHistoryManager(
@@ -120,6 +189,46 @@ def test_specialist_agent_returns_standardized_response() -> None:
     assert response.selected_agent == "portfolio_analyst"
     assert response.plan is not None
     assert "portfolio_analyst prepared a plan" in response.final_answer
+
+
+def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
+    agent = PortfolioAnalystAgent(
+        _reasoner(),
+        portfolio_summary_workflow=PortfolioSummaryWorkflow(FakeAgentWorkflowBroker()),
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="summarize my portfolio", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.PORTFOLIO_SUMMARY),
+    )
+
+    assert response.selected_agent == "portfolio_analyst"
+    assert response.plan is not None
+    assert response.metadata["workflow"] == "portfolio_summary"
+    assert response.artifacts["workflow"] == "portfolio_summary"
+    assert "Trading 212 portfolio summary." in response.final_answer
+
+
+def test_order_agent_executes_pending_orders_workflow_when_available() -> None:
+    from t212ai.agent import OrderAgent
+
+    agent = OrderAgent(
+        _reasoner(),
+        pending_orders_review_workflow=PendingOrdersReviewWorkflow(
+            FakeAgentWorkflowBroker(),
+            clock=lambda: FakeAgentWorkflowBroker.reviewed_at,
+        ),
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="review my pending orders", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.REVIEW_PENDING_ORDERS),
+    )
+
+    assert response.selected_agent == "order_agent"
+    assert response.plan is not None
+    assert response.metadata["workflow"] == "pending_orders_review"
+    assert "Trading 212 pending orders review." in response.final_answer
 
 
 def test_orchestrator_routes_representative_requests() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from .history import ChatHistoryWindow
@@ -51,3 +53,4 @@ class AgentResponse(BaseModel):
     plan: AgentPlan | None = None
     critique: AgentCritique | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
+    artifacts: dict[str, Any] = Field(default_factory=dict)

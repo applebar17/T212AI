@@ -25,6 +25,7 @@ from .specialists import (
     OrderAgent,
     PortfolioAnalystAgent,
 )
+from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 
 @dataclass(slots=True)
@@ -180,12 +181,22 @@ def build_specialist_agents(
     reasoner: AgentReasoner,
     *,
     guideline_service: GuidelineMemoryService | None = None,
+    portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None,
+    pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
 ) -> SpecialistAgents:
     if guideline_service is None:
         guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
     return SpecialistAgents(
-        portfolio=PortfolioAnalystAgent(reasoner, guideline_service=guideline_service),
-        order=OrderAgent(reasoner, guideline_service=guideline_service),
+        portfolio=PortfolioAnalystAgent(
+            reasoner,
+            guideline_service=guideline_service,
+            portfolio_summary_workflow=portfolio_summary_workflow,
+        ),
+        order=OrderAgent(
+            reasoner,
+            guideline_service=guideline_service,
+            pending_orders_review_workflow=pending_orders_review_workflow,
+        ),
         market=MarketAnalystAgent(reasoner, guideline_service=guideline_service),
         company=CompanyAnalystAgent(reasoner, guideline_service=guideline_service),
         guideline_memory=GuidelineMemoryAgent(reasoner, guideline_service),

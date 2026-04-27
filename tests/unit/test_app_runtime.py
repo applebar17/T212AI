@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from decimal import Decimal
 
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan
 from t212ai.app.config import get_app_settings
 from t212ai.app.runtime import build_runtime
+from t212ai.brokers.trading212.models import (
+    AccountSummary,
+    Cash,
+    Investments,
+    Order,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PortfolioSnapshot,
+    TimeValidity,
+)
 from t212ai.telegram.bridge import build_agent_message_handler_if_configured
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
 
@@ -38,19 +51,47 @@ class FakeRuntimeGenAIClient:
 
 
 class FakeTrading212Client:
+    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
     @classmethod
     def from_settings(cls, settings=None):
         del settings
         return cls()
 
     def get_account_summary(self):
-        raise NotImplementedError
+        return AccountSummary(
+            id=1,
+            currency="EUR",
+            cash=Cash(
+                available_to_trade=Decimal("1000"),
+                reserved_for_orders=Decimal("200"),
+            ),
+            investments=Investments(
+                current_value=Decimal("2500"),
+                total_cost=Decimal("2200"),
+                unrealized_profit_loss=Decimal("300"),
+            ),
+            total_value=Decimal("3500"),
+        )
 
     def list_positions(self):
-        raise NotImplementedError
+        return []
 
     def list_pending_orders(self):
-        raise NotImplementedError
+        return [
+            Order(
+                id=22,
+                ticker="MSFT_US_EQ",
+                currency="EUR",
+                quantity=Decimal("1"),
+                side=OrderSide.BUY,
+                status=OrderStatus.NEW,
+                type=OrderType.LIMIT,
+                limit_price=Decimal("320"),
+                time_in_force=TimeValidity.DAY,
+                created_at=self.reviewed_at - timedelta(hours=2),
+            )
+        ]
 
     def get_order(self, order_id: int):
         raise NotImplementedError
@@ -163,6 +204,8 @@ def test_build_runtime_builds_optional_provider_stacks(
 
     assert runtime.trading212_client is not None
     assert runtime.trading212_service is not None
+    assert runtime.portfolio_summary_workflow is not None
+    assert runtime.pending_orders_review_workflow is not None
     assert runtime.yahoo_client is not None
     assert runtime.alpha_vantage_client is not None
     assert runtime.reddit_client is not None
@@ -202,3 +245,37 @@ def test_runtime_backed_agent_handler_reuses_runtime_history(
     assert "portfolio_analyst prepared a plan" in response.text
     assert history.retained_count == 2
     assert [message.role for message in history.messages] == ["user", "assistant"]
+
+
+def test_runtime_backed_agent_handler_uses_portfolio_workflow_when_broker_is_configured(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import t212ai.app.runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "GenAIClient", FakeRuntimeGenAIClient)
+    monkeypatch.setattr(runtime_module, "Trading212Client", FakeTrading212Client)
+    settings = get_app_settings(
+        env={
+            "LLM_PROVIDER": "openai",
+            "OPENAI_API_KEY": "openai-key",
+            "BROKER_PROVIDER": "trading212",
+            "T212_API_KEY": "t212-key",
+            "T212_API_SECRET": "t212-secret",
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+        }
+    )
+    runtime = build_runtime(settings)
+
+    handler = build_agent_message_handler_if_configured(runtime=runtime)
+    response = handler(
+        TelegramInboundMessage(
+            chat_id=123,
+            text="show my portfolio",
+            message_id=1,
+        )
+    )
+
+    assert isinstance(response, TelegramOutboundMessage)
+    assert "Trading 212 portfolio summary." in response.text

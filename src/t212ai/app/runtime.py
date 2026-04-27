@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from t212ai.agent import AgentJudge, AgentReasoner, ChatHistoryManager, MainOrchestratorAgent
+from t212ai.agent import (
+    AgentJudge,
+    AgentReasoner,
+    ChatHistoryManager,
+    MainOrchestratorAgent,
+    build_specialist_agents,
+)
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
@@ -13,6 +19,7 @@ from t212ai.guidelines.service import (
     build_empty_guideline_document,
 )
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
+from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 from .bootstrap import (
     ConfigAssessment,
@@ -38,6 +45,8 @@ class AppRuntime:
     main_orchestrator: MainOrchestratorAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
+    portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None
+    pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None
     yahoo_client: YahooFinanceClient | None = None
     alpha_vantage_client: AlphaVantageClient | None = None
     reddit_client: RedditClient | None = None
@@ -102,6 +111,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_genai_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
+    _build_workflow_stack(runtime)
     _build_agent_stack(runtime)
     return runtime
 
@@ -154,13 +164,28 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
             runtime.component_errors["reddit"] = str(exc)
 
 
+def _build_workflow_stack(runtime: AppRuntime) -> None:
+    if runtime.trading212_service is not None:
+        runtime.portfolio_summary_workflow = PortfolioSummaryWorkflow(runtime.trading212_service)
+        runtime.pending_orders_review_workflow = PendingOrdersReviewWorkflow(
+            runtime.trading212_service
+        )
+
+
 def _build_agent_stack(runtime: AppRuntime) -> None:
     if runtime.agent_reasoner is None:
         return
     try:
+        specialists = build_specialist_agents(
+            runtime.agent_reasoner,
+            guideline_service=runtime.guideline_memory_service,
+            portfolio_summary_workflow=runtime.portfolio_summary_workflow,
+            pending_orders_review_workflow=runtime.pending_orders_review_workflow,
+        )
         runtime.main_orchestrator = MainOrchestratorAgent(
             runtime.agent_reasoner,
             guideline_service=runtime.guideline_memory_service,
+            specialists=specialists,
         )
     except Exception as exc:  # pragma: no cover - defensive
         runtime.component_errors["main_orchestrator"] = str(exc)

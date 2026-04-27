@@ -82,6 +82,18 @@ class BaseAgent:
             intent=resolved_intent,
             task_complexity=complexity,
         )
+        execution_response = self.execute(
+            request,
+            intent=resolved_intent,
+            task_complexity=complexity,
+            plan=plan,
+        )
+        if execution_response is not None:
+            if execution_response.plan is None:
+                execution_response = execution_response.model_copy(update={"plan": plan})
+            execution_response.metadata.setdefault("agent", self.name)
+            execution_response.metadata.setdefault("task_complexity", complexity.value)
+            return execution_response
         return AgentResponse(
             final_answer=self._format_plan_response(plan),
             selected_agent=self.name,
@@ -123,6 +135,17 @@ class BaseAgent:
     def resolve_complexity(self, message: str) -> TaskComplexity:
         del message
         return self.profile.task_complexity
+
+    def execute(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent,
+        task_complexity: TaskComplexity,
+        plan: AgentPlan,
+    ) -> AgentResponse | None:
+        del request, intent, task_complexity, plan
+        return None
 
     def _history_for_prompt(
         self,
