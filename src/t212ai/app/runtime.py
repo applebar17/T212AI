@@ -18,8 +18,18 @@ from t212ai.guidelines.service import (
     GuidelineMemoryService,
     build_empty_guideline_document,
 )
+from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
+from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
+
+try:
+    from sqlalchemy.engine import Engine
+    from sqlalchemy.orm import Session, sessionmaker
+except Exception:  # pragma: no cover - only hit without db extras
+    Engine = object  # type: ignore[assignment,misc]
+    Session = object  # type: ignore[assignment,misc]
+    sessionmaker = object  # type: ignore[assignment,misc]
 
 from .bootstrap import (
     ConfigAssessment,
@@ -39,6 +49,9 @@ class AppRuntime:
     guideline_document_store: FileBackedStructuredDocumentStore
     guideline_memory_service: GuidelineMemoryService
     history_manager: ChatHistoryManager
+    db_engine: Engine | None = None
+    db_session_factory: sessionmaker[Session] | None = None
+    pending_action_service: PendingActionService | None = None
     genai_client: GenAIClient | None = None
     agent_reasoner: AgentReasoner | None = None
     agent_judge: AgentJudge | None = None
@@ -109,6 +122,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     )
 
     _build_genai_stack(runtime)
+    _build_database_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
     _build_workflow_stack(runtime)
@@ -142,6 +156,19 @@ def _build_broker_stack(runtime: AppRuntime) -> None:
     runtime.trading212_service = service
 
 
+def _build_database_stack(runtime: AppRuntime) -> None:
+    try:
+        engine = build_engine(runtime.settings.database_url)
+        ensure_schema(engine)
+        session_factory = build_session_factory(engine)
+    except Exception as exc:
+        runtime.component_errors["database"] = str(exc)
+        return
+
+    runtime.db_engine = engine
+    runtime.db_session_factory = session_factory
+
+
 def _build_data_source_stack(runtime: AppRuntime) -> None:
     if runtime.settings.yahoo_enabled:
         try:
@@ -170,6 +197,11 @@ def _build_workflow_stack(runtime: AppRuntime) -> None:
         runtime.pending_orders_review_workflow = PendingOrdersReviewWorkflow(
             runtime.trading212_service
         )
+    if runtime.db_session_factory is not None:
+        runtime.pending_action_service = PendingActionService(
+            runtime.db_session_factory,
+            broker_service=runtime.trading212_service,
+        )
 
 
 def _build_agent_stack(runtime: AppRuntime) -> None:
@@ -181,6 +213,8 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             guideline_service=runtime.guideline_memory_service,
             portfolio_summary_workflow=runtime.portfolio_summary_workflow,
             pending_orders_review_workflow=runtime.pending_orders_review_workflow,
+            broker_service=runtime.trading212_service,
+            pending_action_service=runtime.pending_action_service,
         )
         runtime.main_orchestrator = MainOrchestratorAgent(
             runtime.agent_reasoner,

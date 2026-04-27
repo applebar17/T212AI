@@ -96,6 +96,7 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "TELEGRAM_BOT_TOKEN",
             "TELEGRAM_ALLOWED_CHAT_ID",
+            "TELEGRAM_ALLOWED_USER_ID",
         ),
     ),
     (
@@ -388,6 +389,10 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "TELEGRAM_ALLOWED_CHAT_ID",
             settings.telegram_allowed_chat_id or "",
         ),
+        "TELEGRAM_ALLOWED_USER_ID": existing_raw.get(
+            "TELEGRAM_ALLOWED_USER_ID",
+            settings.telegram_allowed_user_id or "",
+        ),
         "ALPHA_VANTAGE_API_KEY": existing_raw.get(
             "ALPHA_VANTAGE_API_KEY",
             settings.alpha_vantage_api_key or "",
@@ -513,6 +518,10 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
         updates["TELEGRAM_ALLOWED_CHAT_ID"] = io_runtime.prompt(
             "TELEGRAM_ALLOWED_CHAT_ID",
             default=updates["TELEGRAM_ALLOWED_CHAT_ID"],
+        )
+        updates["TELEGRAM_ALLOWED_USER_ID"] = io_runtime.prompt(
+            "TELEGRAM_ALLOWED_USER_ID (optional)",
+            default=updates["TELEGRAM_ALLOWED_USER_ID"],
         )
 
     io_runtime.write("")

@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 
 from alembic import context
+from t212ai.pending_actions import orm as pending_actions_orm  # noqa: F401
+from t212ai.persistence.database import Base
 
 try:
     from sqlalchemy import engine_from_config, pool
@@ -17,7 +19,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def _database_url() -> str:
@@ -60,4 +62,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

@@ -35,7 +35,9 @@ class TelegramApprovalRequest:
     text: str
     approve_callback_data: str
     reject_callback_data: str
+    action_id: str | None = None
     parse_mode: str | None = None
+    reply_to_message_id: int | None = None
 
 
 def inbound_from_update(update: Any) -> TelegramInboundMessage | None:

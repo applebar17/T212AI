@@ -115,6 +115,7 @@ class AppSettings:
     trading212_api_secret: str | None = None
     telegram_bot_token: str | None = None
     telegram_allowed_chat_id: str | None = None
+    telegram_allowed_user_id: str | None = None
     alpha_vantage_api_key: str | None = None
     alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
     reddit_client_id: str | None = None
@@ -193,6 +194,7 @@ def get_app_settings(
         trading212_api_secret=source.get("T212_API_SECRET"),
         telegram_bot_token=source.get("TELEGRAM_BOT_TOKEN"),
         telegram_allowed_chat_id=source.get("TELEGRAM_ALLOWED_CHAT_ID"),
+        telegram_allowed_user_id=source.get("TELEGRAM_ALLOWED_USER_ID"),
         alpha_vantage_api_key=source.get("ALPHA_VANTAGE_API_KEY"),
         alpha_vantage_base_url=source.get(
             "ALPHA_VANTAGE_BASE_URL",

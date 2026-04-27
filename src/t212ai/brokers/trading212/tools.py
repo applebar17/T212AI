@@ -15,6 +15,7 @@ from t212ai.genai.tracing import (
     traceable,
 )
 from t212ai.genai.tools.tools import ToolBox, build_tool_index
+from t212ai.pending_actions import PendingActionKind, PendingActionService, approval_expiry
 
 from .models import Order, PortfolioSnapshot, Position
 from .protocols import Trading212AgentBrokerProtocol
@@ -24,6 +25,10 @@ from .protocols import Trading212AgentBrokerProtocol
 class Trading212ToolRuntime:
     service: Trading212AgentBrokerProtocol
     allow_state_changes: bool = False
+    pending_action_service: PendingActionService | None = None
+    chat_id: str | None = None
+    user_id: int | None = None
+    user_message: str | None = None
 
 
 T212_GET_PORTFOLIO_SNAPSHOT_TOOL: ToolSpec = {
@@ -149,6 +154,53 @@ T212_PREPARE_ORDER_TOOL: ToolSpec = {
     },
 }
 
+T212_PREPARE_ORDER_ACTION_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "t212_prepare_order_action",
+        "description": (
+            "Prepare a Trading 212 order action for user approval. This validates "
+            "the order, persists a pending action, and returns approval metadata."
+        ),
+        "strict": True,
+        "parameters": _ORDER_ARGUMENTS_SCHEMA,
+    },
+}
+
+T212_PREPARE_CANCEL_ACTION_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "t212_prepare_cancel_action",
+        "description": (
+            "Prepare cancellation of a pending Trading 212 order for user approval."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": ["integer", "null"],
+                    "default": None,
+                    "description": "Explicit Trading 212 pending order id to cancel.",
+                },
+                "selector": {
+                    "type": ["string", "null"],
+                    "enum": ["oldest", "latest", "only", None],
+                    "default": None,
+                    "description": "Fallback selector when no explicit order id is given.",
+                },
+                "reason": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user reason for the cancellation request.",
+                },
+            },
+            "required": ["order_id", "selector", "reason"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 T212_PLACE_ORDER_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -228,6 +280,14 @@ def build_trading212_tool_mapping(
             runtime=runtime,
         ),
         "t212_prepare_order": lambda **kwargs: t212_prepare_order(runtime=runtime, **kwargs),
+        "t212_prepare_order_action": lambda **kwargs: t212_prepare_order_action(
+            runtime=runtime,
+            **kwargs,
+        ),
+        "t212_prepare_cancel_action": lambda **kwargs: t212_prepare_cancel_action(
+            runtime=runtime,
+            **kwargs,
+        ),
         "t212_place_order": lambda **kwargs: t212_place_order(runtime=runtime, **kwargs),
         "t212_cancel_order": lambda **kwargs: t212_cancel_order(runtime=runtime, **kwargs),
     }
@@ -339,6 +399,130 @@ def t212_prepare_order(
             f"Fingerprint: {prepared.order_fingerprint}."
         ),
         data=prepared.model_dump(by_alias=True, exclude_none=True, mode="json"),
+    )
+
+
+@traceable(
+    name="t212_prepare_order_action",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def t212_prepare_order_action(
+    *,
+    order_type: str,
+    side: str,
+    ticker: str,
+    quantity: str | int | float,
+    limit_price: str | int | float | None,
+    stop_price: str | int | float | None,
+    time_validity: str,
+    extended_hours: bool,
+    runtime: Trading212ToolRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="trading212",
+        tool_name="t212_prepare_order_action",
+        state_changing=False,
+    )
+    if runtime.pending_action_service is None or not runtime.chat_id:
+        return _tool_error(
+            "Pending-action runtime is not configured for order preparation.",
+            code="missing_pending_action_runtime",
+            hint="Run this tool through the order agent inside a Telegram-bound runtime.",
+        )
+
+    try:
+        prepared = runtime.service.prepare_order(
+            order_type=order_type,
+            side=side,
+            ticker=ticker,
+            quantity=quantity,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            time_validity=time_validity,
+            extended_hours=extended_hours,
+        )
+    except ValueError as exc:
+        return _tool_error(str(exc), code="invalid_order_request")
+
+    action = runtime.pending_action_service.create_submit_action(
+        chat_id=runtime.chat_id,
+        user_id=runtime.user_id,
+        prepared_order=prepared,
+        original_user_message=runtime.user_message or "",
+        summary_text=_format_prepared_order_action_summary(prepared),
+        expires_at=approval_expiry(
+            kind=PendingActionKind.SUBMIT_ORDER,
+            order_type=prepared.order_type.value,
+        ),
+    )
+    return ToolResult(
+        status="ok",
+        output=_approval_message_text(action),
+        data={
+            "pendingAction": action.model_dump(mode="json"),
+            "telegramApproval": _approval_payload(action),
+        },
+    )
+
+
+@traceable(
+    name="t212_prepare_cancel_action",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def t212_prepare_cancel_action(
+    *,
+    order_id: int | None,
+    selector: str | None,
+    reason: str | None,
+    runtime: Trading212ToolRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="trading212",
+        tool_name="t212_prepare_cancel_action",
+        state_changing=False,
+    )
+    if runtime.pending_action_service is None or not runtime.chat_id:
+        return _tool_error(
+            "Pending-action runtime is not configured for cancellation preparation.",
+            code="missing_pending_action_runtime",
+            hint="Run this tool through the order agent inside a Telegram-bound runtime.",
+        )
+
+    try:
+        target_order = _resolve_cancel_target(
+            runtime.service.list_pending_orders(),
+            order_id=order_id,
+            selector=selector,
+        )
+    except ValueError as exc:
+        return _tool_error(
+            str(exc),
+            code="ambiguous_cancel_target",
+            hint=(
+                "Provide an explicit pending order id, or use a deterministic selector "
+                "such as oldest or latest."
+            ),
+        )
+
+    action = runtime.pending_action_service.create_cancel_action(
+        chat_id=runtime.chat_id,
+        user_id=runtime.user_id,
+        target_order=target_order,
+        original_user_message=runtime.user_message or "",
+        summary_text=_format_cancel_action_summary(target_order, reason=reason),
+        expires_at=approval_expiry(kind=PendingActionKind.CANCEL_ORDER),
+    )
+    return ToolResult(
+        status="ok",
+        output=_approval_message_text(action),
+        data={
+            "pendingAction": action.model_dump(mode="json"),
+            "telegramApproval": _approval_payload(action),
+        },
     )
 
 
@@ -624,6 +808,93 @@ def _truncate(value: str, max_chars: int) -> str:
     return value[: max_chars - 3] + "..."
 
 
+def _approval_payload(action) -> dict[str, Any]:
+    return {
+        "actionId": action.action_id,
+        "text": _approval_message_text(action),
+        "approveCallbackData": f"pa:approve:{action.action_id}",
+        "rejectCallbackData": f"pa:reject:{action.action_id}",
+    }
+
+
+def _approval_message_text(action) -> str:
+    return (
+        f"{action.summary_text}\n\n"
+        "Nothing has been executed yet.\n"
+        "Approve with the Telegram buttons below, or reply yes/no, si/sì, "
+        f"approve {action.action_id}, reject {action.action_id}."
+    )
+
+
+def _format_prepared_order_action_summary(prepared) -> str:
+    payload = prepared.request_payload
+    return "\n".join(
+        [
+            "Prepared Trading 212 order action.",
+            "",
+            "Action:",
+            f"- side: {_format_value(prepared.side)}",
+            f"- ticker: {_format_value(prepared.ticker)}",
+            f"- order_type: {_format_value(prepared.order_type)}",
+            f"- signed_quantity: {_format_value(prepared.signed_quantity)}",
+            f"- limit_price: {_format_value(payload.get('limitPrice'))}",
+            f"- stop_price: {_format_value(payload.get('stopPrice'))}",
+            f"- time_validity: {_format_value(payload.get('timeValidity'))}",
+            f"- extended_hours: {_format_value(payload.get('extendedHours'))}",
+            f"- order_fingerprint: {_format_value(prepared.order_fingerprint)}",
+        ]
+    )
+
+
+def _format_cancel_action_summary(order: Order, *, reason: str | None) -> str:
+    lines = [
+        "Prepared Trading 212 cancellation action.",
+        "",
+        "Target order:",
+        f"- id: {_format_value(order.id)}",
+        f"- ticker: {_format_value(order.ticker)}",
+        f"- type: {_format_value(order.type)}",
+        f"- side: {_format_value(order.side)}",
+        f"- status: {_format_value(order.status)}",
+        f"- quantity: {_format_value(order.quantity)}",
+        f"- limit_price: {_format_money(order.limit_price, order.currency)}",
+        f"- stop_price: {_format_money(order.stop_price, order.currency)}",
+        f"- created_at: {_format_value(order.created_at)}",
+    ]
+    if reason:
+        lines.append(f"- reason: {reason}")
+    return "\n".join(lines)
+
+
+def _resolve_cancel_target(
+    orders: list[Order],
+    *,
+    order_id: int | None,
+    selector: str | None,
+) -> Order:
+    if order_id is not None:
+        for order in orders:
+            if order.id == int(order_id):
+                return order
+        raise ValueError(f"Pending order {order_id} was not found.")
+    if not orders:
+        raise ValueError("There are no pending orders to cancel.")
+    if len(orders) == 1:
+        return orders[0]
+    resolved_selector = str(selector or "").strip().lower()
+    if resolved_selector == "oldest":
+        return min(orders, key=lambda item: item.created_at or datetime.max)
+    if resolved_selector == "latest":
+        return max(orders, key=lambda item: item.created_at or datetime.min)
+    if resolved_selector == "only":
+        raise ValueError(
+            "Selector 'only' requires exactly one pending order, but multiple were found."
+        )
+    raise ValueError(
+        "Cancellation target is ambiguous because multiple pending orders exist."
+    )
+
+
 T212_READ_TOOLBOX = ToolBox(
     name="t212_read",
     tools=[
@@ -650,6 +921,22 @@ T212_ORDER_PLANNING_TOOLBOX = ToolBox(
         [
             *T212_READ_TOOLBOX.tools,
             T212_PREPARE_ORDER_TOOL,
+        ]
+    ),
+)
+
+T212_ORDER_ACTION_TOOLBOX = ToolBox(
+    name="t212_order_actions",
+    tools=[
+        *T212_READ_TOOLBOX.tools,
+        T212_PREPARE_ORDER_ACTION_TOOL,
+        T212_PREPARE_CANCEL_ACTION_TOOL,
+    ],
+    tools_by_name=build_tool_index(
+        [
+            *T212_READ_TOOLBOX.tools,
+            T212_PREPARE_ORDER_ACTION_TOOL,
+            T212_PREPARE_CANCEL_ACTION_TOOL,
         ]
     ),
 )

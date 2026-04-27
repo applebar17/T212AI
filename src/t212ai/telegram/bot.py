@@ -22,6 +22,7 @@ class TelegramBotService:
     token: str
     access_policy: TelegramAccessPolicy
     message_handler: TelegramMessageHandler = field(default_factory=build_default_message_handler)
+    runtime: AppRuntime | None = None
 
     @classmethod
     def from_settings(
@@ -40,6 +41,7 @@ class TelegramBotService:
             access_policy=TelegramAccessPolicy.from_settings(resolved),
             message_handler=message_handler
             or build_agent_message_handler_if_configured(runtime=resolved_runtime),
+            runtime=resolved_runtime,
         )
 
     def build_application(self) -> Any:
@@ -53,6 +55,10 @@ class TelegramBotService:
         router = TelegramUpdateRouter(
             access_policy=self.access_policy,
             message_handler=self.message_handler,
+            history_manager=self.runtime.history_manager if self.runtime is not None else None,
+            pending_action_service=(
+                self.runtime.pending_action_service if self.runtime is not None else None
+            ),
         )
         application = Application.builder().token(self.token).build()
         application.add_handler(CallbackQueryHandler(router.handle_update))

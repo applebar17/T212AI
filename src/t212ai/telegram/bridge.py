@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeAlias
@@ -12,11 +13,17 @@ from t212ai.agent.intents import IntentKind
 from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
 from t212ai.agent.schemas import AgentRequest
 from t212ai.app.runtime import AppRuntime, build_runtime
+from t212ai.pending_actions import (
+    PendingActionDecisionResult,
+    PendingActionDecisionStatus,
+    PendingActionService,
+)
 
 from .auth import TelegramAccessPolicy
 from .commands import HELP_COMMANDS, render_help_text
 from .messenger import TelegramMessenger
 from .models import (
+    TelegramApprovalRequest,
     TelegramInboundMessage,
     TelegramOutboundMessage,
     inbound_from_update,
@@ -24,7 +31,11 @@ from .models import (
 
 TelegramMessageHandler: TypeAlias = Callable[
     [TelegramInboundMessage],
-    TelegramOutboundMessage | str | None | Awaitable[TelegramOutboundMessage | str | None],
+    TelegramApprovalRequest
+    | TelegramOutboundMessage
+    | str
+    | None
+    | Awaitable[TelegramApprovalRequest | TelegramOutboundMessage | str | None],
 ]
 
 
@@ -32,6 +43,8 @@ TelegramMessageHandler: TypeAlias = Callable[
 class TelegramUpdateRouter:
     access_policy: TelegramAccessPolicy
     message_handler: TelegramMessageHandler
+    history_manager: ChatHistoryManager | None = None
+    pending_action_service: PendingActionService | None = None
 
     async def handle_update(self, update: Any, context: Any) -> None:
         await _acknowledge_callback(update)
@@ -39,13 +52,22 @@ class TelegramUpdateRouter:
         if inbound is None:
             return
         messenger = TelegramMessenger(context.bot)
-        if not self.access_policy.is_allowed(inbound.chat_id):
+        if not self.access_policy.is_allowed(inbound.chat_id, inbound.user_id):
             if not self.access_policy.silent_unauthorized:
                 await messenger.send_error(
                     inbound.chat_id,
-                    "This chat is not authorized to use this bot.",
-                    hint="Set TELEGRAM_ALLOWED_CHAT_ID to this chat id if this is expected.",
+                    "This Telegram user or chat is not authorized to use this bot.",
+                    hint=(
+                        "Check TELEGRAM_ALLOWED_CHAT_ID and, if configured, "
+                        "TELEGRAM_ALLOWED_USER_ID."
+                    ),
                 )
+            return
+        approval_handled = await self._handle_pending_action_resolution(
+            inbound,
+            messenger=messenger,
+        )
+        if approval_handled:
             return
 
         try:
@@ -59,6 +81,17 @@ class TelegramUpdateRouter:
             return
 
         if response is None:
+            return
+        if isinstance(response, TelegramApprovalRequest):
+            sent = await messenger.send_approval_request(response)
+            message_id = getattr(sent, "message_id", None)
+            if message_id is None and isinstance(sent, dict):
+                message_id = sent.get("message_id")
+            if self.pending_action_service is not None and response.action_id:
+                self.pending_action_service.attach_approval_message_id(
+                    response.action_id,
+                    _coerce_int(message_id),
+                )
             return
         outbound = (
             response
@@ -74,6 +107,182 @@ class TelegramUpdateRouter:
             )
         await messenger.send_message(inbound.chat_id, outbound)
 
+    async def _handle_pending_action_resolution(
+        self,
+        inbound: TelegramInboundMessage,
+        *,
+        messenger: TelegramMessenger,
+    ) -> bool:
+        if self.pending_action_service is None:
+            return False
+        callback_resolution = _parse_callback_resolution(inbound.callback_data)
+        if callback_resolution is not None:
+            verb, action_id = callback_resolution
+            result = self._resolve_pending_action(
+                verb,
+                action_id=action_id,
+                chat_id=inbound.chat_id,
+                user_id=inbound.user_id,
+            )
+            await self._finalize_pending_action(
+                inbound,
+                messenger=messenger,
+                result=result,
+                projected_user_text="yes" if verb == "approve" else "no",
+                send_followup=True,
+            )
+            return True
+
+        text_resolution = self._parse_text_approval(inbound)
+        if text_resolution is None:
+            return False
+
+        verb, action_id = text_resolution
+        result = self._resolve_pending_action(
+            verb,
+            action_id=action_id,
+            chat_id=inbound.chat_id,
+            user_id=inbound.user_id,
+        )
+        await self._finalize_pending_action(
+            inbound,
+            messenger=messenger,
+            result=result,
+            projected_user_text=inbound.text,
+            send_followup=False,
+        )
+        return True
+
+    def _parse_text_approval(
+        self,
+        inbound: TelegramInboundMessage,
+    ) -> tuple[str, str | None] | None:
+        stripped = inbound.text.strip()
+        explicit_match = re.match(
+            r"^(approve|reject)\s+(pa_[A-Za-z0-9]+)\s*$",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if explicit_match:
+            return explicit_match.group(1).lower(), explicit_match.group(2)
+
+        normalized = stripped.casefold()
+        if re.match(r"^(yes|si|sì)\b", normalized):
+            action_id = self._resolve_single_pending_action_id(
+                chat_id=inbound.chat_id,
+                user_id=inbound.user_id,
+            )
+            if action_id is None:
+                return ("approve", None)
+            return ("approve", action_id)
+        if re.match(r"^(no)\b", normalized):
+            action_id = self._resolve_single_pending_action_id(
+                chat_id=inbound.chat_id,
+                user_id=inbound.user_id,
+            )
+            if action_id is None:
+                return ("reject", None)
+            return ("reject", action_id)
+        return None
+
+    def _resolve_single_pending_action_id(
+        self,
+        *,
+        chat_id: int,
+        user_id: int | None,
+    ) -> str | None:
+        if self.pending_action_service is None:
+            return None
+        actions = self.pending_action_service.get_awaiting_actions(
+            chat_id=str(chat_id),
+            user_id=user_id,
+        )
+        if len(actions) == 1:
+            return actions[0].action_id
+        return None
+
+    def _resolve_pending_action(
+        self,
+        verb: str,
+        *,
+        action_id: str | None,
+        chat_id: int,
+        user_id: int | None,
+    ) -> PendingActionDecisionResult:
+        if self.pending_action_service is None:
+            return PendingActionDecisionResult(
+                status=PendingActionDecisionStatus.FAILED,
+                message="Pending-action runtime is not configured.",
+            )
+        if not action_id:
+            actions = self.pending_action_service.get_awaiting_actions(
+                chat_id=str(chat_id),
+                user_id=user_id,
+            )
+            if not actions:
+                return PendingActionDecisionResult(
+                    status=PendingActionDecisionStatus.NOT_FOUND,
+                    message="There is no pending action awaiting approval in this chat.",
+                )
+            if len(actions) > 1:
+                return PendingActionDecisionResult(
+                    status=PendingActionDecisionStatus.FAILED,
+                    message=(
+                        "Multiple pending actions are awaiting approval. "
+                        "Use the Telegram buttons or reply approve <action_id> / reject <action_id>."
+                    ),
+                )
+            action_id = actions[0].action_id
+        if verb == "approve":
+            return self.pending_action_service.approve_and_execute(
+                action_id,
+                chat_id=str(chat_id),
+                user_id=user_id,
+            )
+        return self.pending_action_service.reject(
+            action_id,
+            chat_id=str(chat_id),
+            user_id=user_id,
+        )
+
+    async def _finalize_pending_action(
+        self,
+        inbound: TelegramInboundMessage,
+        *,
+        messenger: TelegramMessenger,
+        result: PendingActionDecisionResult,
+        projected_user_text: str,
+        send_followup: bool,
+    ) -> None:
+        if self.history_manager is not None:
+            self.history_manager.record_user_message(inbound.chat_id, projected_user_text)
+            self.history_manager.record_assistant_message(inbound.chat_id, result.message)
+
+        approval_message_id = result.action.approval_message_id if result.action else None
+        if approval_message_id is not None and result.edit_text:
+            try:
+                await messenger.edit_message(
+                    chat_id=inbound.chat_id,
+                    message_id=approval_message_id,
+                    text=result.edit_text,
+                )
+            except Exception:  # pragma: no cover - editing should not block resolution
+                pass
+
+        if send_followup:
+            await messenger.send_message(
+                inbound.chat_id,
+                TelegramOutboundMessage(text=result.message),
+            )
+            return
+        await messenger.send_message(
+            inbound.chat_id,
+            TelegramOutboundMessage(
+                text=result.message,
+                reply_to_message_id=inbound.message_id,
+            ),
+        )
+
 
 def build_default_message_handler(
     orchestrator: AgentOrchestrator | None = None,
@@ -86,7 +295,9 @@ def build_default_message_handler(
 
     if main_agent is not None:
 
-        def _agent_handle(message: TelegramInboundMessage) -> TelegramOutboundMessage:
+        def _agent_handle(
+            message: TelegramInboundMessage,
+        ) -> TelegramApprovalRequest | TelegramOutboundMessage:
             if message.text.strip().lower() in {"/help", "help"}:
                 resolved_history.record_user_message(message.chat_id, message.text)
                 response = TelegramOutboundMessage(text=render_help_text())
@@ -99,7 +310,10 @@ def build_default_message_handler(
                 chat_id=str(message.chat_id),
                 trigger_type="telegram_user",
                 history=history,
-                metadata={"telegram_message_id": str(message.message_id or "")},
+                metadata={
+                    "telegram_message_id": str(message.message_id or ""),
+                    "telegram_user_id": str(message.user_id or ""),
+                },
             )
             resolved_history.record_user_message(message.chat_id, message.text)
             agent_response = main_agent.handle(request)
@@ -108,6 +322,16 @@ def build_default_message_handler(
                 agent_response.final_answer,
                 metadata={"selected_agent": agent_response.selected_agent},
             )
+            approval_payload = agent_response.artifacts.get("telegram_approval_request")
+            if isinstance(approval_payload, dict):
+                return TelegramApprovalRequest(
+                    chat_id=message.chat_id,
+                    text=str(approval_payload.get("text", agent_response.final_answer)),
+                    action_id=_optional_str(approval_payload.get("actionId")),
+                    approve_callback_data=str(approval_payload.get("approveCallbackData", "")),
+                    reject_callback_data=str(approval_payload.get("rejectCallbackData", "")),
+                    reply_to_message_id=message.message_id,
+                )
             return TelegramOutboundMessage(text=agent_response.final_answer)
 
         return _agent_handle
@@ -144,8 +368,12 @@ def build_agent_message_handler_if_configured(
 
 
 async def _resolve_response(
-    value: TelegramOutboundMessage | str | None | Awaitable[TelegramOutboundMessage | str | None],
-) -> TelegramOutboundMessage | str | None:
+    value: TelegramApprovalRequest
+    | TelegramOutboundMessage
+    | str
+    | None
+    | Awaitable[TelegramApprovalRequest | TelegramOutboundMessage | str | None],
+) -> TelegramApprovalRequest | TelegramOutboundMessage | str | None:
     if inspect.isawaitable(value):
         return await value
     return value
@@ -159,3 +387,28 @@ async def _acknowledge_callback(update: Any) -> None:
     result = answer()
     if inspect.isawaitable(result):
         await result
+
+
+def _parse_callback_resolution(callback_data: str | None) -> tuple[str, str] | None:
+    if not callback_data:
+        return None
+    match = re.match(r"^pa:(approve|reject):(pa_[A-Za-z0-9]+)$", callback_data.strip())
+    if not match:
+        return None
+    return match.group(1), match.group(2)
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    return raw or None
+
+
+def _coerce_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

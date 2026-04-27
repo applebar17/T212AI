@@ -27,6 +27,7 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "y",
             "telegram-token",
             "12345",
+            "",
             "y",
             "y",
             "alpha-key",
@@ -45,6 +46,7 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["BROKER_PROVIDER"] == "none"
     assert updates["TELEGRAM_BOT_TOKEN"] == "telegram-token"
     assert updates["TELEGRAM_ALLOWED_CHAT_ID"] == "12345"
+    assert updates["TELEGRAM_ALLOWED_USER_ID"] == ""
     assert updates["YAHOO_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_API_KEY"] == "alpha-key"

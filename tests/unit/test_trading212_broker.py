@@ -23,8 +23,12 @@ from t212ai.brokers.trading212.tools import (
     Trading212ToolRuntime,
     t212_get_portfolio_snapshot,
     t212_place_order,
+    t212_prepare_cancel_action,
+    t212_prepare_order_action,
     t212_prepare_order,
 )
+from t212ai.pending_actions import PendingActionService
+from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 
 
 class FakeTrading212Api:
@@ -260,3 +264,83 @@ def test_execution_tool_requires_state_change_runtime_and_matching_fingerprint()
     assert mismatch_result.error.code == "fingerprint_mismatch"
     assert ok_result.status == "ok"
     assert len(api.placed_market_orders) == 1
+
+
+def test_prepare_order_action_persists_pending_action_and_returns_approval_payload(tmp_path) -> None:
+    api = FakeTrading212Api()
+    service = Trading212BrokerService(api)
+    engine = build_engine(f"sqlite:///{tmp_path / 'order-actions.db'}")
+    ensure_schema(engine)
+    pending_action_service = PendingActionService(build_session_factory(engine), broker_service=service)
+    runtime = Trading212ToolRuntime(
+        service=service,
+        pending_action_service=pending_action_service,
+        chat_id="123",
+        user_id=456,
+        user_message="buy one apple share",
+    )
+
+    result = t212_prepare_order_action(
+        order_type="MARKET",
+        side="BUY",
+        ticker="AAPL_US_EQ",
+        quantity="1",
+        limit_price=None,
+        stop_price=None,
+        time_validity="DAY",
+        extended_hours=False,
+        runtime=runtime,
+    )
+    pending = pending_action_service.get_awaiting_actions(chat_id="123", user_id=456)
+
+    assert result.status == "ok"
+    assert result.data is not None
+    assert len(pending) == 1
+    assert pending[0].original_user_message == "buy one apple share"
+    assert result.data["telegramApproval"]["actionId"] == pending[0].action_id
+
+
+def test_prepare_cancel_action_fails_loudly_when_multiple_pending_orders_are_ambiguous(tmp_path) -> None:
+    class AmbiguousOrdersApi(FakeTrading212Api):
+        def list_pending_orders(self) -> list[Order]:
+            return [
+                Order(
+                    id=10,
+                    ticker="MSFT_US_EQ",
+                    quantity=Decimal("1"),
+                    side=OrderSide.BUY,
+                    status=OrderStatus.NEW,
+                    type=OrderType.MARKET,
+                ),
+                Order(
+                    id=11,
+                    ticker="AAPL_US_EQ",
+                    quantity=Decimal("2"),
+                    side=OrderSide.BUY,
+                    status=OrderStatus.NEW,
+                    type=OrderType.LIMIT,
+                ),
+            ]
+
+    service = Trading212BrokerService(AmbiguousOrdersApi())
+    engine = build_engine(f"sqlite:///{tmp_path / 'cancel-actions.db'}")
+    ensure_schema(engine)
+    pending_action_service = PendingActionService(build_session_factory(engine), broker_service=service)
+    runtime = Trading212ToolRuntime(
+        service=service,
+        pending_action_service=pending_action_service,
+        chat_id="123",
+        user_message="cancel my order",
+    )
+
+    result = t212_prepare_cancel_action(
+        order_id=None,
+        selector=None,
+        reason=None,
+        runtime=runtime,
+    )
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "ambiguous_cancel_target"
+    assert pending_action_service.get_awaiting_actions(chat_id="123") == []

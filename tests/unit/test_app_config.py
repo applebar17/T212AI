@@ -58,6 +58,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "T212_API_KEY=file-key",
                 "T212_API_SECRET=file-secret",
                 "TELEGRAM_ALLOWED_CHAT_ID=123",
+                "TELEGRAM_ALLOWED_USER_ID=999",
                 "YAHOO_ENABLED=true",
                 "ALPHA_VANTAGE_ENABLED=true",
                 "ALPHA_VANTAGE_API_KEY=alpha-key",
@@ -81,6 +82,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "T212_API_KEY",
         "T212_API_SECRET",
         "TELEGRAM_ALLOWED_CHAT_ID",
+        "TELEGRAM_ALLOWED_USER_ID",
         "YAHOO_ENABLED",
         "ALPHA_VANTAGE_ENABLED",
         "ALPHA_VANTAGE_API_KEY",
@@ -104,6 +106,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.trading212_api_key == "file-key"
     assert settings.trading212_api_secret == "file-secret"
     assert settings.telegram_allowed_chat_id == "123"
+    assert settings.telegram_allowed_user_id == "999"
     assert settings.yahoo_enabled
     assert settings.alpha_vantage_enabled
     assert settings.alpha_vantage_api_key == "alpha-key"

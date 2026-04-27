@@ -138,6 +138,9 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
 
     assert runtime.guideline_memory_service.render_markdown() == ""
     assert runtime.history_manager is not None
+    assert runtime.db_engine is not None
+    assert runtime.db_session_factory is not None
+    assert runtime.pending_action_service is not None
     assert runtime.genai_client is None
     assert runtime.main_orchestrator is None
     assert "genai_client" in runtime.component_errors
@@ -166,6 +169,9 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.agent_reasoner is not None
     assert runtime.agent_judge is not None
     assert runtime.main_orchestrator is not None
+    assert runtime.db_engine is not None
+    assert runtime.db_session_factory is not None
+    assert runtime.pending_action_service is not None
     assert runtime.has_agent_runtime
     assert runtime.component_errors == {}
 
@@ -204,6 +210,7 @@ def test_build_runtime_builds_optional_provider_stacks(
 
     assert runtime.trading212_client is not None
     assert runtime.trading212_service is not None
+    assert runtime.pending_action_service is not None
     assert runtime.portfolio_summary_workflow is not None
     assert runtime.pending_orders_review_workflow is not None
     assert runtime.yahoo_client is not None

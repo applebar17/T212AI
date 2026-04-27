@@ -71,5 +71,23 @@ class TelegramMessenger:
             text=request.text,
             parse_mode=request.parse_mode,
             reply_markup=reply_markup,
+            reply_to_message_id=request.reply_to_message_id,
             disable_web_page_preview=True,
+        )
+
+    async def edit_message(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        parse_mode: str | None = None,
+    ) -> Any:
+        return await self.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode=parse_mode,
+            disable_web_page_preview=True,
+            reply_markup=None,
         )

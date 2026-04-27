@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from t212ai.brokers.trading212 import Trading212BrokerService
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
@@ -12,6 +13,7 @@ from t212ai.genai.tracing import (
     set_trace_name,
     traceable,
 )
+from t212ai.pending_actions import PendingActionService
 
 from .base import AgentProfile, BaseAgent
 from .guideline_memory import GuidelineMemoryAgent
@@ -183,6 +185,8 @@ def build_specialist_agents(
     guideline_service: GuidelineMemoryService | None = None,
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None,
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
+    broker_service: Trading212BrokerService | None = None,
+    pending_action_service: PendingActionService | None = None,
 ) -> SpecialistAgents:
     if guideline_service is None:
         guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
@@ -196,6 +200,8 @@ def build_specialist_agents(
             reasoner,
             guideline_service=guideline_service,
             pending_orders_review_workflow=pending_orders_review_workflow,
+            broker_service=broker_service,
+            pending_action_service=pending_action_service,
         ),
         market=MarketAnalystAgent(reasoner, guideline_service=guideline_service),
         company=CompanyAnalystAgent(reasoner, guideline_service=guideline_service),

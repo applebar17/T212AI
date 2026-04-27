@@ -2,15 +2,33 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+import sys
+from types import ModuleType
+
+from t212ai.brokers.trading212.models import (
+    Order,
+    OrderActionResult,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PreparedOrder,
+    TimeValidity,
+)
+from t212ai.pending_actions import PendingActionService
+from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 
 from t212ai.telegram import (
     TelegramAccessPolicy,
+    TelegramApprovalRequest,
     TelegramBotService,
     TelegramInboundMessage,
     TelegramOutboundMessage,
     TelegramUpdateRouter,
     build_default_message_handler,
 )
+from t212ai.agent.history import ChatHistoryManager
 
 
 @dataclass(slots=True)
@@ -39,18 +57,81 @@ class FakeUpdate:
     callback_query: object | None = None
 
 
+@dataclass(slots=True)
+class FakeCallbackQuery:
+    data: str
+    message: FakeMessage
+
+    async def answer(self) -> None:
+        return None
+
+
 class FakeBot:
     def __init__(self) -> None:
         self.sent_messages: list[dict[str, object]] = []
+        self.edited_messages: list[dict[str, object]] = []
 
     async def send_message(self, **kwargs: object) -> dict[str, object]:
-        self.sent_messages.append(kwargs)
-        return kwargs
+        payload = dict(kwargs)
+        payload.setdefault("message_id", len(self.sent_messages) + 1000)
+        self.sent_messages.append(payload)
+        return payload
+
+    async def edit_message_text(self, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs)
+        self.edited_messages.append(payload)
+        return payload
 
 
 @dataclass(slots=True)
 class FakeContext:
     bot: FakeBot
+
+
+class FakeExecutionBroker:
+    def __init__(self) -> None:
+        self.submitted_orders: list[PreparedOrder] = []
+        self.cancelled_order_ids: list[int] = []
+
+    def submit_prepared_order(self, prepared_order: PreparedOrder) -> OrderActionResult:
+        self.submitted_orders.append(prepared_order)
+        return OrderActionResult(
+            action="submit_order",
+            status="submitted",
+            order_id=111,
+            message="Submitted.",
+        )
+
+    def cancel_order(self, order_id: int) -> OrderActionResult:
+        self.cancelled_order_ids.append(order_id)
+        return OrderActionResult(
+            action="cancel_order",
+            status="submitted",
+            order_id=order_id,
+            message="Cancelled.",
+        )
+
+
+def _pending_action_service(tmp_path) -> tuple[PendingActionService, FakeExecutionBroker]:
+    engine = build_engine(f"sqlite:///{tmp_path / 'telegram-approvals.db'}")
+    ensure_schema(engine)
+    broker = FakeExecutionBroker()
+    return PendingActionService(build_session_factory(engine), broker_service=broker), broker
+
+
+def _prepared_order() -> PreparedOrder:
+    return PreparedOrder(
+        order_type=OrderType.MARKET,
+        side=OrderSide.BUY,
+        ticker="TSLA_US_EQ",
+        signed_quantity=Decimal("1"),
+        request_payload={
+            "ticker": "TSLA_US_EQ",
+            "quantity": 1.0,
+            "extendedHours": False,
+        },
+        order_fingerprint="fingerprint123456",
+    )
 
 
 def test_access_policy_fails_closed_without_allowed_chat_id() -> None:
@@ -68,6 +149,13 @@ def test_access_policy_accepts_comma_separated_chat_ids() -> None:
     assert policy.is_allowed(123)
     assert policy.is_allowed("456")
     assert not policy.is_allowed(789)
+
+
+def test_access_policy_can_enforce_optional_allowed_user_ids() -> None:
+    policy = TelegramAccessPolicy.from_allowed_ids("123", "456, 789")
+
+    assert policy.is_allowed(123, 456)
+    assert not policy.is_allowed(123, 999)
 
 
 def test_default_handler_renders_help_for_help_command() -> None:
@@ -132,3 +220,197 @@ def test_bot_service_can_be_configured_without_importing_telegram_package() -> N
 
     assert service.token == "token"
     assert service.access_policy.is_allowed(123)
+
+
+def test_router_sends_approval_request_and_attaches_message_id(tmp_path, monkeypatch) -> None:
+    pending_action_service, _broker = _pending_action_service(tmp_path)
+    fake_telegram = ModuleType("telegram")
+
+    class InlineKeyboardButton:
+        def __init__(self, text: str, callback_data: str) -> None:
+            self.text = text
+            self.callback_data = callback_data
+
+    class InlineKeyboardMarkup:
+        def __init__(self, buttons) -> None:
+            self.buttons = buttons
+
+    fake_telegram.InlineKeyboardButton = InlineKeyboardButton
+    fake_telegram.InlineKeyboardMarkup = InlineKeyboardMarkup
+    monkeypatch.setitem(sys.modules, "telegram", fake_telegram)
+    action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=1,
+        prepared_order=_prepared_order(),
+        original_user_message="buy tesla",
+        summary_text="Prepared TSLA order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: TelegramApprovalRequest(
+            chat_id=123,
+            text="Approve this prepared order.",
+            action_id=action.action_id,
+            approve_callback_data=f"pa:approve:{action.action_id}",
+            reject_callback_data=f"pa:reject:{action.action_id}",
+        ),
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("buy tsla"),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    stored = pending_action_service.get_action(action.action_id)
+
+    assert stored is not None
+    assert stored.approval_message_id == 1000
+
+
+def test_router_callback_approve_executes_exact_stored_action_and_projects_history(tmp_path) -> None:
+    pending_action_service, broker = _pending_action_service(tmp_path)
+    history = ChatHistoryManager()
+    action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=1,
+        prepared_order=_prepared_order(),
+        original_user_message="buy tesla",
+        summary_text="Prepared TSLA order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    pending_action_service.attach_approval_message_id(action.action_id, 501)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("prepared order", message_id=501),
+        callback_query=FakeCallbackQuery(
+            data=f"pa:approve:{action.action_id}",
+            message=FakeMessage("prepared order", message_id=501),
+        ),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    window = history.get_context_window(123)
+    stored = pending_action_service.get_action(action.action_id)
+
+    assert len(broker.submitted_orders) == 1
+    assert stored is not None
+    assert stored.state.value == "submitted"
+    assert [message.content for message in window.messages] == [
+        "yes",
+        "The prepared order was approved and submitted to Trading 212.",
+    ]
+    assert bot.edited_messages[0]["message_id"] == 501
+    assert bot.sent_messages[-1]["text"] == "The prepared order was approved and submitted to Trading 212."
+
+
+def test_router_text_fallback_rejects_single_pending_action(tmp_path) -> None:
+    pending_action_service, broker = _pending_action_service(tmp_path)
+    history = ChatHistoryManager()
+    action = pending_action_service.create_cancel_action(
+        chat_id="123",
+        user_id=1,
+        target_order=Order(
+            id=77,
+            ticker="MSFT_US_EQ",
+            side=OrderSide.BUY,
+            status=OrderStatus.NEW,
+            type=OrderType.LIMIT,
+            quantity=Decimal("2"),
+            time_in_force=TimeValidity.DAY,
+        ),
+        original_user_message="cancel it",
+        summary_text="Prepared cancellation.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    pending_action_service.attach_approval_message_id(action.action_id, 601)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("no", message_id=700),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    window = history.get_context_window(123)
+    stored = pending_action_service.get_action(action.action_id)
+
+    assert broker.cancelled_order_ids == []
+    assert stored is not None
+    assert stored.state.value == "rejected"
+    assert [message.content for message in window.messages] == [
+        "no",
+        "The pending action was rejected and discarded.",
+    ]
+    assert bot.sent_messages[-1]["reply_to_message_id"] == 700
+
+
+def test_router_yes_is_ambiguous_when_multiple_pending_actions_exist(tmp_path) -> None:
+    pending_action_service, broker = _pending_action_service(tmp_path)
+    history = ChatHistoryManager()
+    for _ in range(2):
+        pending_action_service.create_submit_action(
+            chat_id="123",
+            user_id=1,
+            prepared_order=_prepared_order(),
+            original_user_message="buy tesla",
+            summary_text="Prepared TSLA order.",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("yes", message_id=701),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+
+    assert broker.submitted_orders == []
+    assert "Multiple pending actions" in str(bot.sent_messages[-1]["text"])
+
+
+def test_router_blocks_unauthorized_user_when_allowed_user_id_is_configured(tmp_path) -> None:
+    pending_action_service, _broker = _pending_action_service(tmp_path)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_ids(
+            "123",
+            "1",
+            silent_unauthorized=False,
+        ),
+        message_handler=lambda _message: "should not send",
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(999),
+        effective_message=FakeMessage("hello"),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+
+    assert "not authorized" in str(bot.sent_messages[-1]["text"]).lower()
