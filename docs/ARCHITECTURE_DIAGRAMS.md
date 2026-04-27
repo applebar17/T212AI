@@ -15,10 +15,12 @@ flowchart TD
     RT --> ASSESS[Capability Assessment and Preflight]
     RT --> GUIDE[Guideline Memory]
     RT --> HIST[Chat History Manager]
+    RT --> DB[SQLite Runtime DB]
     RT --> GENAI[GenAI Client]
     RT --> REASON[Agent Reasoner]
     RT --> JUDGE[Agent Judge]
     RT --> ORCH[Main Orchestrator Agent]
+    RT --> PACT[Pending Action Service]
 
     ORCH --> PORT[Portfolio Analyst Agent]
     ORCH --> ORDER[Order Agent]
@@ -35,6 +37,7 @@ flowchart TD
     BOT --> TG[Telegram Bridge]
     TG --> HIST
     TG --> ORCH
+    TG --> PACT
 ```
 
 ## 2. Current Wiring Reality
@@ -48,6 +51,8 @@ flowchart LR
     RT --> GDOC[Guideline Document Store]
     RT --> GSVC[Guideline Memory Service]
     RT --> HIST[Chat History Manager]
+    RT --> DB[DB Engine and Session Factory]
+    RT --> PACT[Pending Action Service]
     RT --> GENAI[GenAI Client]
     RT --> REASON[Agent Reasoner]
     RT --> JUDGE[Agent Judge]
@@ -57,21 +62,25 @@ flowchart LR
     RT --> Y[Yahoo Client]
     RT --> A[Alpha Vantage Client]
     RT --> RD[Reddit Client and Service]
+    RT --> W1[Portfolio Summary Workflow]
+    RT --> W2[Pending Orders Review Workflow]
 
     BOT[TelegramBotService] --> TG[Telegram Bridge]
     TG --> ORCH
     TG --> HIST
+    TG --> PACT
 
-    WF[Workflow Layer]
-    DB[SQLite and Alembic]
-    APPROVAL[Approval and Proposal Flow]
+    APPROVAL[Telegram Approval Flow]
+    PROPOSAL[Proposal Lifecycle]
+    RECON[Execution Reconciliation]
 
     classDef wired fill:#dff3e4,stroke:#2d6a4f,color:#1b4332;
     classDef partial fill:#fff3cd,stroke:#b08900,color:#5f3b00;
     classDef missing fill:#f8d7da,stroke:#842029,color:#58151c;
 
-    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,GENAI,REASON,JUDGE,ORCH,T212,Y,A,RD,BOT,TG wired;
-    class WF,DB,APPROVAL missing;
+    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,DB,PACT,GENAI,REASON,JUDGE,ORCH,T212,Y,A,RD,BOT,TG,W1,W2 wired;
+    class APPROVAL partial;
+    class PROPOSAL,RECON missing;
 ```
 
 ## 3. Current Startup Flow
@@ -102,6 +111,7 @@ sequenceDiagram
     participant History
     participant Orchestrator
     participant Specialist
+    participant Workflow
 
     User->>Telegram: Natural-language request
     Telegram->>History: Load recent chat window
@@ -109,6 +119,8 @@ sequenceDiagram
     Orchestrator->>Orchestrator: Classify intent and route
     Orchestrator->>Specialist: Delegated request
     Specialist->>Specialist: Build plan
+    Specialist->>Workflow: Optional thin deterministic flow
+    Workflow-->>Specialist: Structured result
     Specialist-->>Orchestrator: AgentResponse
     Orchestrator-->>Telegram: Final answer
     Telegram->>History: Store user and assistant messages
@@ -132,10 +144,10 @@ flowchart LR
 flowchart TB
     A[Runtime is now composed] --> B[Agents can route and plan]
     B --> C[Providers are available as building blocks]
-    C --> D[But workflows are still placeholders]
-    D --> E[So specialists mostly return plans]
-    E --> F[No proposal lifecycle persistence yet]
-    F --> G[No approval or execution pipeline yet]
+    C --> D[Thin read flows now exist for portfolio summary and pending orders review]
+    D --> E[Thin execution safety flow exists for prepared actions]
+    E --> F[But proposal lifecycle persistence is still missing]
+    F --> G[Execution reconciliation and audit depth are still missing]
 ```
 
 ## 7. V1 Execution Safety Model
@@ -152,13 +164,14 @@ sequenceDiagram
     Telegram->>OrderAgent: Delegated order request
     OrderAgent->>Broker: prepare_order
     Broker-->>OrderAgent: Prepared order details
-    OrderAgent->>PendingAction: Save exact prepared action
-    OrderAgent-->>Telegram: "I prepared this order. Do you confirm?"
-    Telegram-->>User: Confirmation request
-    User->>Telegram: "Yes, proceed"
-    Telegram->>PendingAction: Resolve latest pending prepared action
+    OrderAgent->>PendingAction: Persist exact prepared action
+    OrderAgent-->>Telegram: Approval request with buttons and chat fallback
+    Telegram-->>User: Approve / Reject
+    User->>Telegram: Button click or yes/no fallback
+    Telegram->>PendingAction: Resolve exact stored pending action
     PendingAction->>Broker: submit exact prepared action
     Broker-->>Telegram: Execution result
+    Telegram->>PendingAction: Persist final state
     Telegram-->>User: Submitted or failed
 ```
 

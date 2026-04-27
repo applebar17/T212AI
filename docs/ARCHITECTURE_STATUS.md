@@ -15,8 +15,8 @@ The current state is:
 - agent baseline: in place
 - provider integration baseline: in place
 - persistent guideline memory: in place
-- workflow execution layer: still missing
-- operational persistence and approval flow: still missing
+- workflow execution layer: partially in place
+- operational persistence and approval flow: partially in place
 
 ## Current Architecture
 
@@ -82,9 +82,7 @@ Current status:
 - Telegram no longer assembles GenAI and the orchestrator by itself
 
 Missing:
-- workflow service wiring
-- DB/session wiring
-- proposal/approval service wiring
+- unified proposal/execution service wiring
 - unified market-context service
 
 ### 3. Telegram Layer
@@ -96,15 +94,25 @@ Implemented:
 - command/help baseline
 - runtime-backed free-text path into the orchestrator
 - runtime-owned chat history reuse
+- inline approval/rejection buttons for prepared actions
+- chat fallback for approval/rejection:
+  - `yes`
+  - `no`
+  - `si`
+  - `sì`
+  - `approve <action_id>`
+  - `reject <action_id>`
+- optional `TELEGRAM_ALLOWED_USER_ID`
 
 Current status:
 - Telegram is correctly acting as a transport/bridge layer
 - the bot now consumes a ready runtime instead of building a second hidden agent stack
+- Telegram can now resolve deterministic pending-action approvals before normal LLM routing
 
 Missing:
 - richer command set
-- approval UX for proposals and executions
-- persisted proposal/execution integration
+- proposal-aware approval UX
+- richer execution result and reconciliation UX
 
 ### 4. Agent Layer
 
@@ -125,9 +133,12 @@ Current status:
 - the agent architecture is in place and runtime-owned
 - routing and planning are consistent
 - persistent guideline context is available to the orchestrator and specialists
+- `OrderAgent` now has a deterministic higher-level order-action path for:
+  - prepared order submission
+  - prepared order cancellation
 
 Missing:
-- specialists still mainly return plans rather than executing real workflows
+- company and market specialists are still mostly plan/tool-driven
 - the judge is implemented but not yet meaningfully plugged into critical pipelines
 
 ### 5. Data And Broker Integrations
@@ -142,6 +153,9 @@ Implemented:
 Current status:
 - the provider building blocks exist and are runtime-wired
 - configuration and degraded-mode behavior are clearer than before
+- Trading 212 now supports both:
+  - low-level broker tools
+  - higher-level conversational order-action tools used by the order specialist
 
 Missing:
 - unified market-context object across providers
@@ -156,33 +170,34 @@ Implemented:
 - reusable structured document store
 - CRUD operations for guideline nodes
 - scoped Markdown rendering for prompt injection
+- SQLite runtime database wiring
+- Alembic baseline for application data
+- persistent pending-action records for execution safety
 
 Current status:
 - long-term policy/config-style memory is in place
-- this remains the only application persistence that is actually operational today
+- long-term guideline memory and pending-action operational persistence are both now in place
 
 Missing:
-- SQLite operational persistence
-- Alembic migrations for application data
 - proposal storage
+- approval event storage
 - execution attempt storage
-- approval storage
 - reconciliation/audit persistence
 
 ### 7. Workflows
 
 Implemented:
-- workflow modules exist as placeholders
+- portfolio summary workflow
+- pending orders review workflow
+- thin deterministic execution safety flow around prepared actions
 
 Current status:
-- `proposal.py`, `order_review.py`, `attention_scan.py`, and `digest.py` are still placeholders
-- there is still no real workflow layer connecting agents to deterministic Python execution logic
-- this is acceptable for v1 as long as we keep the flow strategy intentionally lightweight
+- there is now a real thin workflow layer for the first broker-authoritative read paths
+- portfolio and order specialists can already return real broker-backed outputs instead of only plans
+- the broader workflow layer is still intentionally light
 
 Missing:
 - thin read-oriented flows where they give immediate value
-- portfolio summary flow
-- pending orders review flow
 - company snapshot flow
 - market snapshot flow
 - proposal generation workflow
@@ -201,15 +216,27 @@ Implemented:
 - Trading 212 `place_order`
 - Trading 212 `cancel_order`
 - state-changing tool gating
+- persistent pending-action records
+- higher-level Trading 212 order-action tools:
+  - `t212_prepare_order_action`
+  - `t212_prepare_cancel_action`
+- Telegram approval buttons
+- Telegram text fallback approval/rejection
+- deterministic approval resolution against exact stored prepared actions
+- optional Telegram user-level authorization
 
 Current status:
-- execution safety is partially in place at the tool level
-- the intended v1 UX is chat-based confirmation, not necessarily Telegram buttons
+- execution safety is no longer only at the raw tool level
+- the app now supports:
+  - prepare exact action
+  - persist pending action
+  - approve through button or chat fallback
+  - execute that exact stored action without a fresh LLM redesign
 
 Agreed direction:
 - assistant prepares an action first
 - assistant presents the exact prepared action back to the user
-- user confirms in chat, for example: `Yes, proceed`
+- user confirms through Telegram buttons or chat fallback
 - the system should execute the already prepared action, not reinterpret the trade from scratch through a new LLM pass
 
 Required structured behavior:
@@ -218,22 +245,23 @@ Required structured behavior:
 - treat confirmation as approval of that exact pending action
 - avoid letting a simple `yes` trigger fresh free-form trade design
 
-Expected internal state shape later:
-- `draft`
-- `prepared`
+Current internal state shape:
 - `awaiting_approval`
 - `approved`
 - `submitted`
-- `reconciled`
 - `rejected`
 - `expired`
+- `failed`
+
+Expected later extension:
+- `draft`
+- `prepared`
+- `reconciled`
 
 Missing:
-- persisted proposal or pending-action records
-- deterministic approval resolution
-- expiry/staleness handling
+- proposal records
 - final reconciliation flow
-- optional Telegram button UX on top of the same approval model
+- execution audit trail beyond the pending-action record
 
 ## Current State Vs Target
 
@@ -246,25 +274,23 @@ Missing:
 | External data | multi-provider research/context layer | baseline done, not unified |
 | Orchestrator/specialists | routed agent-of-agents design | done at baseline |
 | Persistent memory | long-term guidelines/config memory | done at baseline |
-| Workflow layer | thin deterministic flows for repeated/sensitive paths | not done |
+| Workflow layer | thin deterministic flows for repeated/sensitive paths | partially done |
 | Proposal engine | structured persisted proposals | partially designed, not operational |
-| Approval flow | chat-based approval on deterministic prepared actions | not done |
-| SQLite/Alembic | operational persistence | not done |
-| Demo execution pipeline | proposal -> approval -> execution -> reconciliation | not done |
+| Approval flow | approval on deterministic prepared actions | baseline done for pending actions |
+| SQLite/Alembic | operational persistence | partially done |
+| Demo execution pipeline | proposal -> approval -> execution -> reconciliation | partially done, reconciliation missing |
 | Scheduled jobs | digests, scans, alerts | not done |
 
 ## Main Missing Pieces
 
 In priority order, the main gaps are now:
 
-1. Implement thin deterministic flows only where they add immediate value.
-2. Keep specialist agents mostly tool-driven, but add structure to sensitive paths.
-3. Add SQLite/Alembic persistence.
-4. Implement the proposal or pending-action lifecycle.
-5. Implement chat-based approval resolution for prepared actions.
-6. Add demo execution and reconciliation.
-7. Add workflow-level provider composition as repeated patterns become clear.
-8. Add scheduled jobs only after the manual path works end-to-end.
+1. Refresh the docs and diagrams so they match the implemented runtime and approval flow.
+2. Add proposal persistence and proposal lifecycle on top of the current pending-action baseline.
+3. Add execution-event and reconciliation persistence.
+4. Implement company and market snapshot thin flows only if they provide immediate value.
+5. Add workflow-level provider composition as repeated patterns become clear.
+6. Add scheduled jobs only after the manual path works end-to-end.
 
 ## Practical Read On The Repo
 
@@ -275,31 +301,27 @@ The repo now has:
 - real provider integrations
 
 The repo still does not have:
-- thin operational flows for critical paths
-- persisted proposal/execution state
-- approval-driven execution
+- persisted proposal state
+- reconciliation-grade execution state
+- unified market context
+- scheduled operational flows
 
 So the current state is best described as:
 - architectural baseline: solid
 - startup/runtime baseline: solid
-- operational behavior: still partial by design
+- operational behavior: partially working, still incomplete by design
 
 ## Recommended Next Build Order
 
-1. Implement the first real read-only workflows:
-   - portfolio summary
-   - pending orders review
-2. Implement thin execution safety flow:
-   - prepare action
-   - chat approval
-   - execute exact prepared action
-3. Add SQLite/Alembic persistence.
-4. Add proposal or pending-action creation and retrieval.
-5. Add company and market snapshot flows only if usage shows they are worth structuring now.
-6. Add demo execution and reconciliation.
+1. Add proposal persistence and retrieval.
+2. Add proposal approval/rejection lifecycle on top of the existing pending-action flow.
+3. Add execution attempt and reconciliation persistence.
+4. Add company and market snapshot thin flows only if usage shows they are worth structuring now.
+5. Add demo execution journaling and audit-friendly reconstruction.
+6. Add scheduled jobs only after the manual path is complete.
 
 ## Short Conclusion
 
 The architecture direction remains correct.
 
-The main missing layer is no longer runtime composition. That baseline is now in place. The next real gap is operational: a light workflow strategy, persistence, prepared-action lifecycle, and approval-driven execution.
+The main missing layer is no longer runtime composition, first workflows, or the initial prepared-action approval flow. Those baselines are now in place. The next real gap is operational depth: proposal lifecycle, execution/reconciliation persistence, and richer thin flows where they are clearly worth the added structure.
