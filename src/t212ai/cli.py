@@ -20,6 +20,7 @@ from .app.config import (
     load_env_file,
     parse_env_file,
 )
+from .app.runtime import build_runtime
 
 
 LLM_PROVIDER_OPTIONS = (
@@ -291,11 +292,12 @@ def command_run_bot(args: argparse.Namespace) -> int:
     if args.env_file is not None:
         load_env_file(args.env_file, override=True)
     ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
 
     try:
         from .telegram import TelegramBotService
 
-        TelegramBotService.from_settings(settings).run_polling()
+        TelegramBotService.from_settings(settings, runtime=runtime).run_polling()
     except Exception as exc:  # pragma: no cover - startup safety net
         print(f"brokerai run bot failed: {exc}")
         return 1

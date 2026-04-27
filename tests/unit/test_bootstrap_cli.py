@@ -173,8 +173,9 @@ def test_run_bot_valid_preflight_invokes_telegram_service(
 
     class FakeTelegramBotService:
         @classmethod
-        def from_settings(cls, settings):
+        def from_settings(cls, settings, runtime=None):
             calls["settings"] = settings
+            calls["runtime"] = runtime
             return cls()
 
         def run_polling(self) -> None:
@@ -188,6 +189,7 @@ def test_run_bot_valid_preflight_invokes_telegram_service(
     assert exit_code == 0
     assert calls["ran"] is True
     assert getattr(calls["settings"], "llm_provider") == "openai"
+    assert calls["runtime"] is not None
 
 
 def test_package_main_delegates_to_cli(monkeypatch) -> None:

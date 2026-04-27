@@ -1,30 +1,181 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from t212ai.agent import AgentJudge, AgentReasoner, ChatHistoryManager, MainOrchestratorAgent
+from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
+from t212ai.data_sources.alpha_vantage import AlphaVantageClient
+from t212ai.data_sources.reddit import RedditClient, RedditResearchService
+from t212ai.data_sources.yahoo import YahooFinanceClient
+from t212ai.genai import GenAIClient, genai_settings_from_app_settings
 from t212ai.guidelines.service import (
     GuidelineMemoryService,
     build_empty_guideline_document,
 )
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 
+from .bootstrap import (
+    ConfigAssessment,
+    StartupPreflight,
+    assess_settings,
+    ensure_runtime_directories,
+    preflight_run_bot,
+)
 from .config import AppSettings, get_app_settings
 
 
 @dataclass(slots=True)
 class AppRuntime:
     settings: AppSettings
+    config_assessment: ConfigAssessment
+    startup_preflight: StartupPreflight
     guideline_document_store: FileBackedStructuredDocumentStore
     guideline_memory_service: GuidelineMemoryService
+    history_manager: ChatHistoryManager
+    genai_client: GenAIClient | None = None
+    agent_reasoner: AgentReasoner | None = None
+    agent_judge: AgentJudge | None = None
+    main_orchestrator: MainOrchestratorAgent | None = None
+    trading212_client: Trading212Client | None = None
+    trading212_service: Trading212BrokerService | None = None
+    yahoo_client: YahooFinanceClient | None = None
+    alpha_vantage_client: AlphaVantageClient | None = None
+    reddit_client: RedditClient | None = None
+    reddit_service: RedditResearchService | None = None
+    component_errors: dict[str, str] = field(default_factory=dict)
+    startup_notes: tuple[str, ...] = ()
+
+    @property
+    def has_agent_runtime(self) -> bool:
+        return (
+            self.genai_client is not None
+            and self.agent_reasoner is not None
+            and self.main_orchestrator is not None
+        )
+
+    @property
+    def has_broker_runtime(self) -> bool:
+        return self.trading212_service is not None
+
+    @property
+    def has_market_data_runtime(self) -> bool:
+        return any(
+            component is not None
+            for component in (
+                self.yahoo_client,
+                self.alpha_vantage_client,
+                self.reddit_service,
+            )
+        )
+
+    @property
+    def missing_components(self) -> tuple[str, ...]:
+        return tuple(sorted(self.component_errors))
+
+
 def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
-    settings = settings or get_app_settings()
+    resolved_settings = settings or get_app_settings()
+    config_assessment = assess_settings(resolved_settings)
+    startup_preflight = preflight_run_bot(config_assessment)
+    ensure_runtime_directories(resolved_settings)
+
     guideline_document_store = FileBackedStructuredDocumentStore(
-        settings.guideline_memory_path,
+        resolved_settings.guideline_memory_path,
         document_factory=build_empty_guideline_document,
     )
     guideline_memory_service = GuidelineMemoryService(guideline_document_store)
-    return AppRuntime(
-        settings=settings,
+    history_manager = ChatHistoryManager()
+    component_errors: dict[str, str] = {}
+    startup_notes = _collect_startup_notes(config_assessment)
+
+    runtime = AppRuntime(
+        settings=resolved_settings,
+        config_assessment=config_assessment,
+        startup_preflight=startup_preflight,
         guideline_document_store=guideline_document_store,
         guideline_memory_service=guideline_memory_service,
+        history_manager=history_manager,
+        component_errors=component_errors,
+        startup_notes=startup_notes,
     )
+
+    _build_genai_stack(runtime)
+    _build_broker_stack(runtime)
+    _build_data_source_stack(runtime)
+    _build_agent_stack(runtime)
+    return runtime
+
+
+def _build_genai_stack(runtime: AppRuntime) -> None:
+    try:
+        client = GenAIClient(settings=genai_settings_from_app_settings(runtime.settings))
+    except Exception as exc:
+        runtime.component_errors["genai_client"] = str(exc)
+        return
+
+    runtime.genai_client = client
+    runtime.agent_reasoner = AgentReasoner(client)
+    runtime.agent_judge = AgentJudge(runtime.agent_reasoner)
+
+
+def _build_broker_stack(runtime: AppRuntime) -> None:
+    if runtime.settings.broker_provider != "trading212":
+        return
+    try:
+        client = Trading212Client.from_settings(runtime.settings)
+        service = Trading212BrokerService(client)
+    except Exception as exc:
+        runtime.component_errors["trading212"] = str(exc)
+        return
+
+    runtime.trading212_client = client
+    runtime.trading212_service = service
+
+
+def _build_data_source_stack(runtime: AppRuntime) -> None:
+    if runtime.settings.yahoo_enabled:
+        try:
+            runtime.yahoo_client = YahooFinanceClient()
+        except Exception as exc:  # pragma: no cover - constructor is simple
+            runtime.component_errors["yahoo"] = str(exc)
+
+    if runtime.settings.alpha_vantage_enabled:
+        try:
+            runtime.alpha_vantage_client = AlphaVantageClient.from_settings(runtime.settings)
+        except Exception as exc:
+            runtime.component_errors["alpha_vantage"] = str(exc)
+
+    if runtime.settings.reddit_enabled:
+        try:
+            client = RedditClient.from_settings(runtime.settings)
+            runtime.reddit_client = client
+            runtime.reddit_service = RedditResearchService(client)
+        except Exception as exc:
+            runtime.component_errors["reddit"] = str(exc)
+
+
+def _build_agent_stack(runtime: AppRuntime) -> None:
+    if runtime.agent_reasoner is None:
+        return
+    try:
+        runtime.main_orchestrator = MainOrchestratorAgent(
+            runtime.agent_reasoner,
+            guideline_service=runtime.guideline_memory_service,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        runtime.component_errors["main_orchestrator"] = str(exc)
+
+
+def _collect_startup_notes(assessment: ConfigAssessment) -> tuple[str, ...]:
+    notes: list[str] = list(assessment.warnings)
+    for provider in assessment.providers.values():
+        notes.extend(provider.notes)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for note in notes:
+        normalized = str(note).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return tuple(deduped)

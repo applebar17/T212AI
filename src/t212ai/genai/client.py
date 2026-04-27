@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterable
 
 from pydantic import BaseModel
 
-from t212ai.app.config import load_env_file
+from t212ai.app.config import AppSettings, load_env_file
 
 from .models import ToolError, ToolResult, ToolSpec
 from .tokenizer import TokenCounter
@@ -102,6 +102,33 @@ def get_genai_settings() -> GenAISettings:
         genai_tool_call_timeout_seconds=_env_float(
             "GENAI_TOOL_CALL_TIMEOUT_SECONDS", 30.0
         ),
+    )
+
+
+def genai_settings_from_app_settings(settings: AppSettings) -> GenAISettings:
+    embed_dimensions = None
+    raw_dimensions = str(settings.openai_embed_dimensions or "").strip()
+    if raw_dimensions:
+        try:
+            embed_dimensions = int(raw_dimensions)
+        except ValueError:
+            embed_dimensions = None
+
+    return GenAISettings(
+        openai_api_key=settings.openai_api_key,
+        openai_embed_model=settings.openai_embed_model,
+        chat_model_default=settings.openai_chat_model_default,
+        chat_model_smart=settings.openai_chat_model_smart,
+        chat_model_reasoning=settings.openai_chat_model_reasoning,
+        embed_dimensions=embed_dimensions,
+        is_azure=(
+            str(settings.llm_provider or "").strip().lower() == "azure_openai"
+            or bool(settings.azure_openai_enabled)
+        ),
+        azure_openai_endpoint=settings.azure_openai_endpoint,
+        azure_openai_api_key=settings.azure_openai_api_key,
+        azure_openai_api_version=settings.azure_openai_api_version,
+        azure_openai_embed_deployment=settings.azure_openai_embed_deployment,
     )
 
 

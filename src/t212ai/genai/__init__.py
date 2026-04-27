@@ -1,6 +1,11 @@
 """Reusable GenAI helpers, client wrapper, and token utilities."""
 
-from .client import GenAIClient, GenAISettings, get_genai_settings
+from .client import (
+    GenAIClient,
+    GenAISettings,
+    genai_settings_from_app_settings,
+    get_genai_settings,
+)
 from .tokenizer import (
     TokenCounter,
     count_content_tokens,
@@ -12,6 +17,7 @@ from .tokenizer import (
 __all__ = [
     "GenAIClient",
     "GenAISettings",
+    "genai_settings_from_app_settings",
     "get_genai_settings",
     "TokenCounter",
     "count_text_tokens",

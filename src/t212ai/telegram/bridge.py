@@ -10,7 +10,6 @@ from typing import Any, TypeAlias
 from t212ai.agent.history import ChatHistoryManager
 from t212ai.agent.intents import IntentKind
 from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
-from t212ai.agent.reasoning import AgentReasoner
 from t212ai.agent.schemas import AgentRequest
 from t212ai.app.runtime import AppRuntime, build_runtime
 
@@ -134,20 +133,13 @@ def build_agent_message_handler_if_configured(
     history_manager: ChatHistoryManager | None = None,
     runtime: AppRuntime | None = None,
 ) -> TelegramMessageHandler:
-    try:
-        from t212ai.genai.client import GenAIClient
-
-        resolved_runtime = runtime or build_runtime()
-        reasoner = AgentReasoner(GenAIClient())
-    except RuntimeError:
+    resolved_runtime = runtime or build_runtime()
+    if resolved_runtime.main_orchestrator is None:
         return build_default_message_handler(history_manager=history_manager)
 
     return build_default_message_handler(
-        main_agent=MainOrchestratorAgent(
-            reasoner,
-            guideline_service=resolved_runtime.guideline_memory_service,
-        ),
-        history_manager=history_manager,
+        main_agent=resolved_runtime.main_orchestrator,
+        history_manager=history_manager or resolved_runtime.history_manager,
     )
 
 
