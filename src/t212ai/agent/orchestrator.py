@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from t212ai.brokers.trading212 import Trading212BrokerService
+from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadService
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
@@ -192,7 +192,9 @@ def build_specialist_agents(
     guideline_service: GuidelineMemoryService | None = None,
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None,
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
-    broker_service: Trading212BrokerService | None = None,
+    broker_read_service: BrokerReadService | None = None,
+    broker_execution_service: BrokerExecutionService | None = None,
+    broker_provider: str = "broker",
     pending_action_service: PendingActionService | None = None,
     proposal_service: ProposalService | None = None,
     portfolio_toolbox_summary: str | None = None,
@@ -215,7 +217,9 @@ def build_specialist_agents(
             reasoner,
             guideline_service=guideline_service,
             pending_orders_review_workflow=pending_orders_review_workflow,
-            broker_service=broker_service,
+            broker_read_service=broker_read_service,
+            broker_execution_service=broker_execution_service,
+            broker_provider=broker_provider,
             pending_action_service=pending_action_service,
             proposal_service=proposal_service,
             toolbox=order_toolbox,

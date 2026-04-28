@@ -6,14 +6,18 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from t212ai.brokers.trading212.models import Order, OrderActionResult, PreparedOrder
-from t212ai.brokers.trading212.protocols import Trading212AgentBrokerProtocol
+from t212ai.brokers.models import (
+    BrokerOrder,
+    BrokerOrderActionResult,
+    PreparedBrokerOrder,
+)
+from t212ai.capabilities.protocols import BrokerExecutionService
 
 from .models import (
     PendingAction,
@@ -37,22 +41,29 @@ class PendingActionService:
         self,
         session_factory: sessionmaker[Session],
         *,
-        broker_service: Trading212AgentBrokerProtocol | None = None,
+        broker_service: BrokerExecutionService | None = None,
+        broker_services_by_provider: dict[str, BrokerExecutionService] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.broker_service = broker_service
+        self.broker_services_by_provider = dict(broker_services_by_provider or {})
 
     def create_submit_action(
         self,
         *,
         chat_id: str,
         user_id: int | None,
-        prepared_order: PreparedOrder,
+        prepared_order: PreparedBrokerOrder,
         original_user_message: str,
         summary_text: str,
         expires_at: datetime,
-        broker_provider: str = "trading212",
+        broker_provider: str | None = None,
     ) -> PendingAction:
+        normalized_prepared_order = _coerce_prepared_order(prepared_order)
+        resolved_provider = (
+            str(broker_provider or getattr(normalized_prepared_order, "broker_provider", "") or "").strip()
+            or "unknown"
+        )
         action_id = _new_action_id()
         row = PendingActionRow(
             action_id=action_id,
@@ -60,15 +71,15 @@ class PendingActionService:
             user_id=user_id,
             kind=PendingActionKind.SUBMIT_ORDER.value,
             state=PendingActionState.AWAITING_APPROVAL.value,
-            broker_provider=broker_provider,
+            broker_provider=resolved_provider,
             summary_text=summary_text,
-            fingerprint=prepared_order.order_fingerprint,
+            fingerprint=normalized_prepared_order.order_fingerprint,
             prepared_order_payload_json=json.dumps(
-                prepared_order.model_dump(mode="json", by_alias=True, exclude_none=True),
+                normalized_prepared_order.model_dump(mode="json", by_alias=True, exclude_none=True),
                 ensure_ascii=True,
                 sort_keys=True,
             ),
-            target_order_id=None,
+            target_order_ref=None,
             original_user_message=original_user_message,
             expires_at=_ensure_aware(expires_at),
         )
@@ -82,7 +93,7 @@ class PendingActionService:
         *,
         chat_id: str,
         user_id: int | None,
-        target_order: Order,
+        target_order: BrokerOrder,
         original_user_message: str,
         summary_text: str,
         expires_at: datetime,
@@ -99,7 +110,7 @@ class PendingActionService:
             summary_text=summary_text,
             fingerprint=_cancel_fingerprint(target_order),
             prepared_order_payload_json=None,
-            target_order_id=target_order.id,
+            target_order_ref=(str(target_order.id) if target_order.id is not None else None),
             original_user_message=original_user_message,
             expires_at=_ensure_aware(expires_at),
         )
@@ -242,7 +253,8 @@ class PendingActionService:
                     action=action,
                     edit_text=_finalized_text(action, "Expired. This action must be prepared again."),
                 )
-            if self.broker_service is None:
+            broker_service = self._resolve_broker_service(row.broker_provider)
+            if broker_service is None:
                 row.state = PendingActionState.FAILED.value
                 row.error_message = "Broker service is not configured."
                 row.updated_at = _utc_now()
@@ -258,7 +270,7 @@ class PendingActionService:
             row.state = PendingActionState.APPROVED.value
             row.updated_at = _utc_now()
             try:
-                broker_result = self._execute_row(row)
+                broker_result = self._execute_row(row, broker_service=broker_service)
             except Exception as exc:
                 row.state = PendingActionState.FAILED.value
                 row.error_message = str(exc)
@@ -281,11 +293,12 @@ class PendingActionService:
             row.updated_at = _utc_now()
             session.flush()
             action = _to_model(row)
+            broker_name = _display_broker_name(action.broker_provider)
             if action.kind == PendingActionKind.SUBMIT_ORDER:
-                message = "The prepared order was approved and submitted to Trading 212."
+                message = f"The prepared order was approved and submitted to {broker_name}."
                 edit_suffix = "Approved and submitted."
             else:
-                message = "The cancellation request was approved and sent to Trading 212."
+                message = f"The cancellation request was approved and sent to {broker_name}."
                 edit_suffix = "Approved and sent."
             return PendingActionDecisionResult(
                 status=PendingActionDecisionStatus.SUBMITTED,
@@ -347,13 +360,20 @@ class PendingActionService:
                 edit_text=_finalized_text(action, "Rejected."),
             )
 
-    def _execute_row(self, row: PendingActionRow) -> OrderActionResult:
+    def _execute_row(
+        self,
+        row: PendingActionRow,
+        *,
+        broker_service: BrokerExecutionService,
+    ) -> BrokerOrderActionResult:
         if row.kind == PendingActionKind.SUBMIT_ORDER.value:
-            prepared = PreparedOrder.model_validate(json.loads(row.prepared_order_payload_json or "{}"))
-            return self.broker_service.submit_prepared_order(prepared)  # type: ignore[union-attr]
-        if row.target_order_id is None:
-            raise RuntimeError("Cancellation target order id is missing.")
-        return self.broker_service.cancel_order(int(row.target_order_id))  # type: ignore[union-attr]
+            prepared = PreparedBrokerOrder.model_validate(
+                json.loads(row.prepared_order_payload_json or "{}")
+            )
+            return broker_service.submit_prepared_order(prepared)
+        if row.target_order_ref is None:
+            raise RuntimeError("Cancellation target order reference is missing.")
+        return broker_service.cancel_order(str(row.target_order_ref))
 
     def _authorization_error(
         self,
@@ -378,6 +398,12 @@ class PendingActionService:
                 message="This pending action belongs to another Telegram user.",
             )
         return None
+
+    def _resolve_broker_service(self, broker_provider: str) -> BrokerExecutionService | None:
+        provider_key = str(broker_provider or "").strip().lower()
+        if provider_key and provider_key in self.broker_services_by_provider:
+            return self.broker_services_by_provider[provider_key]
+        return self.broker_service
 
     def _expire_row_if_needed(self, row: PendingActionRow) -> bool:
         if (
@@ -434,7 +460,9 @@ def _to_model(row: PendingActionRow) -> PendingAction:
         summary_text=row.summary_text,
         fingerprint=row.fingerprint,
         prepared_order_payload=prepared_payload,
-        target_order_id=row.target_order_id,
+        target_order_ref=(
+            str(row.target_order_ref) if row.target_order_ref is not None else None
+        ),
         original_user_message=row.original_user_message,
         approval_message_id=row.approval_message_id,
         expires_at=_ensure_aware(row.expires_at),
@@ -459,9 +487,30 @@ def _new_action_id() -> str:
     return f"pa_{uuid4().hex[:12]}"
 
 
-def _cancel_fingerprint(order: Order) -> str:
+def _cancel_fingerprint(order: BrokerOrder) -> str:
     payload = f"{order.id}:{order.ticker}:{order.created_at}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _coerce_prepared_order(prepared_order: PreparedBrokerOrder | Any) -> PreparedBrokerOrder:
+    if isinstance(prepared_order, PreparedBrokerOrder):
+        return prepared_order
+    payload = prepared_order.request_payload or {}
+    return PreparedBrokerOrder(
+        broker_provider="trading212",
+        order_type=str(prepared_order.order_type.value),
+        side=str(prepared_order.side.value),
+        ticker=prepared_order.ticker,
+        quantity=abs(prepared_order.signed_quantity),
+        signed_quantity=prepared_order.signed_quantity,
+        limit_price=payload.get("limitPrice"),
+        stop_price=payload.get("stopPrice"),
+        time_in_force=payload.get("timeValidity") or "DAY",
+        extended_hours=bool(payload.get("extendedHours") or False),
+        request_payload=payload,
+        order_fingerprint=prepared_order.order_fingerprint,
+        warnings=list(prepared_order.warnings),
+    )
 
 
 def _ensure_aware(value: datetime) -> datetime:
@@ -472,3 +521,9 @@ def _ensure_aware(value: datetime) -> datetime:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _display_broker_name(provider: str) -> str:
+    if str(provider).strip().lower() == "trading212":
+        return "Trading 212"
+    return str(provider or "broker").replace("_", " ").strip().title() or "Broker"

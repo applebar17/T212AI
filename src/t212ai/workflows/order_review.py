@@ -10,7 +10,7 @@ from typing import Callable
 
 from pydantic import BaseModel, Field
 
-from t212ai.brokers.trading212.models import Order, OrderStatus, OrderType
+from t212ai.brokers.models import BrokerOrder, BrokerOrderStatus, BrokerOrderType
 from t212ai.capabilities.protocols import BrokerReadService
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
@@ -119,7 +119,7 @@ class PendingOrdersReviewWorkflow:
 
 
 def _build_pending_orders_review(
-    orders: list[Order],
+    orders: list[BrokerOrder],
     *,
     reviewed_at: datetime,
 ) -> PendingOrdersReviewResult:
@@ -148,7 +148,7 @@ def _build_pending_orders_review(
         partial_fills = [
             item
             for item in normalized_orders
-            if item.status == OrderStatus.PARTIALLY_FILLED.value
+            if item.status == BrokerOrderStatus.PARTIALLY_FILLED.value
         ]
         if partial_fills:
             highlights.append(
@@ -170,7 +170,7 @@ def _build_pending_orders_review(
 
 
 def _summarize_order(
-    order: Order,
+    order: BrokerOrder,
     *,
     reviewed_at: datetime,
 ) -> PendingOrderReviewItem:
@@ -180,15 +180,15 @@ def _summarize_order(
         age_hours = Decimal(str(round((reviewed_at - created_at).total_seconds() / 3600, 1)))
 
     flags: list[str] = []
-    if order.status == OrderStatus.PARTIALLY_FILLED:
+    if order.status == BrokerOrderStatus.PARTIALLY_FILLED:
         flags.append("Order is partially filled.")
     if age_hours is not None and age_hours >= Decimal("24"):
         flags.append("Order has been open for more than 24 hours.")
-    if order.type == OrderType.MARKET and age_hours is not None and age_hours >= Decimal("1"):
+    if order.type == BrokerOrderType.MARKET and age_hours is not None and age_hours >= Decimal("1"):
         flags.append("Market order is still pending more than 1 hour after creation.")
-    if order.type in {OrderType.LIMIT, OrderType.STOP_LIMIT} and order.limit_price is None:
+    if order.type in {BrokerOrderType.LIMIT, BrokerOrderType.STOP_LIMIT} and order.limit_price is None:
         flags.append("Limit-style order is missing limit_price in broker response.")
-    if order.type in {OrderType.STOP, OrderType.STOP_LIMIT} and order.stop_price is None:
+    if order.type in {BrokerOrderType.STOP, BrokerOrderType.STOP_LIMIT} and order.stop_price is None:
         flags.append("Stop-style order is missing stop_price in broker response.")
     if (
         order.filled_quantity is not None

@@ -1,6 +1,8 @@
 """Pending action persistence and approval helpers."""
 
 from .models import (
+    BrokerOrderAction,
+    BrokerOrderActionRequest,
     CancelTargetSelector,
     PendingAction,
     PendingActionDecisionResult,
@@ -14,6 +16,8 @@ from .orm import PendingActionRow
 from .service import PendingActionService, approval_expiry, approval_ttl_minutes
 
 __all__ = [
+    "BrokerOrderAction",
+    "BrokerOrderActionRequest",
     "CancelTargetSelector",
     "PendingAction",
     "PendingActionDecisionResult",

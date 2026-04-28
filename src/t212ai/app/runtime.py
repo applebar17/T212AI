@@ -369,7 +369,12 @@ def _build_workflow_stack(runtime: AppRuntime) -> None:
     if runtime.db_session_factory is not None:
         runtime.pending_action_service = PendingActionService(
             runtime.db_session_factory,
-            broker_service=runtime.trading212_service,
+            broker_service=runtime.broker_execution_service,
+            broker_services_by_provider=(
+                {runtime.settings.broker_provider: runtime.broker_execution_service}
+                if runtime.broker_execution_service is not None
+                else None
+            ),
         )
         runtime.proposal_service = ProposalService(runtime.db_session_factory)
 
@@ -406,7 +411,9 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             guideline_service=runtime.guideline_memory_service,
             portfolio_summary_workflow=runtime.portfolio_summary_workflow,
             pending_orders_review_workflow=runtime.pending_orders_review_workflow,
-            broker_service=runtime.trading212_service,
+            broker_read_service=runtime.broker_read_service,
+            broker_execution_service=runtime.broker_execution_service,
+            broker_provider=runtime.settings.broker_provider,
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,
             portfolio_toolbox_summary=(

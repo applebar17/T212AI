@@ -7,14 +7,13 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from t212ai.brokers.trading212.models import (
-    HistoricalOrder,
-    Order,
-    OrderStatus,
-    OrderType,
-    PaginatedResponseHistoricalOrder,
+from t212ai.brokers.models import (
+    BrokerHistoricalOrder,
+    BrokerOrder,
+    BrokerOrderStatus,
+    BrokerOrderType,
 )
-from t212ai.brokers.trading212.protocols import Trading212AgentBrokerProtocol
+from t212ai.capabilities.protocols import BrokerReadService
 from t212ai.genai.tracing import set_trace_metadata, traceable
 from t212ai.pending_actions import (
     PendingAction,
@@ -35,13 +34,13 @@ from .models import (
 )
 
 _ACTIVE_REMOTE_STATUSES = {
-    OrderStatus.LOCAL,
-    OrderStatus.UNCONFIRMED,
-    OrderStatus.CONFIRMED,
-    OrderStatus.NEW,
-    OrderStatus.CANCELLING,
-    OrderStatus.REPLACING,
-    OrderStatus.PARTIALLY_FILLED,
+    BrokerOrderStatus.LOCAL,
+    BrokerOrderStatus.UNCONFIRMED,
+    BrokerOrderStatus.CONFIRMED,
+    BrokerOrderStatus.NEW,
+    BrokerOrderStatus.CANCELLING,
+    BrokerOrderStatus.REPLACING,
+    BrokerOrderStatus.PARTIALLY_FILLED,
 }
 
 
@@ -50,14 +49,14 @@ class _Resolution:
     outcome: ReconciliationOutcome
     new_state: PendingActionState
     note: str
-    remote_order_id: int | None = None
+    remote_order_ref: str | None = None
     remote_status: dict[str, Any] | None = None
     error_message: str | None = None
 
 
 @dataclass(slots=True)
 class ReconciliationService:
-    broker_service: Trading212AgentBrokerProtocol
+    broker_service: BrokerReadService
     pending_action_service: PendingActionService
     proposal_service: ProposalService | None = None
     history_limit: int = 50
@@ -77,12 +76,12 @@ class ReconciliationService:
         historical_orders = list(historical_page.items)
 
         pending_index = {
-            int(order.id): order
+            str(order.id): order
             for order in pending_orders
             if order.id is not None
         }
         history_index = {
-            int(item.order.id): item
+            str(item.order.id): item
             for item in historical_orders
             if item.order is not None and item.order.id is not None
         }
@@ -119,7 +118,7 @@ class ReconciliationService:
                     previous_state=previous_state,
                     current_state=resolution.new_state,
                     outcome=resolution.outcome,
-                    remote_order_id=resolution.remote_order_id,
+                    remote_order_ref=resolution.remote_order_ref,
                     remote_status=resolution.remote_status,
                     note=resolution.note,
                 )
@@ -154,10 +153,10 @@ class ReconciliationService:
         self,
         action: PendingAction,
         *,
-        pending_index: dict[int, Order],
-        history_index: dict[int, HistoricalOrder],
-        pending_orders: list[Order],
-        historical_orders: list[HistoricalOrder],
+        pending_index: dict[str, BrokerOrder],
+        history_index: dict[str, BrokerHistoricalOrder],
+        pending_orders: list[BrokerOrder],
+        historical_orders: list[BrokerHistoricalOrder],
     ) -> _Resolution:
         if action.kind == PendingActionKind.CANCEL_ORDER:
             return self._resolve_cancel_action(
@@ -177,26 +176,26 @@ class ReconciliationService:
         self,
         action: PendingAction,
         *,
-        pending_index: dict[int, Order],
-        history_index: dict[int, HistoricalOrder],
-        pending_orders: list[Order],
-        historical_orders: list[HistoricalOrder],
+        pending_index: dict[str, BrokerOrder],
+        history_index: dict[str, BrokerHistoricalOrder],
+        pending_orders: list[BrokerOrder],
+        historical_orders: list[BrokerHistoricalOrder],
     ) -> _Resolution:
-        broker_order_id = _extract_submit_order_id(action)
-        if broker_order_id is not None:
-            if broker_order_id in pending_index:
-                order = pending_index[broker_order_id]
+        broker_order_ref = _extract_submit_order_ref(action)
+        if broker_order_ref is not None:
+            if broker_order_ref in pending_index:
+                order = pending_index[broker_order_ref]
                 return _Resolution(
                     outcome=ReconciliationOutcome.PENDING,
                     new_state=PendingActionState.SUBMITTED,
-                    remote_order_id=broker_order_id,
+                    remote_order_ref=broker_order_ref,
                     remote_status=_order_snapshot(order, source="pending_orders"),
                     note="Remote order is still active in Trading 212 pending orders.",
                 )
-            if broker_order_id in history_index:
+            if broker_order_ref in history_index:
                 return self._resolution_from_historical_order(
                     action,
-                    history_index[broker_order_id],
+                    history_index[broker_order_ref],
                 )
 
         matched_order, matched_history = _match_submit_order_by_metadata(
@@ -208,7 +207,7 @@ class ReconciliationService:
             return _Resolution(
                 outcome=ReconciliationOutcome.PENDING,
                 new_state=PendingActionState.SUBMITTED,
-                remote_order_id=int(matched_order.id) if matched_order.id is not None else None,
+                remote_order_ref=str(matched_order.id) if matched_order.id is not None else None,
                 remote_status=_order_snapshot(matched_order, source="pending_orders"),
                 note="Matched the remote active order by local payload metadata.",
             )
@@ -227,27 +226,27 @@ class ReconciliationService:
         self,
         action: PendingAction,
         *,
-        pending_index: dict[int, Order],
-        history_index: dict[int, HistoricalOrder],
+        pending_index: dict[str, BrokerOrder],
+        history_index: dict[str, BrokerHistoricalOrder],
     ) -> _Resolution:
-        target_order_id = action.target_order_id
-        if target_order_id is None:
+        target_order_ref = action.target_order_ref
+        if target_order_ref is None:
             return _Resolution(
                 outcome=ReconciliationOutcome.UNRESOLVED,
                 new_state=PendingActionState.SUBMITTED,
-                note="The cancel action is missing its target order id locally.",
-                error_message="Cancel action missing target order id.",
+                note="The cancel action is missing its target order reference locally.",
+                error_message="Cancel action missing target order reference.",
             )
-        if target_order_id in pending_index:
-            order = pending_index[target_order_id]
+        if target_order_ref in pending_index:
+            order = pending_index[target_order_ref]
             return _Resolution(
                 outcome=ReconciliationOutcome.PENDING,
                 new_state=PendingActionState.SUBMITTED,
-                remote_order_id=target_order_id,
+                remote_order_ref=target_order_ref,
                 remote_status=_order_snapshot(order, source="pending_orders"),
                 note="The target order is still visible in Trading 212 pending orders.",
             )
-        historical = history_index.get(target_order_id)
+        historical = history_index.get(target_order_ref)
         if historical is None or historical.order is None:
             return _Resolution(
                 outcome=ReconciliationOutcome.UNRESOLVED,
@@ -259,29 +258,29 @@ class ReconciliationService:
             )
         status = historical.order.status
         snapshot = _historical_snapshot(historical)
-        remote_order_id = int(historical.order.id) if historical.order.id is not None else None
-        if status in {OrderStatus.CANCELLED, OrderStatus.REPLACED}:
+        remote_order_ref = str(historical.order.id) if historical.order.id is not None else None
+        if status in {BrokerOrderStatus.CANCELLED, BrokerOrderStatus.REPLACED}:
             return _Resolution(
                 outcome=ReconciliationOutcome.CANCELLED,
                 new_state=PendingActionState.RECONCILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="The target order is finalized in Trading 212 history as cancelled/replaced.",
             )
-        if status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
+        if status in {BrokerOrderStatus.FILLED, BrokerOrderStatus.PARTIALLY_FILLED}:
             return _Resolution(
                 outcome=ReconciliationOutcome.FAILED,
                 new_state=PendingActionState.FAILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="The order was filled before the cancellation could complete.",
                 error_message="Remote order filled before cancellation completed.",
             )
-        if status == OrderStatus.REJECTED:
+        if status == BrokerOrderStatus.REJECTED:
             return _Resolution(
                 outcome=ReconciliationOutcome.REJECTED,
                 new_state=PendingActionState.FAILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders show the target order as rejected.",
                 error_message="Remote order is rejected in Trading 212 history.",
@@ -289,7 +288,7 @@ class ReconciliationService:
         return _Resolution(
             outcome=ReconciliationOutcome.PENDING,
             new_state=PendingActionState.SUBMITTED,
-            remote_order_id=remote_order_id,
+            remote_order_ref=remote_order_ref,
             remote_status=snapshot,
             note="The target order appears in historical orders but is not yet in a final terminal status.",
         )
@@ -297,7 +296,7 @@ class ReconciliationService:
     def _resolution_from_historical_order(
         self,
         action: PendingAction,
-        historical_order: HistoricalOrder,
+        historical_order: BrokerHistoricalOrder,
     ) -> _Resolution:
         order = historical_order.order
         if order is None:
@@ -306,38 +305,38 @@ class ReconciliationService:
                 new_state=PendingActionState.SUBMITTED,
                 note="Historical-order payload was missing the embedded order details.",
             )
-        remote_order_id = int(order.id) if order.id is not None else None
+        remote_order_ref = str(order.id) if order.id is not None else None
         snapshot = _historical_snapshot(historical_order)
         status = order.status
-        if status == OrderStatus.FILLED:
+        if status == BrokerOrderStatus.FILLED:
             return _Resolution(
                 outcome=ReconciliationOutcome.FILLED,
                 new_state=PendingActionState.RECONCILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders show the order as filled.",
             )
-        if status == OrderStatus.PARTIALLY_FILLED:
+        if status == BrokerOrderStatus.PARTIALLY_FILLED:
             return _Resolution(
                 outcome=ReconciliationOutcome.PARTIALLY_FILLED,
                 new_state=PendingActionState.RECONCILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders show the order as partially filled.",
             )
-        if status in {OrderStatus.CANCELLED, OrderStatus.REPLACED}:
+        if status in {BrokerOrderStatus.CANCELLED, BrokerOrderStatus.REPLACED}:
             return _Resolution(
                 outcome=ReconciliationOutcome.CANCELLED,
                 new_state=PendingActionState.CANCELLED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders show the order as cancelled/replaced.",
             )
-        if status == OrderStatus.REJECTED:
+        if status == BrokerOrderStatus.REJECTED:
             return _Resolution(
                 outcome=ReconciliationOutcome.REJECTED,
                 new_state=PendingActionState.FAILED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders show the order as rejected.",
                 error_message="Remote order is rejected in Trading 212 history.",
@@ -346,14 +345,14 @@ class ReconciliationService:
             return _Resolution(
                 outcome=ReconciliationOutcome.PENDING,
                 new_state=PendingActionState.SUBMITTED,
-                remote_order_id=remote_order_id,
+                remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
                 note="Trading 212 historical orders still show the order as active.",
             )
         return _Resolution(
             outcome=ReconciliationOutcome.UNRESOLVED,
             new_state=PendingActionState.SUBMITTED,
-            remote_order_id=remote_order_id,
+            remote_order_ref=remote_order_ref,
             remote_status=snapshot,
             note="Remote order status could not be mapped during reconciliation.",
         )
@@ -364,7 +363,7 @@ class ReconciliationService:
         proposal = self.proposal_service.get_by_pending_action_id(action.action_id)
         if proposal is None:
             return
-        current_broker_order_id = resolution.remote_order_id or _extract_submit_order_id(action)
+        current_broker_order_ref = resolution.remote_order_ref or _extract_submit_order_ref(action)
         remote_status = resolution.remote_status
         if resolution.outcome == ReconciliationOutcome.UNRESOLVED:
             return
@@ -375,7 +374,7 @@ class ReconciliationService:
                 broker_provider=action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=ExecutionAttemptStatus.PENDING,
-                broker_order_id=current_broker_order_id,
+                broker_order_ref=current_broker_order_ref,
                 remote_status=remote_status,
             )
             self.proposal_service.mark_submitted(proposal.proposal_id)
@@ -395,7 +394,7 @@ class ReconciliationService:
                 broker_provider=action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=target_status,
-                broker_order_id=current_broker_order_id,
+                broker_order_ref=current_broker_order_ref,
                 remote_status=remote_status,
             )
             self.proposal_service.mark_reconciled(proposal.proposal_id)
@@ -407,7 +406,7 @@ class ReconciliationService:
                 broker_provider=action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=ExecutionAttemptStatus.CANCELLED,
-                broker_order_id=current_broker_order_id,
+                broker_order_ref=current_broker_order_ref,
                 remote_status=remote_status,
                 error_message=resolution.note,
             )
@@ -428,7 +427,7 @@ class ReconciliationService:
                 broker_provider=action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=target_status,
-                broker_order_id=current_broker_order_id,
+                broker_order_ref=current_broker_order_ref,
                 remote_status=remote_status,
                 error_message=resolution.error_message or resolution.note,
             )
@@ -441,9 +440,9 @@ class ReconciliationService:
 def _match_submit_order_by_metadata(
     action: PendingAction,
     *,
-    pending_orders: list[Order],
-    historical_orders: list[HistoricalOrder],
-) -> tuple[Order | None, HistoricalOrder | None]:
+    pending_orders: list[BrokerOrder],
+    historical_orders: list[BrokerHistoricalOrder],
+) -> tuple[BrokerOrder | None, BrokerHistoricalOrder | None]:
     pending_matches = [
         order
         for order in pending_orders
@@ -461,7 +460,7 @@ def _match_submit_order_by_metadata(
     return None, None
 
 
-def _order_matches_action(action: PendingAction, order: Order) -> bool:
+def _order_matches_action(action: PendingAction, order: BrokerOrder) -> bool:
     if order.id is None:
         return False
     payload = action.prepared_order_payload or {}
@@ -495,22 +494,22 @@ def _order_matches_action(action: PendingAction, order: Order) -> bool:
     return True
 
 
-def _extract_submit_order_id(action: PendingAction) -> int | None:
+def _extract_submit_order_ref(action: PendingAction) -> str | None:
     payload = action.broker_result or {}
     if not isinstance(payload, dict):
         return None
     for key in ("order_id", "orderId"):
         if key in payload and payload.get(key) is not None:
-            return _to_int(payload.get(key))
+            return str(payload.get(key)).strip() or None
     order = payload.get("order")
     if isinstance(order, dict):
         for key in ("id", "order_id", "orderId"):
             if key in order and order.get(key) is not None:
-                return _to_int(order.get(key))
+                return str(order.get(key)).strip() or None
     return None
 
 
-def _historical_snapshot(item: HistoricalOrder) -> dict[str, Any]:
+def _historical_snapshot(item: BrokerHistoricalOrder) -> dict[str, Any]:
     payload: dict[str, Any] = {"source": "history_orders"}
     if item.order is not None:
         payload["order"] = item.order.model_dump(mode="json", by_alias=True, exclude_none=True)
@@ -519,7 +518,7 @@ def _historical_snapshot(item: HistoricalOrder) -> dict[str, Any]:
     return payload
 
 
-def _order_snapshot(order: Order, *, source: str) -> dict[str, Any]:
+def _order_snapshot(order: BrokerOrder, *, source: str) -> dict[str, Any]:
     payload = order.model_dump(mode="json", by_alias=True, exclude_none=True)
     payload["source"] = source
     return payload
@@ -559,14 +558,6 @@ def _to_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
     return Decimal(str(value))
-
-
-def _to_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)

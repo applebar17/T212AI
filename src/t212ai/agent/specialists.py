@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from t212ai.brokers.trading212 import (
-    T212_ORDER_ACTION_TOOLBOX,
-    Trading212BrokerService,
-    Trading212ToolRuntime,
-    build_trading212_tool_mapping,
+from t212ai.brokers.models import (
+    BrokerOrderAction,
+    BrokerOrderActionRequest,
+)
+from t212ai.brokers.tools import (
+    BROKER_EXECUTION_TOOLBOX,
+    BrokerToolRuntime,
+    build_broker_tool_mapping,
 )
 from t212ai.calculator import (
     CALCULATOR_TOOLBOX,
@@ -23,8 +26,6 @@ from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
     PendingActionService,
-    Trading212OrderAction,
-    Trading212OrderActionRequest,
 )
 from t212ai.proposals import ProposalService
 from t212ai.workflows import (
@@ -141,7 +142,10 @@ class OrderAgent(BaseAgent):
         guideline_service: GuidelineMemoryService | None = None,
         *,
         pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
-        broker_service: Trading212BrokerService | None = None,
+        broker_service=None,
+        broker_read_service=None,
+        broker_execution_service=None,
+        broker_provider: str = "broker",
         pending_action_service: PendingActionService | None = None,
         proposal_service: ProposalService | None = None,
         toolbox: ToolBox | None = None,
@@ -151,26 +155,33 @@ class OrderAgent(BaseAgent):
             reasoner,
             AgentProfile(
                 name="order_agent",
-                purpose="Review, prepare, cancel, and reason about Trading 212 orders.",
+                purpose="Review, prepare, cancel, and reason about broker orders.",
                 guidelines=(
                     "Treat order submission and cancellation as state-changing. "
                     "Require explicit confirmation before execution. Never retry "
                     "uncertain submissions without reconciliation."
                 ),
                 toolbox_summary=toolbox_summary or (
-                    "Trading 212 pending orders, order lookup, higher-level prepare "
-                    "order-action and prepare-cancel-action tools, plus deterministic "
-                    "approval/execution through Telegram."
+                    "Broker pending orders, order lookup, generic prepare "
+                    "order-action and prepare-cancel-action tools, direct confirmed "
+                    "execution tools, plus deterministic approval/execution through Telegram."
                 ),
                 task_complexity=TaskComplexity.CRITICAL,
                 guideline_scopes=("global", "agent:order"),
                 guideline_include_categories=("investment_preference",),
-                toolbox=toolbox or T212_ORDER_ACTION_TOOLBOX,
+                toolbox=toolbox or BROKER_EXECUTION_TOOLBOX,
             ),
             guideline_service=guideline_service,
         )
         self.pending_orders_review_workflow = pending_orders_review_workflow
-        self.broker_service = broker_service
+        resolved_read_service = broker_read_service or broker_service
+        resolved_execution_service = broker_execution_service or broker_service
+        resolved_provider = broker_provider
+        if broker_service is not None and broker_provider == "broker":
+            resolved_provider = "trading212"
+        self.broker_read_service = resolved_read_service
+        self.broker_execution_service = resolved_execution_service
+        self.broker_provider = resolved_provider
         self.pending_action_service = pending_action_service
         self.proposal_service = proposal_service
 
@@ -230,7 +241,10 @@ class OrderAgent(BaseAgent):
             IntentKind.CANCEL_ORDER,
         }:
             return None
-        if self.broker_service is None or self.pending_action_service is None:
+        if (
+            self.broker_execution_service is None
+            or self.pending_action_service is None
+        ):
             return None
 
         try:
@@ -238,7 +252,7 @@ class OrderAgent(BaseAgent):
         except Exception as exc:
             return AgentResponse(
                 final_answer=(
-                    "I couldn't translate the request into a deterministic Trading 212 action. "
+                    "I couldn't translate the request into a deterministic broker action. "
                     f"Reason: {exc}"
                 ),
                 selected_agent=self.name,
@@ -248,7 +262,7 @@ class OrderAgent(BaseAgent):
 
         proposal = None
         if (
-            action_request.action == Trading212OrderAction.PREPARE_SUBMIT_ORDER
+            action_request.action == BrokerOrderAction.PREPARE_SUBMIT_ORDER
             and self.proposal_service is not None
         ):
             try:
@@ -285,7 +299,7 @@ class OrderAgent(BaseAgent):
         request: AgentRequest,
         *,
         intent: AgentIntent,
-    ) -> Trading212OrderActionRequest:
+    ) -> BrokerOrderActionRequest:
         system_prompt = ORDER_ACTION_REQUEST_SYSTEM_PROMPT
         messages = []
         if request.history:
@@ -300,30 +314,32 @@ class OrderAgent(BaseAgent):
             }
         )
         result = self.reasoner.genai.generate_structured(
-            Trading212OrderActionRequest,
+            BrokerOrderActionRequest,
             system_prompt,
             messages,
             model=self.reasoner.genai.chat_model_for("smart"),
             temperature=0.0,
         )
-        return Trading212OrderActionRequest.model_validate(result)
+        return BrokerOrderActionRequest.model_validate(result)
 
     def _execute_action_request(
         self,
         request: AgentRequest,
-        action_request: Trading212OrderActionRequest,
+        action_request: BrokerOrderActionRequest,
     ) -> ToolResult:
-        runtime = Trading212ToolRuntime(
-            service=self.broker_service,
+        runtime = BrokerToolRuntime(
+            broker_read_service=self.broker_read_service,
+            broker_execution_service=self.broker_execution_service,
+            broker_provider=self.broker_provider,
             pending_action_service=self.pending_action_service,
             chat_id=request.chat_id,
             user_id=_metadata_user_id(request.metadata),
             user_message=request.user_message,
         )
-        tool_mapping = build_trading212_tool_mapping(runtime)
-        if action_request.action == Trading212OrderAction.PREPARE_CANCEL_ORDER:
-            return tool_mapping["t212_prepare_cancel_action"](
-                order_id=action_request.target_order_id,
+        tool_mapping = build_broker_tool_mapping(runtime)
+        if action_request.action == BrokerOrderAction.PREPARE_CANCEL_ORDER:
+            return tool_mapping["broker_prepare_cancel_action"](
+                order_ref=action_request.target_order_ref,
                 selector=(
                     action_request.cancel_selector.value
                     if action_request.cancel_selector is not None
@@ -331,14 +347,14 @@ class OrderAgent(BaseAgent):
                 ),
                 reason=action_request.reason,
             )
-        return tool_mapping["t212_prepare_order_action"](
+        return tool_mapping["broker_prepare_order_action"](
             order_type=action_request.order_type,
             side=action_request.side,
             ticker=action_request.ticker,
             quantity=action_request.quantity,
             limit_price=action_request.limit_price,
             stop_price=action_request.stop_price,
-            time_validity=action_request.time_validity,
+            time_in_force=action_request.time_in_force,
             extended_hours=action_request.extended_hours,
         )
 
@@ -347,7 +363,7 @@ class OrderAgent(BaseAgent):
         request: AgentRequest,
         *,
         intent: AgentIntent,
-        action_request: Trading212OrderActionRequest,
+        action_request: BrokerOrderActionRequest,
     ):
         if self.proposal_service is None:
             return None
@@ -367,7 +383,7 @@ class OrderAgent(BaseAgent):
         self,
         *,
         plan,
-        action_request: Trading212OrderActionRequest,
+        action_request: BrokerOrderActionRequest,
         result: ToolResult,
         proposal_id: str | None,
     ) -> AgentResponse:
@@ -667,7 +683,7 @@ def _metadata_user_id(metadata: dict[str, str]) -> int | None:
         return None
 
 
-def _proposal_thesis(action_request: Trading212OrderActionRequest) -> str:
+def _proposal_thesis(action_request: BrokerOrderActionRequest) -> str:
     thesis = str(action_request.thesis or "").strip()
     if thesis:
         return thesis
@@ -678,7 +694,7 @@ def _proposal_thesis(action_request: Trading212OrderActionRequest) -> str:
     )
 
 
-def _order_action_summary(action_request: Trading212OrderActionRequest) -> str:
+def _order_action_summary(action_request: BrokerOrderActionRequest) -> str:
     return (
         f"{str(action_request.side or 'BUY').upper()} "
         f"{str(action_request.ticker or 'UNKNOWN').upper()} "
@@ -686,7 +702,7 @@ def _order_action_summary(action_request: Trading212OrderActionRequest) -> str:
     )
 
 
-def _order_intent_payload(action_request: Trading212OrderActionRequest) -> dict[str, Any]:
+def _order_intent_payload(action_request: BrokerOrderActionRequest) -> dict[str, Any]:
     return {
         "action": action_request.action.value,
         "order_type": action_request.order_type,
@@ -695,7 +711,7 @@ def _order_intent_payload(action_request: Trading212OrderActionRequest) -> dict[
         "quantity": action_request.quantity,
         "limit_price": action_request.limit_price,
         "stop_price": action_request.stop_price,
-        "time_validity": action_request.time_validity,
+        "time_in_force": action_request.time_in_force,
         "extended_hours": action_request.extended_hours,
     }
 

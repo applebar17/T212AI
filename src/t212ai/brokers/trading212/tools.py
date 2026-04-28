@@ -347,7 +347,7 @@ def t212_list_pending_orders(*, runtime: Trading212ToolRuntime) -> ToolResult:
 )
 def t212_get_order(*, order_id: int, runtime: Trading212ToolRuntime) -> ToolResult:
     set_trace_metadata(provider="trading212", tool_name="t212_get_order")
-    order = runtime.service.get_order(int(order_id))
+    order = runtime.service.get_order(str(order_id))
     return ToolResult(
         status="ok",
         output=f"Retrieved Trading 212 order {order_id}.",
@@ -386,7 +386,7 @@ def t212_prepare_order(
             quantity=quantity,
             limit_price=limit_price,
             stop_price=stop_price,
-            time_validity=time_validity,
+            time_in_force=time_validity,
             extended_hours=extended_hours,
         )
     except ValueError as exc:
@@ -440,7 +440,7 @@ def t212_prepare_order_action(
             quantity=quantity,
             limit_price=limit_price,
             stop_price=stop_price,
-            time_validity=time_validity,
+            time_in_force=time_validity,
             extended_hours=extended_hours,
         )
     except ValueError as exc:
@@ -571,7 +571,7 @@ def t212_place_order(
             quantity=quantity,
             limit_price=limit_price,
             stop_price=stop_price,
-            time_validity=time_validity,
+            time_in_force=time_validity,
             extended_hours=extended_hours,
         )
     except ValueError as exc:
@@ -623,7 +623,7 @@ def t212_cancel_order(
             code="confirmation_required",
         )
 
-    result = runtime.service.cancel_order(int(order_id))
+    result = runtime.service.cancel_order(str(order_id))
     return ToolResult(
         status="ok",
         output=result.message or f"Cancellation requested for order {order_id}.",

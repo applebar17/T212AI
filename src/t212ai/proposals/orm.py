@@ -80,7 +80,7 @@ class ExecutionAttemptRow(Base):
     broker_provider: Mapped[str] = mapped_column(String(64))
     action_kind: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), index=True)
-    broker_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    broker_order_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     broker_response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     remote_status_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

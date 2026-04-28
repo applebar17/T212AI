@@ -330,14 +330,14 @@ class TelegramUpdateRouter:
                 user_id=inbound.user_id,
             )
             broker_response = result.action.broker_result or None
-            broker_order_id = _extract_broker_order_id(broker_response)
+            broker_order_ref = _extract_broker_order_ref(broker_response)
             self.proposal_service.record_execution_attempt(
                 proposal_id=proposal.proposal_id,
                 pending_action_id=result.action.action_id,
                 broker_provider=result.action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=ExecutionAttemptStatus.SUBMITTED,
-                broker_order_id=broker_order_id,
+                broker_order_ref=broker_order_ref,
                 broker_response=broker_response,
             )
             self.proposal_service.mark_submitted(proposal.proposal_id)
@@ -357,7 +357,7 @@ class TelegramUpdateRouter:
                 broker_provider=result.action.broker_provider,
                 action_kind=ProposalActionKind.SUBMIT_ORDER,
                 status=ExecutionAttemptStatus.FAILED,
-                broker_order_id=_extract_broker_order_id(result.action.broker_result),
+                broker_order_ref=_extract_broker_order_ref(result.action.broker_result),
                 broker_response=result.action.broker_result or None,
                 error_message=result.message,
             )
@@ -521,17 +521,17 @@ def _coerce_int(value: object) -> int | None:
         return None
 
 
-def _extract_broker_order_id(payload: dict[str, Any] | None) -> int | None:
+def _extract_broker_order_ref(payload: dict[str, Any] | None) -> str | None:
     if not isinstance(payload, dict):
         return None
     for key in ("order_id", "orderId"):
         if key in payload:
-            return _coerce_int(payload.get(key))
+            return _optional_str(payload.get(key))
     order = payload.get("order")
     if isinstance(order, dict):
         for key in ("id", "order_id", "orderId"):
             if key in order:
-                return _coerce_int(order.get(key))
+                return _optional_str(order.get(key))
     return None
 
 

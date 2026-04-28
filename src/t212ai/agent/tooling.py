@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from t212ai.app.bootstrap import ConfigAssessment
 from t212ai.app.config import AppSettings
-from t212ai.brokers.trading212 import T212_ORDER_ACTION_TOOLBOX
+from t212ai.brokers.tools import BROKER_EXECUTION_TOOLBOX
 from t212ai.genai.tools import build_market_analyst_toolbox, build_toolboxes
 from t212ai.genai.tools.base import ToolBox
 
@@ -34,9 +34,8 @@ def build_specialist_tooling(
     return SpecialistTooling(
         portfolio_toolbox_summary=_portfolio_summary(settings, assessment),
         order_toolbox=(
-            T212_ORDER_ACTION_TOOLBOX
+            BROKER_EXECUTION_TOOLBOX
             if _provider_ready(assessment, "broker")
-            and settings.broker_provider == "trading212"
             else None
         ),
         order_toolbox_summary=_order_summary(settings, assessment),
@@ -69,10 +68,10 @@ def _order_summary(
     settings: AppSettings,
     assessment: ConfigAssessment,
 ) -> str:
-    if settings.broker_provider == "trading212" and _provider_ready(assessment, "broker"):
+    if _provider_ready(assessment, "broker"):
         return (
-            "Trading 212 pending orders, order lookup, higher-level prepare order-action "
-            "and prepare-cancel-action tools, plus deterministic approval/execution "
+            "Broker portfolio, pending orders, order lookup, preparation, direct "
+            "confirmed placement/cancellation tools, plus deterministic approval/execution "
             "through Telegram."
         )
     return (

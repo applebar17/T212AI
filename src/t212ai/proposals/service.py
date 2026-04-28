@@ -187,10 +187,16 @@ class ProposalService:
         broker_provider: str,
         action_kind: ProposalActionKind,
         status: ExecutionAttemptStatus,
-        broker_order_id: int | None = None,
+        broker_order_ref: str | None = None,
+        broker_order_id: int | str | None = None,
         broker_response: dict[str, Any] | None = None,
         error_message: str | None = None,
     ) -> ExecutionAttempt:
+        resolved_order_ref = (
+            str(broker_order_ref)
+            if broker_order_ref not in {None, ""}
+            else (str(broker_order_id) if broker_order_id not in {None, ""} else None)
+        )
         row = ExecutionAttemptRow(
             attempt_id=_new_id("ea"),
             proposal_id=str(proposal_id),
@@ -198,7 +204,7 @@ class ProposalService:
             broker_provider=str(broker_provider),
             action_kind=action_kind.value,
             status=status.value,
-            broker_order_id=broker_order_id,
+            broker_order_ref=resolved_order_ref,
             broker_response_json=(
                 json.dumps(broker_response, ensure_ascii=True, sort_keys=True)
                 if broker_response is not None
@@ -219,11 +225,17 @@ class ProposalService:
         broker_provider: str,
         action_kind: ProposalActionKind,
         status: ExecutionAttemptStatus,
-        broker_order_id: int | None = None,
+        broker_order_ref: str | None = None,
+        broker_order_id: int | str | None = None,
         broker_response: dict[str, Any] | None = None,
         remote_status: dict[str, Any] | None = None,
         error_message: str | None = None,
     ) -> ExecutionAttempt:
+        resolved_order_ref = (
+            str(broker_order_ref)
+            if broker_order_ref not in {None, ""}
+            else (str(broker_order_id) if broker_order_id not in {None, ""} else None)
+        )
         with self._session_scope() as session:
             row = session.scalar(
                 select(ExecutionAttemptRow)
@@ -251,8 +263,8 @@ class ProposalService:
             row.broker_provider = str(broker_provider)
             row.action_kind = action_kind.value
             row.status = status.value
-            if broker_order_id is not None:
-                row.broker_order_id = broker_order_id
+            if resolved_order_ref is not None:
+                row.broker_order_ref = resolved_order_ref
             if broker_response is not None:
                 row.broker_response_json = json.dumps(
                     broker_response,
@@ -372,7 +384,7 @@ def _execution_attempt_model(row: ExecutionAttemptRow) -> ExecutionAttempt:
         broker_provider=row.broker_provider,
         action_kind=ProposalActionKind(row.action_kind),
         status=ExecutionAttemptStatus(row.status),
-        broker_order_id=row.broker_order_id,
+        broker_order_ref=row.broker_order_ref,
         broker_response=(
             json.loads(row.broker_response_json) if row.broker_response_json else None
         ),

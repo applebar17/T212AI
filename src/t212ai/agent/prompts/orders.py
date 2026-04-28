@@ -1,4 +1,4 @@
-"""Prompt builders for Trading 212 order action extraction."""
+"""Prompt builders for generic broker order action extraction."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from textwrap import dedent
 
 ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     """\
-    Convert the user's Trading 212 order request into a structured Trading212OrderActionRequest.
+    Convert the user's broker order request into a structured BrokerOrderActionRequest.
 
     Rules:
     - For buy/sell/trade requests, choose prepare_submit_order.
     - For cancellation requests, choose prepare_cancel_order.
     - Do not confirm or execute; only prepare an action.
-    - For cancellation, use target_order_id when explicit, otherwise use selector latest, oldest, or only when the user's request clearly implies one.
-    - For order submission, include order_type, side, ticker, quantity, limit_price, stop_price, time_validity, and extended_hours when known.
+    - For cancellation, use target_order_ref when explicit, otherwise use selector latest, oldest, or only when the user's request clearly implies one.
+    - For order submission, include order_type, side, ticker, quantity, limit_price, stop_price, time_in_force, and extended_hours when known.
     - For order submission, also include a short thesis, concise risks list, and confidence between 0 and 1.
-    - Do not invent ambiguous order ids or prices.
+    - Do not invent ambiguous order references or prices.
     """
 ).strip()
 

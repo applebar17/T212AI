@@ -6,7 +6,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from t212ai.brokers.models import (
+    BrokerCancelTargetSelector,
+    BrokerOrderAction,
+    BrokerOrderActionRequest,
+)
 
 
 class PendingActionKind(StrEnum):
@@ -36,7 +42,7 @@ class PendingAction(BaseModel):
     summary_text: str
     fingerprint: str | None = None
     prepared_order_payload: dict[str, Any] | None = None
-    target_order_id: int | None = None
+    target_order_ref: str | None = None
     original_user_message: str
     approval_message_id: int | None = None
     expires_at: datetime
@@ -46,6 +52,15 @@ class PendingAction(BaseModel):
     error_message: str | None = None
     remote_status: dict[str, Any] | None = None
     last_reconciled_at: datetime | None = None
+
+    @property
+    def target_order_id(self) -> int | str | None:
+        if self.target_order_ref is None:
+            return None
+        try:
+            return int(self.target_order_ref)
+        except (TypeError, ValueError):
+            return self.target_order_ref
 
 
 class PendingActionDecisionStatus(StrEnum):
@@ -65,30 +80,8 @@ class PendingActionDecisionResult(BaseModel):
     edit_text: str | None = None
 
 
-class CancelTargetSelector(StrEnum):
-    LATEST = "latest"
-    OLDEST = "oldest"
-    ONLY = "only"
-
-
-class Trading212OrderAction(StrEnum):
-    PREPARE_SUBMIT_ORDER = "prepare_submit_order"
-    PREPARE_CANCEL_ORDER = "prepare_cancel_order"
-
-
-class Trading212OrderActionRequest(BaseModel):
-    action: Trading212OrderAction
-    order_type: str | None = None
-    side: str | None = None
-    ticker: str | None = None
-    quantity: str | int | float | None = None
-    limit_price: str | int | float | None = None
-    stop_price: str | int | float | None = None
-    time_validity: str = "DAY"
-    extended_hours: bool = False
-    target_order_id: int | None = None
-    cancel_selector: CancelTargetSelector | None = None
-    reason: str | None = None
-    thesis: str | None = None
-    risks: list[str] = Field(default_factory=list)
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+CancelTargetSelector = BrokerCancelTargetSelector
+BrokerOrderActionRequestModel = BrokerOrderActionRequest
+BrokerOrderActionEnum = BrokerOrderAction
+Trading212OrderActionRequest = BrokerOrderActionRequest
+Trading212OrderAction = BrokerOrderAction

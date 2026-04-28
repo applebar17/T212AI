@@ -81,12 +81,21 @@ class ExecutionAttempt(BaseModel):
     broker_provider: str
     action_kind: ProposalActionKind
     status: ExecutionAttemptStatus
-    broker_order_id: int | None = None
+    broker_order_ref: str | None = None
     broker_response: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: datetime
     remote_status: dict[str, Any] | None = None
     reconciled_at: datetime | None = None
+
+    @property
+    def broker_order_id(self) -> int | str | None:
+        if self.broker_order_ref is None:
+            return None
+        try:
+            return int(self.broker_order_ref)
+        except (TypeError, ValueError):
+            return self.broker_order_ref
 
 
 class ProposalDetail(BaseModel):

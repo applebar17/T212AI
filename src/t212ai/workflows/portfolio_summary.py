@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from t212ai.brokers.trading212.models import PortfolioSnapshot, Position
+from t212ai.brokers.models import BrokerPortfolioSnapshot, BrokerPosition
 from t212ai.capabilities.protocols import BrokerReadService
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
@@ -121,7 +121,7 @@ class PortfolioSummaryWorkflow:
 
 
 def _build_portfolio_summary(
-    snapshot: PortfolioSnapshot,
+    snapshot: BrokerPortfolioSnapshot,
     *,
     max_positions: int,
 ) -> PortfolioSummaryResult:
@@ -195,7 +195,7 @@ def _build_portfolio_summary(
 
 
 def _summarize_position(
-    position: Position,
+    position: BrokerPosition,
     *,
     denominator: Decimal | None,
 ) -> PortfolioPositionSummary:
@@ -220,7 +220,7 @@ def _summarize_position(
     )
 
 
-def _sum_position_values(positions: list[Position]) -> Decimal | None:
+def _sum_position_values(positions: list[BrokerPosition]) -> Decimal | None:
     total = sum(
         (
             _decimal_or_zero(position.wallet_impact.current_value if position.wallet_impact else None)

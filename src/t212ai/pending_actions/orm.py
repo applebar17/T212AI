@@ -26,7 +26,7 @@ class PendingActionRow(Base):
     summary_text: Mapped[str] = mapped_column(Text)
     fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     prepared_order_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    target_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_order_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     original_user_message: Mapped[str] = mapped_column(Text)
     approval_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

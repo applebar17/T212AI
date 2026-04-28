@@ -27,7 +27,7 @@ class ReconciledActionResult(BaseModel):
     previous_state: PendingActionState
     current_state: PendingActionState
     outcome: ReconciliationOutcome
-    remote_order_id: int | None = None
+    remote_order_ref: str | None = None
     remote_status: dict[str, Any] | None = None
     note: str
 
@@ -62,8 +62,8 @@ class ReconciliationRunResult(BaseModel):
             lines.append("Actions:")
             for action in self.actions:
                 suffix = (
-                    f", remote_order_id={action.remote_order_id}"
-                    if action.remote_order_id is not None
+                    f", remote_order_ref={action.remote_order_ref}"
+                    if action.remote_order_ref is not None
                     else ""
                 )
                 lines.append(

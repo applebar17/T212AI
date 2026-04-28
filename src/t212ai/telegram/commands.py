@@ -73,8 +73,8 @@ def render_proposal_detail_text(detail: ProposalDetail) -> str:
     if detail.latest_execution_attempt is not None:
         attempt = detail.latest_execution_attempt
         suffix = ""
-        if attempt.broker_order_id is not None:
-            suffix = f", broker_order_id={attempt.broker_order_id}"
+        if attempt.broker_order_ref is not None:
+            suffix = f", broker_order_ref={attempt.broker_order_ref}"
         lines.append(
             "Latest execution attempt: "
             f"{attempt.status.value} at {_format_datetime(attempt.created_at)}{suffix}"

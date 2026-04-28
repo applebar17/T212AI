@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from t212ai.brokers.trading212.models import (
-    Order,
-    OrderActionResult,
-    OrderSide,
-    OrderType,
-    PaginatedResponseHistoricalOrder,
-    PortfolioSnapshot,
-    PreparedOrder,
-    TimeValidity,
+from t212ai.brokers.models import (
+    BrokerHistoricalOrdersPage,
+    BrokerOrder,
+    BrokerOrderActionResult,
+    BrokerOrderSide,
+    BrokerOrderType,
+    BrokerPortfolioSnapshot,
+    BrokerTimeInForce,
+    PreparedBrokerOrder,
 )
 from t212ai.data_sources.reddit.models import (
     RedditDiscussionScanResult,
@@ -33,11 +33,11 @@ from .market_data_models import (
 
 @runtime_checkable
 class BrokerReadService(Protocol):
-    def get_portfolio_snapshot(self) -> PortfolioSnapshot: ...
+    def get_portfolio_snapshot(self) -> BrokerPortfolioSnapshot: ...
 
-    def list_pending_orders(self) -> list[Order]: ...
+    def list_pending_orders(self) -> list[BrokerOrder]: ...
 
-    def get_order(self, order_id: int) -> Order: ...
+    def get_order(self, order_ref: str) -> BrokerOrder: ...
 
     def list_historical_orders(
         self,
@@ -45,7 +45,7 @@ class BrokerReadService(Protocol):
         cursor: str | int | None = None,
         ticker: str | None = None,
         limit: int | None = None,
-    ) -> PaginatedResponseHistoricalOrder: ...
+    ) -> BrokerHistoricalOrdersPage: ...
 
 
 @runtime_checkable
@@ -53,32 +53,35 @@ class BrokerExecutionService(Protocol):
     def prepare_order(
         self,
         *,
-        order_type: OrderType | str,
-        side: OrderSide | str,
+        order_type: BrokerOrderType | str,
+        side: BrokerOrderSide | str,
         ticker: str,
         quantity: str | int | float,
         limit_price: str | int | float | None = None,
         stop_price: str | int | float | None = None,
-        time_validity: TimeValidity | str = TimeValidity.DAY,
+        time_in_force: BrokerTimeInForce | str = BrokerTimeInForce.DAY,
         extended_hours: bool = False,
-    ) -> PreparedOrder: ...
+    ) -> PreparedBrokerOrder: ...
 
-    def submit_prepared_order(self, prepared_order: PreparedOrder) -> OrderActionResult: ...
+    def submit_prepared_order(
+        self,
+        prepared_order: PreparedBrokerOrder,
+    ) -> BrokerOrderActionResult: ...
 
     def place_order(
         self,
         *,
-        order_type: OrderType | str,
-        side: OrderSide | str,
+        order_type: BrokerOrderType | str,
+        side: BrokerOrderSide | str,
         ticker: str,
         quantity: str | int | float,
         limit_price: str | int | float | None = None,
         stop_price: str | int | float | None = None,
-        time_validity: TimeValidity | str = TimeValidity.DAY,
+        time_in_force: BrokerTimeInForce | str = BrokerTimeInForce.DAY,
         extended_hours: bool = False,
-    ) -> OrderActionResult: ...
+    ) -> BrokerOrderActionResult: ...
 
-    def cancel_order(self, order_id: int) -> OrderActionResult: ...
+    def cancel_order(self, order_ref: str) -> BrokerOrderActionResult: ...
 
 
 @runtime_checkable
