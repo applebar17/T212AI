@@ -6,6 +6,14 @@ from decimal import Decimal
 
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan
+from t212ai.capabilities import (
+    BrokerExecutionService,
+    BrokerReadService,
+    CommunityResearchService,
+    DisclosureService,
+    MarketDataService,
+    MarketIntelligenceService,
+)
 from t212ai.app.config import get_app_settings
 from t212ai.app.runtime import build_runtime
 from t212ai.brokers.trading212.models import (
@@ -148,6 +156,20 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.calculator_service is not None
+    assert runtime.market_data_service is not None
+    assert isinstance(runtime.market_data_service, MarketDataService)
+    assert runtime.market_intelligence_service is None
+    assert runtime.community_research_service is None
+    assert runtime.disclosure_service is not None
+    assert isinstance(runtime.disclosure_service, DisclosureService)
+    assert runtime.search_service is None
+    assert runtime.broker_read_service is None
+    assert runtime.broker_execution_service is None
+    assert runtime.capability_registry["market_data"].selected_provider == "yahoo"
+    assert runtime.capability_registry["market_data"].ready
+    assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
+    assert runtime.capability_registry["disclosure"].ready
+    assert runtime.capability_registry["broker_read"].implementation is None
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is None
     assert set(runtime.toolboxes["market_analyst"].tools_by_name) == {
@@ -194,6 +216,8 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.proposal_service is not None
     assert runtime.calculator_service is not None
     assert runtime.calculator_agent is not None
+    assert runtime.market_data_service is not None
+    assert runtime.disclosure_service is not None
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
     assert runtime.has_agent_runtime
@@ -234,17 +258,34 @@ def test_build_runtime_builds_optional_provider_stacks(
 
     assert runtime.trading212_client is not None
     assert runtime.trading212_service is not None
+    assert runtime.broker_read_service is not None
+    assert runtime.broker_execution_service is not None
+    assert isinstance(runtime.broker_read_service, BrokerReadService)
+    assert isinstance(runtime.broker_execution_service, BrokerExecutionService)
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.reconciliation_service is not None
     assert runtime.portfolio_summary_workflow is not None
     assert runtime.pending_orders_review_workflow is not None
     assert runtime.yahoo_client is not None
+    assert runtime.market_data_service is not None
+    assert isinstance(runtime.market_data_service, MarketDataService)
     assert runtime.alpha_vantage_client is not None
+    assert runtime.market_intelligence_service is not None
+    assert isinstance(runtime.market_intelligence_service, MarketIntelligenceService)
     assert runtime.reddit_client is not None
     assert runtime.reddit_service is not None
+    assert runtime.community_research_service is not None
+    assert isinstance(runtime.community_research_service, CommunityResearchService)
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
+    assert runtime.disclosure_service is not None
+    assert isinstance(runtime.disclosure_service, DisclosureService)
+    assert runtime.capability_registry["broker_read"].ready
+    assert runtime.capability_registry["broker_execution"].ready
+    assert runtime.capability_registry["market_intelligence"].ready
+    assert runtime.capability_registry["community_research"].ready
+    assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
     assert "alpha_vantage_most_actively_traded" in market_tools
     assert "searxng_search" not in market_tools

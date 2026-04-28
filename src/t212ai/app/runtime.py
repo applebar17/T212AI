@@ -14,6 +14,20 @@ from t212ai.agent import (
 from t212ai.agent.tooling import SpecialistTooling, build_specialist_tooling
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.calculator import CalculatorService
+from t212ai.capabilities import (
+    AlphaVantageMarketIntelligenceService,
+    BrokerExecutionService,
+    BrokerReadService,
+    CapabilityBinding,
+    CommunityResearchService,
+    DisclosureService,
+    EdgarDisclosureService,
+    MarketDataService,
+    MarketIntelligenceService,
+    SearchService,
+    SearxngSearchService,
+    YahooMarketDataService,
+)
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
 from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
@@ -73,14 +87,22 @@ class AppRuntime:
     calculator_agent: CalculatorAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
+    broker_read_service: BrokerReadService | None = None
+    broker_execution_service: BrokerExecutionService | None = None
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None
     yahoo_client: YahooFinanceClient | None = None
+    market_data_service: MarketDataService | None = None
     alpha_vantage_client: AlphaVantageClient | None = None
+    market_intelligence_service: MarketIntelligenceService | None = None
     reddit_client: RedditClient | None = None
     reddit_service: RedditResearchService | None = None
+    community_research_service: CommunityResearchService | None = None
     sec_edgar_client: SecEdgarClient | None = None
     insider_manager: EdgarInsiderManager | None = None
+    disclosure_service: DisclosureService | None = None
+    search_service: SearchService | None = None
+    capability_registry: dict[str, CapabilityBinding] = field(default_factory=dict)
     toolboxes: dict[str, "ToolBox"] = field(default_factory=dict)
     specialist_tooling: SpecialistTooling | None = None
     component_errors: dict[str, str] = field(default_factory=dict)
@@ -96,16 +118,18 @@ class AppRuntime:
 
     @property
     def has_broker_runtime(self) -> bool:
-        return self.trading212_service is not None
+        return self.broker_read_service is not None or self.broker_execution_service is not None
 
     @property
     def has_market_data_runtime(self) -> bool:
         return any(
-            component is not None
-            for component in (
-                self.yahoo_client,
-                self.alpha_vantage_client,
-                self.reddit_service,
+            service is not None
+            for service in (
+                self.market_data_service,
+                self.market_intelligence_service,
+                self.community_research_service,
+                self.disclosure_service,
+                self.search_service,
             )
         )
 
@@ -144,6 +168,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_database_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
+    _build_capability_stack(runtime)
     _build_toolbox_stack(runtime)
     _build_workflow_stack(runtime)
     _build_calculator_stack(runtime)
@@ -231,11 +256,95 @@ def _build_toolbox_stack(runtime: AppRuntime) -> None:
     )
 
 
+def _build_capability_stack(runtime: AppRuntime) -> None:
+    broker_provider = runtime.config_assessment.providers["broker"]
+    if broker_provider.ready and runtime.trading212_service is not None:
+        runtime.broker_read_service = runtime.trading212_service
+        runtime.broker_execution_service = runtime.trading212_service
+
+    if (
+        runtime.config_assessment.capabilities["market_data"].available
+        and runtime.yahoo_client is not None
+    ):
+        runtime.market_data_service = YahooMarketDataService(runtime.yahoo_client)
+
+    if (
+        runtime.config_assessment.capabilities["market_intelligence"].available
+        and runtime.alpha_vantage_client is not None
+    ):
+        runtime.market_intelligence_service = AlphaVantageMarketIntelligenceService(
+            runtime.alpha_vantage_client
+        )
+
+    if (
+        runtime.config_assessment.capabilities["disclosure"].available
+        and runtime.insider_manager is not None
+    ):
+        runtime.disclosure_service = EdgarDisclosureService(runtime.insider_manager)
+
+    if (
+        runtime.config_assessment.capabilities["research_community_context"].available
+        and runtime.reddit_service is not None
+    ):
+        runtime.community_research_service = runtime.reddit_service
+
+    if (
+        runtime.config_assessment.capabilities["search"].available
+        and str(runtime.settings.searxng_base_url or "").strip()
+    ):
+        runtime.search_service = SearxngSearchService(runtime.settings.searxng_base_url or "")
+
+    runtime.capability_registry = {
+        "broker_read": CapabilityBinding(
+            capability="broker_read",
+            selected_provider=_capability_provider(runtime, "broker_read"),
+            ready=runtime.broker_read_service is not None,
+            implementation=runtime.broker_read_service,
+        ),
+        "broker_execution": CapabilityBinding(
+            capability="broker_execution",
+            selected_provider=_capability_provider(runtime, "broker_execution_eligibility"),
+            ready=runtime.broker_execution_service is not None,
+            implementation=runtime.broker_execution_service,
+        ),
+        "market_data": CapabilityBinding(
+            capability="market_data",
+            selected_provider=_capability_provider(runtime, "market_data"),
+            ready=runtime.market_data_service is not None,
+            implementation=runtime.market_data_service,
+        ),
+        "market_intelligence": CapabilityBinding(
+            capability="market_intelligence",
+            selected_provider=_capability_provider(runtime, "market_intelligence"),
+            ready=runtime.market_intelligence_service is not None,
+            implementation=runtime.market_intelligence_service,
+        ),
+        "disclosure": CapabilityBinding(
+            capability="disclosure",
+            selected_provider=_capability_provider(runtime, "disclosure"),
+            ready=runtime.disclosure_service is not None,
+            implementation=runtime.disclosure_service,
+        ),
+        "community_research": CapabilityBinding(
+            capability="community_research",
+            selected_provider=_capability_provider(runtime, "research_community_context"),
+            ready=runtime.community_research_service is not None,
+            implementation=runtime.community_research_service,
+        ),
+        "search": CapabilityBinding(
+            capability="search",
+            selected_provider=_capability_provider(runtime, "search"),
+            ready=runtime.search_service is not None,
+            implementation=runtime.search_service,
+        ),
+    }
+
+
 def _build_workflow_stack(runtime: AppRuntime) -> None:
-    if runtime.trading212_service is not None:
-        runtime.portfolio_summary_workflow = PortfolioSummaryWorkflow(runtime.trading212_service)
+    if runtime.broker_read_service is not None:
+        runtime.portfolio_summary_workflow = PortfolioSummaryWorkflow(runtime.broker_read_service)
         runtime.pending_orders_review_workflow = PendingOrdersReviewWorkflow(
-            runtime.trading212_service
+            runtime.broker_read_service
         )
     if runtime.db_session_factory is not None:
         runtime.pending_action_service = PendingActionService(
@@ -333,3 +442,10 @@ def _collect_startup_notes(assessment: ConfigAssessment) -> tuple[str, ...]:
         seen.add(normalized)
         deduped.append(normalized)
     return tuple(deduped)
+
+
+def _capability_provider(runtime: AppRuntime, name: str) -> str | None:
+    capability = runtime.config_assessment.capabilities.get(name)
+    if capability is None:
+        return None
+    return capability.selected_provider

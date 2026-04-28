@@ -11,7 +11,7 @@ from typing import Callable
 from pydantic import BaseModel, Field
 
 from t212ai.brokers.trading212.models import Order, OrderStatus, OrderType
-from t212ai.brokers.trading212.protocols import Trading212AgentBrokerProtocol
+from t212ai.capabilities.protocols import BrokerReadService
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
 from .errors import WorkflowExecutionError
@@ -94,7 +94,7 @@ class PendingOrdersReviewResult(BaseModel):
 
 @dataclass(slots=True)
 class PendingOrdersReviewWorkflow:
-    broker: Trading212AgentBrokerProtocol
+    broker: BrokerReadService
     clock: Callable[[], datetime] = field(default=_utcnow)
 
     @traceable(name="Pending Orders Review Workflow", run_type="chain")

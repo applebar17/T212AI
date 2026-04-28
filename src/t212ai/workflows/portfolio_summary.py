@@ -9,7 +9,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 from t212ai.brokers.trading212.models import PortfolioSnapshot, Position
-from t212ai.brokers.trading212.protocols import Trading212AgentBrokerProtocol
+from t212ai.capabilities.protocols import BrokerReadService
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
 from .errors import WorkflowExecutionError
@@ -96,7 +96,7 @@ class PortfolioSummaryResult(BaseModel):
 
 @dataclass(slots=True)
 class PortfolioSummaryWorkflow:
-    broker: Trading212AgentBrokerProtocol
+    broker: BrokerReadService
     max_positions: int = 5
 
     @traceable(name="Portfolio Summary Workflow", run_type="chain")
