@@ -6,6 +6,13 @@ services:
     env_file:
       - .env
     environment:
+      # Compose-level guardrails for the minimum bot runtime contract.
+      # Provider-specific credential validation stays in brokerai preflight.
+      LLM_PROVIDER: ${LLM_PROVIDER:?Set LLM_PROVIDER in .env before building/running Docker.}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env before building/running Docker.}
+      TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:?Set TELEGRAM_ALLOWED_CHAT_ID in .env before building/running Docker.}
+      GUIDELINE_MEMORY_PATH: ${GUIDELINE_MEMORY_PATH:-data/guidelines/guidelines.json}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/t212ai.db}
       SEARXNG_ENABLED: ${SEARXNG_ENABLED:-true}
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
     volumes:

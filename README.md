@@ -32,3 +32,13 @@ Build the baseline container:
 ```powershell
 docker compose build
 ```
+
+`docker compose build` / `docker compose up` now fail fast for the app service if
+these minimum bot variables are empty in `.env`:
+
+- `LLM_PROVIDER`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ALLOWED_CHAT_ID`
+
+Provider-specific LLM credentials such as `OPENAI_API_KEY` or Azure OpenAI
+settings are still validated by the Python preflight at container startup.
