@@ -119,6 +119,7 @@ def test_yahoo_market_data_service_delegates_to_existing_helpers(monkeypatch) ->
 
     market_snapshot_result = ToolResult(status="ok", output="market snapshot")
     volume_result = ToolResult(status="ok", output="volume monitor")
+    chart_result = ToolResult(status="ok", output="chart context")
     monkeypatch.setattr(
         capability_services,
         "yahoo_market_snapshot",
@@ -129,6 +130,11 @@ def test_yahoo_market_data_service_delegates_to_existing_helpers(monkeypatch) ->
         "yahoo_volume_monitor",
         lambda **kwargs: volume_result,
     )
+    monkeypatch.setattr(
+        capability_services,
+        "yahoo_price_summary_with_chart_refs",
+        lambda **kwargs: chart_result,
+    )
     service = YahooMarketDataService(_FakeYahooClient())  # type: ignore[arg-type]
 
     assert isinstance(service, MarketDataService)
@@ -137,6 +143,7 @@ def test_yahoo_market_data_service_delegates_to_existing_helpers(monkeypatch) ->
     assert service.search_symbols("apple") == {"query": "apple"}
     assert service.get_market_snapshot(["AAPL"]) is market_snapshot_result
     assert service.get_volume_monitor(["AAPL"]) is volume_result
+    assert service.get_chart_context(["AAPL"]) is chart_result
 
 
 def test_alpha_vantage_market_intelligence_service_delegates_to_tool(monkeypatch) -> None:

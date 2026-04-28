@@ -199,7 +199,7 @@ def test_market_analyst_agent_exposes_market_analyst_toolbox() -> None:
     assert agent.profile.toolbox is not None
     assert agent.profile.toolbox.name == "market_analyst"
     assert "edgar_company_disclosure_snapshot" in agent.profile.toolbox.tools_by_name
-    assert "yahoo_volume_monitor" in agent.profile.toolbox.tools_by_name
+    assert "market_get_volume_monitor" in agent.profile.toolbox.tools_by_name
 
 
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:

@@ -128,6 +128,17 @@ class MarketDataService(Protocol):
         news_count: int = 0,
     ) -> YahooSearchResult: ...
 
+    def get_chart_context(
+        self,
+        symbols: list[str] | tuple[str, ...],
+        *,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+        auto_adjust: bool = False,
+    ) -> ToolResult: ...
+
 
 @runtime_checkable
 class MarketIntelligenceService(Protocol):

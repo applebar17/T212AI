@@ -13,6 +13,7 @@ from t212ai.data_sources.sec_edgar import EdgarInsiderManager
 from t212ai.data_sources.yahoo import (
     YahooFinanceClient,
     yahoo_market_snapshot,
+    yahoo_price_summary_with_chart_refs,
     yahoo_volume_monitor,
 )
 from t212ai.genai.models import ToolResult
@@ -98,6 +99,26 @@ class YahooMarketDataService:
             query,
             quotes_count=quotes_count,
             news_count=news_count,
+        )
+
+    def get_chart_context(
+        self,
+        symbols: list[str] | tuple[str, ...],
+        *,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+        auto_adjust: bool = False,
+    ) -> ToolResult:
+        return yahoo_price_summary_with_chart_refs(
+            tickers=symbols,
+            period=period,
+            interval=interval,
+            start=start,
+            end=end,
+            auto_adjust=auto_adjust,
+            client=self.client,
         )
 
 

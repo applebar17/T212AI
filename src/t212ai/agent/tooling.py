@@ -52,7 +52,7 @@ def _portfolio_summary(
 ) -> str:
     facts = ["Portfolio snapshot, positions, pending orders"]
     if settings.market_data_provider == "yahoo" and _provider_ready(assessment, "yahoo"):
-        facts.append("Yahoo market context")
+        facts.append("market data context")
     if (
         settings.market_intelligence_provider == "alpha_vantage"
         and _provider_ready(assessment, "alpha_vantage")
@@ -84,8 +84,8 @@ def _order_summary(
 def _market_summary(toolbox: ToolBox) -> str:
     segments: list[str] = []
     names = toolbox.tools_by_name
-    if "yahoo_market_snapshot" in names or "yahoo_volume_monitor" in names:
-        segments.append("Yahoo market snapshot and relative-volume monitoring")
+    if "market_get_market_snapshot" in names or "market_get_volume_monitor" in names:
+        segments.append("market snapshot and relative-volume monitoring")
     if "alpha_vantage_most_actively_traded" in names:
         segments.append("Alpha Vantage most-actively-traded context")
     if "edgar_company_disclosure_snapshot" in names:

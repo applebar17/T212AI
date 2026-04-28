@@ -173,8 +173,8 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is None
     assert set(runtime.toolboxes["market_analyst"].tools_by_name) == {
-        "yahoo_market_snapshot",
-        "yahoo_volume_monitor",
+        "market_get_market_snapshot",
+        "market_get_volume_monitor",
         "edgar_recent_ownership_activity",
         "edgar_recent_major_stake_activity",
         "edgar_company_disclosure_snapshot",

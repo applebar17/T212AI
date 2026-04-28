@@ -67,7 +67,7 @@ class PortfolioAnalystAgent(BaseAgent):
                     "request fresh market/news context before making recommendations."
                 ),
                 toolbox_summary=toolbox_summary or (
-                    "Portfolio snapshot, positions, pending orders, Yahoo market context, "
+                    "Portfolio snapshot, positions, pending orders, market data context, "
                     "Alpha Vantage intelligence, web search when needed."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
@@ -612,7 +612,7 @@ class MarketAnalystAgent(BaseAgent):
                     "price context from slower research enrichment."
                 ),
                 toolbox_summary=toolbox_summary or (
-                    "Market analyst toolbox: Yahoo market snapshot and relative-volume monitoring; "
+                    "Market analyst toolbox: market snapshot and relative-volume monitoring; "
                     "Alpha Vantage most-actively-traded context; SEC EDGAR insider, stake, and "
                     "official disclosure snapshots; web search and article scraping for expansion."
                 ),
@@ -642,12 +642,12 @@ class CompanyAnalystAgent(BaseAgent):
                 ),
                 guidelines=(
                     "Resolve ticker ambiguity first. Use multiple sources for thesis-level "
-                    "claims and keep Yahoo as convenience context."
+                    "claims and keep market-data providers as convenience context."
                 ),
                 toolbox_summary=toolbox_summary or (
-                    "yahoo_market_context: symbol/quote/options/analyst context; "
+                    "market-data context: symbol, quote, and chart-ready context; "
                     "research: search and article scraping; "
-                    "Alpha Vantage intelligence and fundamentals."
+                    "Yahoo specialist context when needed; Alpha Vantage intelligence and fundamentals."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:company"),

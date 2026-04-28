@@ -5,12 +5,19 @@ from __future__ import annotations
 from copy import deepcopy
 from functools import partial
 import os
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from t212ai.app.bootstrap import ConfigAssessment, assess_settings
 from t212ai.app.config import AppSettings, get_app_settings
 from ..models import ToolError, ToolResult, ToolSpec
 from .base import ToolBox, build_tool_index
+from .market_data import (
+    GENERIC_MARKET_DATA_TOOLS,
+    MARKET_GET_CHART_CONTEXT_TOOL,
+    MARKET_GET_MARKET_SNAPSHOT_TOOL,
+    MARKET_GET_VOLUME_MONITOR_TOOL,
+    build_market_data_tool_mapping,
+)
 from .scrape_article import SCRAPE_ARTICLE_TOOL, scrape_article
 from .search_registry import SearchResultRegistry
 from .searxng import SEARXNG_SEARCH_TOOL, searxng_search
@@ -54,9 +61,12 @@ from .yahoo_finance import (
     yahoo_volume_monitor,
 )
 
+if TYPE_CHECKING:
+    from t212ai.capabilities.protocols import MarketDataService
 
-def _build_chat_yahoo_tool() -> ToolSpec:
-    tool = deepcopy(YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL)
+
+def _build_chat_market_chart_tool() -> ToolSpec:
+    tool = deepcopy(MARKET_GET_CHART_CONTEXT_TOOL)
     fn = tool.get("function", {})
     description = fn.get("description") or ""
     suffix = (
@@ -86,6 +96,23 @@ def _selected_provider(value: str | None) -> str:
     return str(value or "").strip().lower()
 
 
+def _resolve_market_data_service(
+    *,
+    market_data_service: "MarketDataService | None",
+    settings: AppSettings | None,
+    assessment: ConfigAssessment | None,
+) -> "MarketDataService | None":
+    if market_data_service is not None:
+        return market_data_service
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    if (
+        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+        and _provider_ready(resolved_assessment, "yahoo")
+    ):
+        return YahooMarketDataService(YahooFinanceClient())
+    return None
+
+
 def build_chat_toolbox(
     *,
     settings: AppSettings | None = None,
@@ -97,7 +124,7 @@ def build_chat_toolbox(
         _selected_provider(resolved_settings.market_data_provider) == "yahoo"
         and _provider_ready(resolved_assessment, "yahoo")
     ):
-        tools.append(_build_chat_yahoo_tool())
+        tools.append(_build_chat_market_chart_tool())
     if (
         _selected_provider(resolved_settings.search_provider) == "searxng"
         and _provider_ready(resolved_assessment, "searxng")
@@ -122,7 +149,7 @@ def build_research_toolbox(
         _selected_provider(resolved_settings.market_data_provider) == "yahoo"
         and _provider_ready(resolved_assessment, "yahoo")
     ):
-        tools.append(YAHOO_PRICE_SUMMARY_TOOL)
+        tools.append(MARKET_GET_MARKET_SNAPSHOT_TOOL)
     return ToolBox(name="research", tools=tools, tools_by_name=build_tool_index(tools))
 
 
@@ -137,19 +164,7 @@ def build_market_data_toolbox(
         _selected_provider(resolved_settings.market_data_provider) == "yahoo"
         and _provider_ready(resolved_assessment, "yahoo")
     ):
-        tools.extend(
-            [
-                YAHOO_PRICE_HISTORY_TOOL,
-                YAHOO_PRICE_SUMMARY_TOOL,
-                YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
-                YAHOO_SYMBOL_SEARCH_TOOL,
-                YAHOO_QUOTE_SNAPSHOT_TOOL,
-                YAHOO_MARKET_SNAPSHOT_TOOL,
-                YAHOO_VOLUME_MONITOR_TOOL,
-                YAHOO_OPTIONS_SNAPSHOT_TOOL,
-                YAHOO_ANALYST_SNAPSHOT_TOOL,
-            ]
-        )
+        tools.extend(GENERIC_MARKET_DATA_TOOLS)
     return ToolBox(
         name="market_data",
         tools=tools,
@@ -189,7 +204,7 @@ def build_market_analyst_toolbox(
         _selected_provider(resolved_settings.market_data_provider) == "yahoo"
         and _provider_ready(resolved_assessment, "yahoo")
     ):
-        tools.extend([YAHOO_MARKET_SNAPSHOT_TOOL, YAHOO_VOLUME_MONITOR_TOOL])
+        tools.extend([MARKET_GET_MARKET_SNAPSHOT_TOOL, MARKET_GET_VOLUME_MONITOR_TOOL])
     if (
         _selected_provider(resolved_settings.market_intelligence_provider)
         == "alpha_vantage"
@@ -258,28 +273,28 @@ def build_tool_mapping(
     embed_fn: Callable[..., Any] | None = None,
     genai_client: Any | None = None,
     runtime: SearchResultRegistry | None = None,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+    market_data_service: "MarketDataService | None" = None,
     **_unused: Any,
 ) -> dict[str, Callable[..., Any]]:
     del embed_fn, genai_client
-    yahoo_client = YahooFinanceClient()
     search_registry = runtime
     searxng_base_url = os.getenv("SEARXNG_BASE_URL")
+    resolved_market_data_service = _resolve_market_data_service(
+        market_data_service=market_data_service,
+        settings=settings,
+        assessment=assessment,
+    )
+    yahoo_client = getattr(resolved_market_data_service, "client", None)
+    if yahoo_client is None and (
+        _selected_provider((settings or get_app_settings()).market_data_provider) == "yahoo"
+    ):
+        yahoo_client = YahooFinanceClient()
     edgar_runtime = SecEdgarToolRuntime(
         manager=EdgarInsiderManager(SecEdgarClient.from_settings())
     )
     mapping = {
-        "yahoo_price_history": partial(yahoo_price_history, client=yahoo_client),
-        "yahoo_price_summary": partial(yahoo_price_summary, client=yahoo_client),
-        "yahoo_price_summary_with_chart_refs": partial(
-            yahoo_price_summary_with_chart_refs,
-            client=yahoo_client,
-        ),
-        "yahoo_symbol_search": partial(yahoo_symbol_search, client=yahoo_client),
-        "yahoo_quote_snapshot": partial(yahoo_quote_snapshot, client=yahoo_client),
-        "yahoo_market_snapshot": partial(yahoo_market_snapshot, client=yahoo_client),
-        "yahoo_volume_monitor": partial(yahoo_volume_monitor, client=yahoo_client),
-        "yahoo_options_snapshot": partial(yahoo_options_snapshot, client=yahoo_client),
-        "yahoo_analyst_snapshot": partial(yahoo_analyst_snapshot, client=yahoo_client),
         "searxng_search": partial(
             searxng_search,
             base_url=searxng_base_url,
@@ -299,6 +314,47 @@ def build_tool_mapping(
             runtime=edgar_runtime,
         ),
     }
+    mapping.update(build_market_data_tool_mapping(resolved_market_data_service))
+    if yahoo_client is not None:
+        mapping.update(
+            {
+                "yahoo_price_history": partial(yahoo_price_history, client=yahoo_client),
+                "yahoo_price_summary": partial(yahoo_price_summary, client=yahoo_client),
+                "yahoo_price_summary_with_chart_refs": partial(
+                    yahoo_price_summary_with_chart_refs,
+                    client=yahoo_client,
+                ),
+                "yahoo_symbol_search": partial(yahoo_symbol_search, client=yahoo_client),
+                "yahoo_quote_snapshot": partial(yahoo_quote_snapshot, client=yahoo_client),
+                "yahoo_market_snapshot": partial(yahoo_market_snapshot, client=yahoo_client),
+                "yahoo_volume_monitor": partial(yahoo_volume_monitor, client=yahoo_client),
+                "yahoo_options_snapshot": partial(
+                    yahoo_options_snapshot,
+                    client=yahoo_client,
+                ),
+                "yahoo_analyst_snapshot": partial(
+                    yahoo_analyst_snapshot,
+                    client=yahoo_client,
+                ),
+            }
+        )
+    else:
+        for tool_name in (
+            "yahoo_price_history",
+            "yahoo_price_summary",
+            "yahoo_price_summary_with_chart_refs",
+            "yahoo_symbol_search",
+            "yahoo_quote_snapshot",
+            "yahoo_market_snapshot",
+            "yahoo_volume_monitor",
+            "yahoo_options_snapshot",
+            "yahoo_analyst_snapshot",
+        ):
+            mapping[tool_name] = _provider_unavailable_tool(
+                provider="yahoo",
+                tool_name=tool_name,
+                message="Yahoo market-data provider is not configured.",
+            )
     try:
         alpha_runtime = AlphaVantageToolRuntime(client=AlphaVantageClient.from_settings())
         mapping["alpha_vantage_most_actively_traded"] = partial(

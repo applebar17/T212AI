@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import urllib.parse
 
+from t212ai.capabilities import YahooMarketDataService
 from t212ai.data_sources.yahoo import (
     YahooFinanceClient,
     YahooOptionsResult,
     YahooPriceHistoryResult,
     YahooQuoteSnapshotResult,
     YahooQuoteSummaryResult,
+    YahooSearchResult,
     yahoo_analyst_snapshot,
     yahoo_market_snapshot,
     yahoo_options_snapshot,
@@ -21,6 +23,12 @@ from t212ai.genai.tools import (
     MARKET_DATA_TOOLBOX,
     YAHOO_MARKET_CONTEXT_TOOLBOX,
     build_market_data_toolbox,
+    market_get_bars,
+    market_get_chart_context,
+    market_get_market_snapshot,
+    market_get_quote,
+    market_get_volume_monitor,
+    market_search_symbol,
 )
 
 
@@ -36,6 +44,28 @@ class StubYahooClient(YahooFinanceClient):
 
 
 class FakeYahooClient:
+    def search_symbols(
+        self,
+        query: str,
+        *,
+        quotes_count: int = 8,
+        news_count: int = 0,
+    ) -> YahooSearchResult:
+        del quotes_count, news_count
+        return YahooSearchResult(
+            query=query,
+            quotes=[
+                {
+                    "symbol": "AAPL",
+                    "shortname": "Apple Inc.",
+                    "exchDisp": "NasdaqGS",
+                    "quoteType": "EQUITY",
+                }
+            ],
+            news=[],
+            meta={"provider": "fake"},
+        )
+
     def get_quote_snapshot(self, symbols: list[str]) -> YahooQuoteSnapshotResult:
         return YahooQuoteSnapshotResult(
             quotes={
@@ -247,9 +277,10 @@ def test_yahoo_options_tool_limits_and_ranks_contracts() -> None:
 def test_market_data_toolbox_includes_yahoo_context_tools() -> None:
     names = MARKET_DATA_TOOLBOX.tools_by_name
 
-    assert "yahoo_market_snapshot" in names
-    assert "yahoo_analyst_snapshot" in names
-    assert "yahoo_volume_monitor" in names
+    assert "market_get_market_snapshot" in names
+    assert "market_get_chart_context" in names
+    assert "market_get_volume_monitor" in names
+    assert "yahoo_analyst_snapshot" not in names
 
 
 def test_yahoo_market_context_toolbox_includes_volume_monitor() -> None:
@@ -266,3 +297,81 @@ def test_market_data_toolbox_hides_yahoo_tools_when_market_data_is_disabled() ->
     )
 
     assert toolbox.tools_by_name == {}
+
+
+def test_generic_market_search_symbol_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_search_symbol(query="apple", service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["query"] == "apple"
+    assert result.data["candidates"][0]["symbol"] == "AAPL"
+
+
+def test_generic_market_get_quote_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_get_quote(symbols=["AAPL"], service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["quotes"]["AAPL"]["regularMarketPrice"] == 100.0
+    assert result.data["errors"] == {}
+
+
+def test_generic_market_get_bars_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_get_bars(symbols=["AAPL"], service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["series"]["AAPL"][0]["close"] == 100
+    assert result.data["meta"]["total_points"] == 2
+
+
+def test_generic_market_get_market_snapshot_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_get_market_snapshot(symbols=["AAPL"], service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["quotes"]["AAPL"]["regularMarketVolume"] == 123456
+    assert result.data["price_summary"]["AAPL"]["points"] == 2
+    assert result.data["errors"] == {}
+
+
+def test_generic_market_get_volume_monitor_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_get_volume_monitor(symbols=["AAPL"], service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["monitor"]["AAPL"]["signal"] == "anomalous"
+    assert result.data["quotes"]["AAPL"]["regularMarketVolume"] == 123456
+    assert result.data["errors"] == {}
+
+
+def test_generic_market_get_chart_context_returns_provider_neutral_payload() -> None:
+    service = YahooMarketDataService(FakeYahooClient())  # type: ignore[arg-type]
+
+    result = market_get_chart_context(symbols=["AAPL"], service=service)
+
+    assert result.status == "ok"
+    assert result.data["provider"] == "yahoo"
+    assert result.data["summary"]["AAPL"]["points"] == 2
+    assert result.data["series"]["AAPL"][1]["close"] == 110
+    assert "AAPL" in result.data["chart_refs"]
+    assert "placement_guidance" in result.data
+
+
+def test_generic_market_tools_fail_cleanly_without_service() -> None:
+    result = market_get_quote(symbols=["AAPL"], service=None)
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "market_data_not_configured"

@@ -31,6 +31,18 @@ __all__ = [
     "searxng_search",
     "SCRAPE_ARTICLE_TOOL",
     "scrape_article",
+    "MARKET_SEARCH_SYMBOL_TOOL",
+    "MARKET_GET_QUOTE_TOOL",
+    "MARKET_GET_BARS_TOOL",
+    "MARKET_GET_VOLUME_MONITOR_TOOL",
+    "MARKET_GET_MARKET_SNAPSHOT_TOOL",
+    "MARKET_GET_CHART_CONTEXT_TOOL",
+    "market_search_symbol",
+    "market_get_quote",
+    "market_get_bars",
+    "market_get_volume_monitor",
+    "market_get_market_snapshot",
+    "market_get_chart_context",
     "YAHOO_PRICE_HISTORY_TOOL",
     "YAHOO_PRICE_SUMMARY_TOOL",
     "YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL",
@@ -64,6 +76,51 @@ def __getattr__(name: str) -> Any:
         exports = {
             "SEARXNG_SEARCH_TOOL": SEARXNG_SEARCH_TOOL,
             "searxng_search": searxng_search,
+        }
+        return exports[name]
+
+    if name in {
+        "MARKET_SEARCH_SYMBOL_TOOL",
+        "MARKET_GET_QUOTE_TOOL",
+        "MARKET_GET_BARS_TOOL",
+        "MARKET_GET_VOLUME_MONITOR_TOOL",
+        "MARKET_GET_MARKET_SNAPSHOT_TOOL",
+        "MARKET_GET_CHART_CONTEXT_TOOL",
+        "market_search_symbol",
+        "market_get_quote",
+        "market_get_bars",
+        "market_get_volume_monitor",
+        "market_get_market_snapshot",
+        "market_get_chart_context",
+    }:
+        from .market_data import (
+            MARKET_GET_BARS_TOOL,
+            MARKET_GET_CHART_CONTEXT_TOOL,
+            MARKET_GET_MARKET_SNAPSHOT_TOOL,
+            MARKET_GET_QUOTE_TOOL,
+            MARKET_GET_VOLUME_MONITOR_TOOL,
+            MARKET_SEARCH_SYMBOL_TOOL,
+            market_get_bars,
+            market_get_chart_context,
+            market_get_market_snapshot,
+            market_get_quote,
+            market_get_volume_monitor,
+            market_search_symbol,
+        )
+
+        exports = {
+            "MARKET_SEARCH_SYMBOL_TOOL": MARKET_SEARCH_SYMBOL_TOOL,
+            "MARKET_GET_QUOTE_TOOL": MARKET_GET_QUOTE_TOOL,
+            "MARKET_GET_BARS_TOOL": MARKET_GET_BARS_TOOL,
+            "MARKET_GET_VOLUME_MONITOR_TOOL": MARKET_GET_VOLUME_MONITOR_TOOL,
+            "MARKET_GET_MARKET_SNAPSHOT_TOOL": MARKET_GET_MARKET_SNAPSHOT_TOOL,
+            "MARKET_GET_CHART_CONTEXT_TOOL": MARKET_GET_CHART_CONTEXT_TOOL,
+            "market_search_symbol": market_search_symbol,
+            "market_get_quote": market_get_quote,
+            "market_get_bars": market_get_bars,
+            "market_get_volume_monitor": market_get_volume_monitor,
+            "market_get_market_snapshot": market_get_market_snapshot,
+            "market_get_chart_context": market_get_chart_context,
         }
         return exports[name]
 
