@@ -8,11 +8,7 @@ from t212ai.brokers.models import (
     BrokerOrderAction,
     BrokerOrderActionRequest,
 )
-from t212ai.brokers.tools import (
-    BROKER_EXECUTION_TOOLBOX,
-    BrokerToolRuntime,
-    build_broker_tool_mapping,
-)
+from t212ai.brokers.tools import BrokerToolRuntime, build_broker_tool_mapping
 from t212ai.calculator import (
     CALCULATOR_TOOLBOX,
     CalculatorRequest,
@@ -22,7 +18,6 @@ from t212ai.calculator import (
 )
 from t212ai.genai.tools.base import ToolBox
 from t212ai.genai.models import ToolResult
-from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
     PendingActionService,
@@ -44,6 +39,10 @@ from .prompts import (
     build_order_action_user_prompt,
 )
 from .schemas import AgentRequest, AgentResponse
+
+
+def _empty_toolbox(name: str) -> ToolBox:
+    return ToolBox(name=name, tools=[], tools_by_name={})
 
 
 class PortfolioAnalystAgent(BaseAgent):
@@ -69,7 +68,7 @@ class PortfolioAnalystAgent(BaseAgent):
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Portfolio snapshot, positions, pending orders, market data context, "
-                    "Alpha Vantage intelligence, web search when needed."
+                    "active-movers intelligence, official disclosure activity, and web research when needed."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:portfolio"),
@@ -162,14 +161,14 @@ class OrderAgent(BaseAgent):
                     "uncertain submissions without reconciliation."
                 ),
                 toolbox_summary=toolbox_summary or (
-                    "Broker pending orders, order lookup, generic prepare "
-                    "order-action and prepare-cancel-action tools, direct confirmed "
-                    "execution tools, plus deterministic approval/execution through Telegram."
+                    "Broker pending orders, order lookup, generic order preparation and "
+                    "cancellation preparation tools, direct confirmed execution tools, plus "
+                    "deterministic approval/execution through Telegram."
                 ),
                 task_complexity=TaskComplexity.CRITICAL,
                 guideline_scopes=("global", "agent:order"),
                 guideline_include_categories=("investment_preference",),
-                toolbox=toolbox or BROKER_EXECUTION_TOOLBOX,
+                toolbox=toolbox or _empty_toolbox("broker_execution"),
             ),
             guideline_service=guideline_service,
         )
@@ -629,12 +628,12 @@ class MarketAnalystAgent(BaseAgent):
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Market analyst toolbox: market snapshot and relative-volume monitoring; "
-                    "Alpha Vantage most-actively-traded context; SEC EDGAR insider, stake, and "
-                    "official disclosure snapshots; web search and article scraping for expansion."
+                    "active-movers intelligence; official disclosure activity; web search "
+                    "and article scraping for expansion."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:market"),
-                toolbox=toolbox or MARKET_ANALYST_TOOLBOX,
+                toolbox=toolbox or _empty_toolbox("market_analyst"),
             ),
             guideline_service=guideline_service,
         )
@@ -663,7 +662,7 @@ class CompanyAnalystAgent(BaseAgent):
                 toolbox_summary=toolbox_summary or (
                     "market-data context: symbol, quote, and chart-ready context; "
                     "research: search and article scraping; "
-                    "Yahoo specialist context when needed; Alpha Vantage intelligence and fundamentals."
+                    "specialist provider context when needed; market intelligence and fundamentals."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:company"),

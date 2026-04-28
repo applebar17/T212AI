@@ -3,6 +3,10 @@
 The package keeps exports lazy so provider-specific tool modules can import
 `t212ai.genai.tools.base` without forcing the full generic tool registry to load
 and creating circular imports.
+
+The advertised top-level surface is generic-first. Provider-specific tools remain
+available through lazy compatibility shims here and through their provider modules,
+but they are not part of the preferred agent-facing API.
 """
 
 from __future__ import annotations
@@ -17,20 +21,36 @@ __all__ = [
     "RESEARCH_TOOLBOX",
     "MARKET_ANALYST_TOOLBOX",
     "MARKET_DATA_TOOLBOX",
-    "YAHOO_MARKET_CONTEXT_TOOLBOX",
     "TOOLBOXES",
     "build_tool_mapping",
     "build_tool_mapping_for",
     "build_chat_toolbox",
     "build_research_toolbox",
     "build_market_data_toolbox",
-    "build_yahoo_market_context_toolbox",
     "build_market_analyst_toolbox",
     "build_toolboxes",
     "SEARXNG_SEARCH_TOOL",
     "searxng_search",
     "SCRAPE_ARTICLE_TOOL",
     "scrape_article",
+    "BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL",
+    "BROKER_LIST_PENDING_ORDERS_TOOL",
+    "BROKER_GET_ORDER_TOOL",
+    "BROKER_LIST_HISTORICAL_ORDERS_TOOL",
+    "BROKER_PREPARE_ORDER_TOOL",
+    "BROKER_PREPARE_ORDER_ACTION_TOOL",
+    "BROKER_PREPARE_CANCEL_ACTION_TOOL",
+    "BROKER_PLACE_ORDER_TOOL",
+    "BROKER_CANCEL_ORDER_TOOL",
+    "broker_get_portfolio_snapshot",
+    "broker_list_pending_orders",
+    "broker_get_order",
+    "broker_list_historical_orders",
+    "broker_prepare_order",
+    "broker_prepare_order_action",
+    "broker_prepare_cancel_action",
+    "broker_place_order",
+    "broker_cancel_order",
     "MARKET_SEARCH_SYMBOL_TOOL",
     "MARKET_GET_QUOTE_TOOL",
     "MARKET_GET_BARS_TOOL",
@@ -43,24 +63,6 @@ __all__ = [
     "market_get_volume_monitor",
     "market_get_market_snapshot",
     "market_get_chart_context",
-    "YAHOO_PRICE_HISTORY_TOOL",
-    "YAHOO_PRICE_SUMMARY_TOOL",
-    "YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL",
-    "YAHOO_SYMBOL_SEARCH_TOOL",
-    "YAHOO_QUOTE_SNAPSHOT_TOOL",
-    "YAHOO_MARKET_SNAPSHOT_TOOL",
-    "YAHOO_VOLUME_MONITOR_TOOL",
-    "YAHOO_OPTIONS_SNAPSHOT_TOOL",
-    "YAHOO_ANALYST_SNAPSHOT_TOOL",
-    "yahoo_price_history",
-    "yahoo_price_summary",
-    "yahoo_price_summary_with_chart_refs",
-    "yahoo_symbol_search",
-    "yahoo_quote_snapshot",
-    "yahoo_market_snapshot",
-    "yahoo_volume_monitor",
-    "yahoo_options_snapshot",
-    "yahoo_analyst_snapshot",
 ]
 
 
@@ -76,6 +78,69 @@ def __getattr__(name: str) -> Any:
         exports = {
             "SEARXNG_SEARCH_TOOL": SEARXNG_SEARCH_TOOL,
             "searxng_search": searxng_search,
+        }
+        return exports[name]
+
+    if name in {
+        "BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL",
+        "BROKER_LIST_PENDING_ORDERS_TOOL",
+        "BROKER_GET_ORDER_TOOL",
+        "BROKER_LIST_HISTORICAL_ORDERS_TOOL",
+        "BROKER_PREPARE_ORDER_TOOL",
+        "BROKER_PREPARE_ORDER_ACTION_TOOL",
+        "BROKER_PREPARE_CANCEL_ACTION_TOOL",
+        "BROKER_PLACE_ORDER_TOOL",
+        "BROKER_CANCEL_ORDER_TOOL",
+        "broker_get_portfolio_snapshot",
+        "broker_list_pending_orders",
+        "broker_get_order",
+        "broker_list_historical_orders",
+        "broker_prepare_order",
+        "broker_prepare_order_action",
+        "broker_prepare_cancel_action",
+        "broker_place_order",
+        "broker_cancel_order",
+    }:
+        from t212ai.brokers.tools import (
+            BROKER_CANCEL_ORDER_TOOL,
+            BROKER_GET_ORDER_TOOL,
+            BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
+            BROKER_LIST_HISTORICAL_ORDERS_TOOL,
+            BROKER_LIST_PENDING_ORDERS_TOOL,
+            BROKER_PLACE_ORDER_TOOL,
+            BROKER_PREPARE_CANCEL_ACTION_TOOL,
+            BROKER_PREPARE_ORDER_ACTION_TOOL,
+            BROKER_PREPARE_ORDER_TOOL,
+            broker_cancel_order,
+            broker_get_order,
+            broker_get_portfolio_snapshot,
+            broker_list_historical_orders,
+            broker_list_pending_orders,
+            broker_place_order,
+            broker_prepare_cancel_action,
+            broker_prepare_order,
+            broker_prepare_order_action,
+        )
+
+        exports = {
+            "BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL": BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
+            "BROKER_LIST_PENDING_ORDERS_TOOL": BROKER_LIST_PENDING_ORDERS_TOOL,
+            "BROKER_GET_ORDER_TOOL": BROKER_GET_ORDER_TOOL,
+            "BROKER_LIST_HISTORICAL_ORDERS_TOOL": BROKER_LIST_HISTORICAL_ORDERS_TOOL,
+            "BROKER_PREPARE_ORDER_TOOL": BROKER_PREPARE_ORDER_TOOL,
+            "BROKER_PREPARE_ORDER_ACTION_TOOL": BROKER_PREPARE_ORDER_ACTION_TOOL,
+            "BROKER_PREPARE_CANCEL_ACTION_TOOL": BROKER_PREPARE_CANCEL_ACTION_TOOL,
+            "BROKER_PLACE_ORDER_TOOL": BROKER_PLACE_ORDER_TOOL,
+            "BROKER_CANCEL_ORDER_TOOL": BROKER_CANCEL_ORDER_TOOL,
+            "broker_get_portfolio_snapshot": broker_get_portfolio_snapshot,
+            "broker_list_pending_orders": broker_list_pending_orders,
+            "broker_get_order": broker_get_order,
+            "broker_list_historical_orders": broker_list_historical_orders,
+            "broker_prepare_order": broker_prepare_order,
+            "broker_prepare_order_action": broker_prepare_order_action,
+            "broker_prepare_cancel_action": broker_prepare_cancel_action,
+            "broker_place_order": broker_place_order,
+            "broker_cancel_order": broker_cancel_order,
         }
         return exports[name]
 

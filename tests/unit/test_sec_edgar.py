@@ -12,7 +12,7 @@ from t212ai.data_sources.sec_edgar import (
     edgar_recent_major_stake_activity,
     edgar_recent_ownership_activity,
 )
-from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX, build_market_analyst_toolbox
+from t212ai.genai.tools import build_market_analyst_toolbox
 
 
 class FakeSecEdgarClient:
@@ -134,12 +134,18 @@ def test_edgar_tools_return_normalized_activity_context() -> None:
 
 
 def test_sec_edgar_toolbox_and_market_analyst_toolbox_include_edgar_tools() -> None:
+    settings = get_app_settings()
+    toolbox = build_market_analyst_toolbox(
+        settings=settings,
+        assessment=assess_settings(settings),
+    )
+
     assert "edgar_recent_ownership_activity" in SEC_EDGAR_DISCLOSURE_TOOLBOX.tools_by_name
     assert "edgar_recent_major_stake_activity" in SEC_EDGAR_DISCLOSURE_TOOLBOX.tools_by_name
     assert "edgar_company_disclosure_snapshot" in SEC_EDGAR_DISCLOSURE_TOOLBOX.tools_by_name
-    assert "edgar_recent_ownership_activity" in MARKET_ANALYST_TOOLBOX.tools_by_name
-    assert "edgar_recent_major_stake_activity" in MARKET_ANALYST_TOOLBOX.tools_by_name
-    assert "edgar_company_disclosure_snapshot" in MARKET_ANALYST_TOOLBOX.tools_by_name
+    assert "edgar_recent_ownership_activity" in toolbox.tools_by_name
+    assert "edgar_recent_major_stake_activity" in toolbox.tools_by_name
+    assert "edgar_company_disclosure_snapshot" in toolbox.tools_by_name
 
 
 def test_market_analyst_toolbox_hides_edgar_tools_when_disclosure_is_disabled() -> None:

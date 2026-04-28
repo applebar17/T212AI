@@ -282,6 +282,59 @@ BROKER_CANCEL_ORDER_TOOL: ToolSpec = {
 }
 
 
+def build_broker_read_toolbox() -> ToolBox:
+    tools = [
+        BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
+        BROKER_LIST_PENDING_ORDERS_TOOL,
+        BROKER_GET_ORDER_TOOL,
+        BROKER_LIST_HISTORICAL_ORDERS_TOOL,
+    ]
+    return ToolBox(
+        name="broker_read",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_broker_order_planning_toolbox() -> ToolBox:
+    tools = [
+        *build_broker_read_toolbox().tools,
+        BROKER_PREPARE_ORDER_TOOL,
+    ]
+    return ToolBox(
+        name="broker_order_planning",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_broker_order_action_toolbox() -> ToolBox:
+    tools = [
+        *build_broker_read_toolbox().tools,
+        BROKER_PREPARE_ORDER_ACTION_TOOL,
+        BROKER_PREPARE_CANCEL_ACTION_TOOL,
+    ]
+    return ToolBox(
+        name="broker_order_actions",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_broker_execution_toolbox() -> ToolBox:
+    tools = [
+        *build_broker_order_action_toolbox().tools,
+        BROKER_PREPARE_ORDER_TOOL,
+        BROKER_PLACE_ORDER_TOOL,
+        BROKER_CANCEL_ORDER_TOOL,
+    ]
+    return ToolBox(
+        name="broker_execution",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
 def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[..., ToolResult]]:
     return {
         "broker_get_portfolio_snapshot": lambda: broker_get_portfolio_snapshot(runtime=runtime),
@@ -930,69 +983,9 @@ def _format_value(value: Any) -> str:
     return str(raw_value)
 
 
-BROKER_READ_TOOLBOX = ToolBox(
-    name="broker_read",
-    tools=[
-        BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
-        BROKER_LIST_PENDING_ORDERS_TOOL,
-        BROKER_GET_ORDER_TOOL,
-        BROKER_LIST_HISTORICAL_ORDERS_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
-            BROKER_LIST_PENDING_ORDERS_TOOL,
-            BROKER_GET_ORDER_TOOL,
-            BROKER_LIST_HISTORICAL_ORDERS_TOOL,
-        ]
-    ),
-)
-
-BROKER_ORDER_PLANNING_TOOLBOX = ToolBox(
-    name="broker_order_planning",
-    tools=[
-        *BROKER_READ_TOOLBOX.tools,
-        BROKER_PREPARE_ORDER_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            *BROKER_READ_TOOLBOX.tools,
-            BROKER_PREPARE_ORDER_TOOL,
-        ]
-    ),
-)
-
-BROKER_ORDER_ACTION_TOOLBOX = ToolBox(
-    name="broker_order_actions",
-    tools=[
-        *BROKER_READ_TOOLBOX.tools,
-        BROKER_PREPARE_ORDER_ACTION_TOOL,
-        BROKER_PREPARE_CANCEL_ACTION_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            *BROKER_READ_TOOLBOX.tools,
-            BROKER_PREPARE_ORDER_ACTION_TOOL,
-            BROKER_PREPARE_CANCEL_ACTION_TOOL,
-        ]
-    ),
-)
-
-BROKER_EXECUTION_TOOLBOX = ToolBox(
-    name="broker_execution",
-    tools=[
-        *BROKER_ORDER_ACTION_TOOLBOX.tools,
-        BROKER_PREPARE_ORDER_TOOL,
-        BROKER_PLACE_ORDER_TOOL,
-        BROKER_CANCEL_ORDER_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            *BROKER_ORDER_ACTION_TOOLBOX.tools,
-            BROKER_PREPARE_ORDER_TOOL,
-            BROKER_PLACE_ORDER_TOOL,
-            BROKER_CANCEL_ORDER_TOOL,
-        ]
-    ),
-)
-
+# Compatibility-only static snapshots. Live runtime code should prefer the
+# builder functions above so specialist tool exposure stays capability-driven.
+BROKER_READ_TOOLBOX = build_broker_read_toolbox()
+BROKER_ORDER_PLANNING_TOOLBOX = build_broker_order_planning_toolbox()
+BROKER_ORDER_ACTION_TOOLBOX = build_broker_order_action_toolbox()
+BROKER_EXECUTION_TOOLBOX = build_broker_execution_toolbox()

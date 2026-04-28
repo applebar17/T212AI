@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from t212ai.app.bootstrap import ConfigAssessment
 from t212ai.app.config import AppSettings
-from t212ai.brokers.tools import BROKER_EXECUTION_TOOLBOX
+from t212ai.brokers.tools import build_broker_execution_toolbox
 from t212ai.genai.tools import build_market_analyst_toolbox, build_toolboxes
 from t212ai.genai.tools.base import ToolBox
 
@@ -32,10 +32,10 @@ def build_specialist_tooling(
         assessment=assessment,
     )
     return SpecialistTooling(
-        portfolio_toolbox_summary=_portfolio_summary(settings, assessment),
+        portfolio_toolbox_summary=_portfolio_summary(assessment),
         order_toolbox=(
-            BROKER_EXECUTION_TOOLBOX
-            if _provider_ready(assessment, "broker")
+            build_broker_execution_toolbox()
+            if assessment.capabilities["broker_execution_eligibility"].available
             else None
         ),
         order_toolbox_summary=_order_summary(settings, assessment),
@@ -45,22 +45,16 @@ def build_specialist_tooling(
     )
 
 
-def _portfolio_summary(
-    settings: AppSettings,
-    assessment: ConfigAssessment,
-) -> str:
+def _portfolio_summary(assessment: ConfigAssessment) -> str:
     facts = ["Portfolio snapshot, positions, pending orders"]
     if assessment.capabilities["market_data"].available:
         facts.append("market data context")
-    if (
-        settings.market_intelligence_provider == "alpha_vantage"
-        and _provider_ready(assessment, "alpha_vantage")
-    ):
-        facts.append("Alpha Vantage intelligence")
-    if settings.disclosure_provider == "sec_edgar" and _provider_ready(assessment, "sec_edgar"):
-        facts.append("SEC EDGAR disclosure context")
-    if settings.search_provider == "searxng" and _provider_ready(assessment, "searxng"):
-        facts.append("web search when needed")
+    if assessment.capabilities["market_intelligence"].available:
+        facts.append("active-movers intelligence")
+    if assessment.capabilities["disclosure"].available:
+        facts.append("official disclosure activity")
+    if assessment.capabilities["search"].available:
+        facts.append("web research when needed")
     return ", ".join(facts) + "."
 
 
@@ -68,7 +62,8 @@ def _order_summary(
     settings: AppSettings,
     assessment: ConfigAssessment,
 ) -> str:
-    if _provider_ready(assessment, "broker"):
+    del settings
+    if assessment.capabilities["broker_execution_eligibility"].available:
         return (
             "Broker portfolio, pending orders, order lookup, preparation, direct "
             "confirmed placement/cancellation tools, plus deterministic approval/execution "
@@ -86,11 +81,9 @@ def _market_summary(toolbox: ToolBox) -> str:
     if "market_get_market_snapshot" in names or "market_get_volume_monitor" in names:
         segments.append("market snapshot and relative-volume monitoring")
     if "alpha_vantage_most_actively_traded" in names:
-        segments.append("Alpha Vantage most-actively-traded context")
+        segments.append("active-movers intelligence")
     if "edgar_company_disclosure_snapshot" in names:
-        segments.append(
-            "SEC EDGAR insider, stake, and official disclosure snapshots"
-        )
+        segments.append("official disclosure activity")
     if "searxng_search" in names or "scrape_article" in names:
         segments.append("web search and article scraping for expansion")
     if not segments:
@@ -105,18 +98,16 @@ def _company_summary(
     assessment: ConfigAssessment,
     toolboxes: dict[str, ToolBox],
 ) -> str:
+    del settings
     facts: list[str] = []
     market_data_toolbox = toolboxes.get("market_data")
     research_toolbox = toolboxes.get("research")
     if market_data_toolbox and market_data_toolbox.tools:
         facts.append("market data context")
-    if (
-        settings.market_intelligence_provider == "alpha_vantage"
-        and _provider_ready(assessment, "alpha_vantage")
-    ):
-        facts.append("Alpha Vantage intelligence and fundamentals")
-    if settings.disclosure_provider == "sec_edgar" and _provider_ready(assessment, "sec_edgar"):
-        facts.append("SEC EDGAR disclosure context")
+    if assessment.capabilities["market_intelligence"].available:
+        facts.append("market intelligence and fundamentals context")
+    if assessment.capabilities["disclosure"].available:
+        facts.append("official disclosure context")
     if research_toolbox and research_toolbox.tools:
         facts.append("research via search and article scraping")
     if not facts:
@@ -124,8 +115,3 @@ def _company_summary(
             "Company analysis currently has no configured external market or research providers."
         )
     return "; ".join(facts) + "."
-
-
-def _provider_ready(assessment: ConfigAssessment, name: str) -> bool:
-    provider = assessment.providers.get(name)
-    return bool(provider and provider.ready)

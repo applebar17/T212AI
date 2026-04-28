@@ -249,10 +249,6 @@ def build_toolboxes(
     chat = build_chat_toolbox(settings=settings, assessment=assessment)
     research = build_research_toolbox(settings=settings, assessment=assessment)
     market_data = build_market_data_toolbox(settings=settings, assessment=assessment)
-    yahoo_market_context = build_yahoo_market_context_toolbox(
-        settings=settings,
-        assessment=assessment,
-    )
     market_analyst = build_market_analyst_toolbox(
         settings=settings,
         assessment=assessment,
@@ -261,7 +257,6 @@ def build_toolboxes(
         chat.name: chat,
         research.name: research,
         market_data.name: market_data,
-        yahoo_market_context.name: yahoo_market_context,
         market_analyst.name: market_analyst,
     }
 
@@ -411,13 +406,14 @@ def build_tool_mapping_for(
     allowed = set(toolbox.tools_by_name.keys())
     return {name: handler for name, handler in mapping.items() if name in allowed}
 
-
+# Compatibility-only static snapshots. Live runtime code should prefer the
+# builder functions above so provider readiness drives the visible tool surface.
 TOOLBOXES = _build_default_toolboxes()
 CHAT_TOOLBOX = TOOLBOXES["chat"]
 RESEARCH_TOOLBOX = TOOLBOXES["research"]
 MARKET_DATA_TOOLBOX = TOOLBOXES["market_data"]
-YAHOO_MARKET_CONTEXT_TOOLBOX = TOOLBOXES["yahoo_market_context"]
 MARKET_ANALYST_TOOLBOX = TOOLBOXES["market_analyst"]
+YAHOO_MARKET_CONTEXT_TOOLBOX = build_yahoo_market_context_toolbox()
 
 
 def _provider_unavailable_tool(

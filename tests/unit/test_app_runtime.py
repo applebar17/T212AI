@@ -321,6 +321,9 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.capability_registry["broker_read"].implementation is None
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is None
+    assert "SEC EDGAR" not in runtime.specialist_tooling.market_toolbox_summary
+    assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
+    assert "yahoo_market_context" not in runtime.toolboxes
     assert set(runtime.toolboxes["market_analyst"].tools_by_name) == {
         "market_get_market_snapshot",
         "market_get_volume_monitor",
@@ -440,6 +443,10 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert "searxng_search" not in market_tools
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is not None
+    assert runtime.specialist_tooling.order_toolbox.name == "broker_execution"
+    assert "Alpha Vantage" not in runtime.specialist_tooling.market_toolbox_summary
+    assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
+    assert "yahoo_market_context" not in runtime.toolboxes
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime
 

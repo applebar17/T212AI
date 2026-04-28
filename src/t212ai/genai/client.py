@@ -15,7 +15,7 @@ from t212ai.app.config import AppSettings, load_env_file
 
 from .models import ToolError, ToolResult, ToolSpec
 from .tokenizer import TokenCounter
-from .tools import CHAT_TOOLBOX, ToolBox, build_tool_mapping
+from .tools import ToolBox, build_chat_toolbox, build_tool_mapping
 from .tracing import (
     _trace_execute_tool_inputs,
     _trace_execute_tool_outputs,
@@ -151,7 +151,7 @@ class GenAIClient:
         self.tool_call_timeout_seconds = max(
             0.0, float(self.settings.genai_tool_call_timeout_seconds)
         )
-        self.chat_toolbox = CHAT_TOOLBOX
+        self.chat_toolbox = build_chat_toolbox()
         self._tool_mapping: dict[str, Callable[..., Any]] | None = None
         self._log_configuration()
 

@@ -18,6 +18,8 @@ from t212ai.agent.history import ChatHistoryWindow
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan
 from t212ai.agent.schemas import AgentCritique
+from t212ai.app.bootstrap import assess_settings
+from t212ai.app.config import get_app_settings
 from t212ai.brokers.trading212.models import (
     AccountSummary,
     Cash,
@@ -193,13 +195,29 @@ def test_specialist_agent_returns_standardized_response() -> None:
 
 def test_market_analyst_agent_exposes_market_analyst_toolbox() -> None:
     from t212ai.agent import MarketAnalystAgent
+    from t212ai.genai.tools import build_market_analyst_toolbox
 
-    agent = MarketAnalystAgent(_reasoner())
+    settings = get_app_settings()
+    toolbox = build_market_analyst_toolbox(
+        settings=settings,
+        assessment=assess_settings(settings),
+    )
+    agent = MarketAnalystAgent(_reasoner(), toolbox=toolbox)
 
     assert agent.profile.toolbox is not None
     assert agent.profile.toolbox.name == "market_analyst"
     assert "edgar_company_disclosure_snapshot" in agent.profile.toolbox.tools_by_name
     assert "market_get_volume_monitor" in agent.profile.toolbox.tools_by_name
+
+
+def test_market_analyst_agent_direct_default_uses_empty_generic_toolbox() -> None:
+    from t212ai.agent import MarketAnalystAgent
+
+    agent = MarketAnalystAgent(_reasoner())
+
+    assert agent.profile.toolbox is not None
+    assert agent.profile.toolbox.name == "market_analyst"
+    assert agent.profile.toolbox.tools_by_name == {}
 
 
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
@@ -240,6 +258,16 @@ def test_order_agent_executes_pending_orders_workflow_when_available() -> None:
     assert response.plan is not None
     assert response.metadata["workflow"] == "pending_orders_review"
     assert "Trading 212 pending orders review." in response.final_answer
+
+
+def test_order_agent_direct_default_uses_empty_generic_toolbox() -> None:
+    from t212ai.agent import OrderAgent
+
+    agent = OrderAgent(_reasoner())
+
+    assert agent.profile.toolbox is not None
+    assert agent.profile.toolbox.name == "broker_execution"
+    assert agent.profile.toolbox.tools_by_name == {}
 
 
 def test_orchestrator_routes_representative_requests() -> None:
