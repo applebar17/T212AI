@@ -118,6 +118,35 @@ ALPHA_VANTAGE_TOP_GAINERS_LOSERS_TOOL: ToolSpec = {
     },
 }
 
+ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "alpha_vantage_most_actively_traded",
+        "description": (
+            "Fetch Alpha Vantage most actively traded stocks, with a focus on turnover "
+            "and volume monitoring context."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entitlement": {
+                    "type": ["string", "null"],
+                    "description": "Optional entitlement such as realtime or delayed.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Maximum most-active entries to return.",
+                },
+            },
+            "required": ["entitlement", "limit"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 ALPHA_VANTAGE_INSIDER_TRANSACTIONS_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -226,6 +255,10 @@ def build_alpha_vantage_intelligence_tool_mapping(
             alpha_vantage_top_gainers_losers,
             runtime=resolved_runtime,
         ),
+        "alpha_vantage_most_actively_traded": partial(
+            alpha_vantage_most_actively_traded,
+            runtime=resolved_runtime,
+        ),
         "alpha_vantage_insider_transactions": partial(
             alpha_vantage_insider_transactions,
             runtime=resolved_runtime,
@@ -323,6 +356,83 @@ def alpha_vantage_top_gainers_losers(
         "top_gainers_losers",
         runtime.client.top_gainers_losers,
         entitlement=entitlement,
+    )
+
+
+@traceable(
+    name="alpha_vantage_most_actively_traded",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def alpha_vantage_most_actively_traded(
+    *,
+    entitlement: str | None,
+    limit: int,
+    runtime: AlphaVantageToolRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="alpha_vantage",
+        tool_name="alpha_vantage_most_actively_traded",
+        intelligence_category="volume",
+    )
+    try:
+        response = runtime.client.top_gainers_losers(entitlement=entitlement)
+    except AlphaVantageApiError as exc:
+        context = exc.context
+        return ToolResult(
+            status="error",
+            output=(
+                f"Alpha Vantage most_actively_traded failed. Reason: {context.message}. "
+                "Use another data source or narrow the request if the error suggests "
+                "rate limits, entitlement, or temporary provider issues."
+            ),
+            error=ToolError(
+                message=context.message or "Alpha Vantage request failed.",
+                code="alpha_vantage_api_error",
+                type=exc.__class__.__name__,
+                hint=_error_hint(context.retryable),
+                retryable=context.retryable,
+                details={
+                    "function": context.function,
+                    "status_code": context.status_code,
+                    **context.details,
+                },
+            ),
+        )
+    except Exception as exc:
+        return ToolResult(
+            status="error",
+            output=(
+                "Alpha Vantage most_actively_traded failed before receiving usable data. "
+                "Check the API configuration and retry."
+            ),
+            error=ToolError(
+                message=str(exc),
+                code="alpha_vantage_tool_error",
+                type=exc.__class__.__name__,
+                hint="Validate provider configuration and retry.",
+                retryable=False,
+            ),
+        )
+
+    data = response.data if isinstance(response.data, dict) else {}
+    most_active = data.get("most_actively_traded")
+    if not isinstance(most_active, list):
+        most_active = []
+    resolved_limit = max(1, min(int(limit or 20), 100))
+    limited = most_active[:resolved_limit]
+    return ToolResult(
+        status="ok",
+        output=_format_most_actively_traded_output(limited, response=response),
+        data={
+            "function": response.function,
+            "most_actively_traded": limited,
+            "total_count": len(most_active),
+            "request_params": response.request_params,
+            "endpoint": response.endpoint,
+            "datatype": response.datatype,
+        },
     )
 
 
@@ -516,6 +626,37 @@ def _summarize_response(label: str, response: AlphaVantageResponse) -> str:
     return " ".join(facts)
 
 
+def _format_most_actively_traded_output(
+    most_active: list[dict[str, Any]],
+    *,
+    response: AlphaVantageResponse,
+) -> str:
+    if not most_active:
+        return (
+            "Alpha Vantage most_actively_traded returned no most-active entries. "
+            "Retry later or use another market-data provider."
+        )
+    facts = [
+        "Alpha Vantage most_actively_traded returned current most-active volume context."
+    ]
+    preview: list[str] = []
+    for item in most_active[:5]:
+        preview.append(
+            f"{item.get('ticker') or item.get('symbol')}: "
+            f"price={item.get('price')}, "
+            f"change_pct={item.get('change_percentage')}, "
+            f"volume={item.get('volume')}"
+        )
+    if preview:
+        facts.append("Top entries: " + "; ".join(preview) + ".")
+    params = ", ".join(f"{key}={value}" for key, value in response.request_params.items())
+    facts.append(f"request_params: {params or 'none'}.")
+    facts.append(
+        "Use this as third-party activity context; do not treat it as broker state."
+    )
+    return " ".join(facts)
+
+
 def _error_hint(retryable: bool) -> str:
     if retryable:
         return (
@@ -531,6 +672,7 @@ ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX = ToolBox(
         ALPHA_VANTAGE_NEWS_SENTIMENT_TOOL,
         ALPHA_VANTAGE_EARNINGS_CALL_TRANSCRIPT_TOOL,
         ALPHA_VANTAGE_TOP_GAINERS_LOSERS_TOOL,
+        ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL,
         ALPHA_VANTAGE_INSIDER_TRANSACTIONS_TOOL,
         ALPHA_VANTAGE_INSTITUTIONAL_HOLDINGS_TOOL,
         ALPHA_VANTAGE_ANALYTICS_FIXED_WINDOW_TOOL,
@@ -541,6 +683,7 @@ ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX = ToolBox(
             ALPHA_VANTAGE_NEWS_SENTIMENT_TOOL,
             ALPHA_VANTAGE_EARNINGS_CALL_TRANSCRIPT_TOOL,
             ALPHA_VANTAGE_TOP_GAINERS_LOSERS_TOOL,
+            ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL,
             ALPHA_VANTAGE_INSIDER_TRANSACTIONS_TOOL,
             ALPHA_VANTAGE_INSTITUTIONAL_HOLDINGS_TOOL,
             ALPHA_VANTAGE_ANALYTICS_FIXED_WINDOW_TOOL,

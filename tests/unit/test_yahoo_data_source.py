@@ -13,8 +13,9 @@ from t212ai.data_sources.yahoo import (
     yahoo_market_snapshot,
     yahoo_options_snapshot,
     yahoo_quote_snapshot,
+    yahoo_volume_monitor,
 )
-from t212ai.genai.tools import MARKET_DATA_TOOLBOX
+from t212ai.genai.tools import MARKET_DATA_TOOLBOX, YAHOO_MARKET_CONTEXT_TOOLBOX
 
 
 class StubYahooClient(YahooFinanceClient):
@@ -193,6 +194,24 @@ def test_yahoo_market_snapshot_combines_quotes_and_price_analytics() -> None:
     assert result.data["price_summary"]["AAPL"]["points"] == 2
 
 
+def test_yahoo_volume_monitor_returns_relative_volume_context() -> None:
+    result = yahoo_volume_monitor(
+        tickers=["AAPL"],
+        period="1mo",
+        interval="1d",
+        start=None,
+        end=None,
+        auto_adjust=False,
+        client=FakeYahooClient(),  # type: ignore[arg-type]
+    )
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "Yahoo volume monitor" in result.output
+    assert "relative_volume=82.3x" in result.output
+    assert result.data["monitor"]["AAPL"]["signal"] == "anomalous"
+
+
 def test_yahoo_analyst_tool_returns_decision_caveat() -> None:
     result = yahoo_analyst_snapshot(
         symbol="AAPL",
@@ -224,3 +243,10 @@ def test_market_data_toolbox_includes_yahoo_context_tools() -> None:
 
     assert "yahoo_market_snapshot" in names
     assert "yahoo_analyst_snapshot" in names
+    assert "yahoo_volume_monitor" in names
+
+
+def test_yahoo_market_context_toolbox_includes_volume_monitor() -> None:
+    names = YAHOO_MARKET_CONTEXT_TOOLBOX.tools_by_name
+
+    assert "yahoo_volume_monitor" in names

@@ -8,6 +8,7 @@ from t212ai.data_sources.alpha_vantage import (
     AlphaVantageClient,
     AlphaVantageResponse,
     AlphaVantageToolRuntime,
+    alpha_vantage_most_actively_traded,
     build_alpha_vantage_intelligence_tool_mapping,
 )
 from t212ai.data_sources.alpha_vantage.client import (
@@ -44,6 +45,30 @@ class FakeIntelligenceClient:
                         "title": "Apple headline",
                         "url": "https://example.com/aapl",
                     }
+                ],
+            },
+        )
+
+    def top_gainers_losers(self, **_kwargs: object) -> AlphaVantageResponse:
+        return AlphaVantageResponse(
+            function="TOP_GAINERS_LOSERS",
+            request_params={"function": "TOP_GAINERS_LOSERS"},
+            data={
+                "top_gainers": [],
+                "top_losers": [],
+                "most_actively_traded": [
+                    {
+                        "ticker": "AAPL",
+                        "price": "190.00",
+                        "change_percentage": "1.20%",
+                        "volume": "1000000",
+                    },
+                    {
+                        "ticker": "TSLA",
+                        "price": "170.00",
+                        "change_percentage": "4.10%",
+                        "volume": "900000",
+                    },
                 ],
             },
         )
@@ -131,6 +156,22 @@ def test_alpha_vantage_news_sentiment_tool_returns_informative_output() -> None:
     assert result.data["function"] == "NEWS_SENTIMENT"
 
 
+def test_alpha_vantage_most_actively_traded_tool_returns_volume_context() -> None:
+    runtime = AlphaVantageToolRuntime(client=FakeIntelligenceClient())  # type: ignore[arg-type]
+
+    result = alpha_vantage_most_actively_traded(
+        entitlement=None,
+        limit=1,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "most-active volume context" in result.output
+    assert "AAPL: price=190.00" in result.output
+    assert len(result.data["most_actively_traded"]) == 1
+
+
 def test_alpha_vantage_tool_errors_include_pivot_hint() -> None:
     runtime = AlphaVantageToolRuntime(client=FailingIntelligenceClient())  # type: ignore[arg-type]
 
@@ -156,4 +197,9 @@ def test_alpha_vantage_intelligence_toolbox_and_mapping() -> None:
 
     assert ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX.name == "alpha_vantage_intelligence"
     assert "alpha_vantage_news_sentiment" in ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX.tools_by_name
+    assert (
+        "alpha_vantage_most_actively_traded"
+        in ALPHA_VANTAGE_INTELLIGENCE_TOOLBOX.tools_by_name
+    )
     assert "alpha_vantage_news_sentiment" in mapping
+    assert "alpha_vantage_most_actively_traded" in mapping

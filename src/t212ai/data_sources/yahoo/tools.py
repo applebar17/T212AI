@@ -184,6 +184,19 @@ YAHOO_MARKET_SNAPSHOT_TOOL: ToolSpec = {
     },
 }
 
+YAHOO_VOLUME_MONITOR_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "yahoo_volume_monitor",
+        "description": (
+            "Compare Yahoo current quote volume against average historical volume "
+            "for one or more tickers. Useful for relative-volume and activity-spike context."
+        ),
+        "strict": True,
+        "parameters": _YAHOO_PRICE_COMMON_PARAMETERS,
+    },
+}
+
 YAHOO_OPTIONS_SNAPSHOT_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -239,6 +252,7 @@ YAHOO_MARKET_CONTEXT_TOOLS: list[ToolSpec] = [
     YAHOO_QUOTE_SNAPSHOT_TOOL,
     YAHOO_PRICE_SUMMARY_TOOL,
     YAHOO_MARKET_SNAPSHOT_TOOL,
+    YAHOO_VOLUME_MONITOR_TOOL,
     YAHOO_OPTIONS_SNAPSHOT_TOOL,
     YAHOO_ANALYST_SNAPSHOT_TOOL,
 ]
@@ -269,6 +283,10 @@ def build_yahoo_tool_mapping(
             **kwargs,
         ),
         "yahoo_market_snapshot": lambda **kwargs: yahoo_market_snapshot(
+            client=yahoo_client,
+            **kwargs,
+        ),
+        "yahoo_volume_monitor": lambda **kwargs: yahoo_volume_monitor(
             client=yahoo_client,
             **kwargs,
         ),
@@ -544,6 +562,61 @@ def yahoo_market_snapshot(
 
 
 @traceable(
+    name="yahoo_volume_monitor",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def yahoo_volume_monitor(
+    *,
+    tickers: list[str] | tuple[str, ...],
+    period: str = "1mo",
+    interval: str = "1d",
+    start: str | None = None,
+    end: str | None = None,
+    auto_adjust: bool = False,
+    client: YahooFinanceClient | None = None,
+) -> ToolResult:
+    set_trace_metadata(provider="yahoo_finance", tool_name="yahoo_volume_monitor")
+    symbols = _normalize_symbols(tickers)
+    if not symbols:
+        return _input_error("At least one ticker is required.", "missing_tickers")
+    yf_client = client or YahooFinanceClient()
+    try:
+        quotes = yf_client.get_quote_snapshot(symbols)
+    except Exception as exc:
+        return _exception_result(exc, operation="volume_monitor_quotes")
+    price_result = _fetch_price_history(
+        symbols=symbols,
+        period=period,
+        interval=interval,
+        start=start,
+        end=end,
+        auto_adjust=auto_adjust,
+        client=yf_client,
+    )
+    summary = PriceSeriesAnalytics.summarize_series(price_result["series_payload"])
+    monitor = _build_volume_monitor_payload(quotes.quotes, summary)
+    return ToolResult(
+        status="ok",
+        output=_format_volume_monitor_output(
+            monitor,
+            quote_errors=quotes.errors,
+            price_errors=price_result["errors"],
+            interval=interval,
+        ),
+        data={
+            "monitor": monitor,
+            "quotes": quotes.quotes,
+            "quote_errors": quotes.errors,
+            "price_summary": summary,
+            "price_errors": price_result["errors"],
+            "meta": {"quote": quotes.meta, "price": price_result["meta"]},
+        },
+    )
+
+
+@traceable(
     name="yahoo_options_snapshot",
     run_type="tool",
     process_inputs=_trace_tool_function_inputs,
@@ -711,6 +784,44 @@ def _format_options_snapshot_output(result: YahooOptionsResult) -> str:
     )
 
 
+def _format_volume_monitor_output(
+    monitor_payload: dict[str, dict[str, Any]],
+    *,
+    quote_errors: dict[str, dict[str, Any]],
+    price_errors: dict[str, dict[str, Any]],
+    interval: str,
+) -> str:
+    if not monitor_payload:
+        return (
+            "Yahoo volume monitor returned no usable data. "
+            "Try a different ticker, broader period, or another data source."
+        )
+    lines = [
+        "Yahoo volume monitor. Source tier: informational/convenience, not execution-grade."
+    ]
+    for symbol, item in monitor_payload.items():
+        lines.append(
+            "- "
+            f"{symbol}: current_volume={_fmt(item.get('current_volume'))}, "
+            f"avg_volume={_fmt(item.get('average_volume'))}, "
+            f"relative_volume={_fmt(item.get('relative_volume'))}x, "
+            f"volume_vs_average={_fmt(item.get('volume_change_pct'))}%, "
+            f"signal={item.get('signal')}, "
+            f"price_change_pct={_fmt(item.get('price_change_pct'))}%, "
+            f"market_state={item.get('market_state')}."
+        )
+    if interval.strip().lower() != "1d":
+        lines.append(
+            "Note: relative volume compares Yahoo quote volume against the average "
+            "requested series volume, so daily intervals are the most comparable baseline."
+        )
+    if quote_errors:
+        lines.append(f"Quote errors for: {', '.join(quote_errors.keys())}.")
+    if price_errors:
+        lines.append(f"Price-series errors for: {', '.join(price_errors.keys())}.")
+    return "\n".join(lines)
+
+
 def _format_analyst_snapshot_output(result: YahooQuoteSummaryResult) -> str:
     data = result.data
     financial = data.get("financialData") or {}
@@ -761,6 +872,46 @@ def _rank_contracts(contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _normalize_symbols(values: list[str] | tuple[str, ...]) -> list[str]:
     return [str(value).strip().upper() for value in values or [] if str(value).strip()]
+
+
+def _build_volume_monitor_payload(
+    quotes: dict[str, dict[str, Any]],
+    summary_payload: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    payload: dict[str, dict[str, Any]] = {}
+    symbols = sorted(set(quotes.keys()) | set(summary_payload.keys()))
+    for symbol in symbols:
+        quote = quotes.get(symbol) or {}
+        summary = summary_payload.get(symbol) or {}
+        current_volume = _to_float(quote.get("regularMarketVolume"))
+        average_volume = _to_float(summary.get("average_volume"))
+        relative_volume = None
+        volume_change_pct = None
+        if current_volume is not None and average_volume not in {None, 0}:
+            relative_volume = current_volume / average_volume
+            volume_change_pct = ((current_volume - average_volume) / average_volume) * 100.0
+        payload[symbol] = {
+            "current_volume": _round_number(current_volume),
+            "average_volume": _round_number(average_volume),
+            "relative_volume": _round_number(relative_volume),
+            "volume_change_pct": _round_number(volume_change_pct),
+            "signal": _classify_relative_volume(relative_volume),
+            "price_change_pct": _to_float(quote.get("regularMarketChangePercent")),
+            "market_state": quote.get("marketState"),
+        }
+    return payload
+
+
+def _classify_relative_volume(relative_volume: float | None) -> str:
+    if relative_volume is None:
+        return "insufficient_data"
+    if relative_volume >= 3.0:
+        return "anomalous"
+    if relative_volume >= 1.5:
+        return "elevated"
+    if relative_volume <= 0.7:
+        return "subdued"
+    return "normal"
 
 
 def _input_error(message: str, code: str) -> ToolResult:
@@ -879,3 +1030,9 @@ def _to_float(value: Any) -> float | None:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _round_number(value: float | None, digits: int = 6) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), digits)

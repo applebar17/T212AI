@@ -22,6 +22,7 @@ from .yahoo_finance import (
     YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
     YAHOO_QUOTE_SNAPSHOT_TOOL,
     YAHOO_SYMBOL_SEARCH_TOOL,
+    YAHOO_VOLUME_MONITOR_TOOL,
     YahooFinanceClient,
     yahoo_analyst_snapshot,
     yahoo_market_snapshot,
@@ -31,6 +32,7 @@ from .yahoo_finance import (
     yahoo_price_summary_with_chart_refs,
     yahoo_quote_snapshot,
     yahoo_symbol_search,
+    yahoo_volume_monitor,
 )
 
 
@@ -88,6 +90,7 @@ def build_tool_mapping(
         "yahoo_symbol_search": partial(yahoo_symbol_search, client=yahoo_client),
         "yahoo_quote_snapshot": partial(yahoo_quote_snapshot, client=yahoo_client),
         "yahoo_market_snapshot": partial(yahoo_market_snapshot, client=yahoo_client),
+        "yahoo_volume_monitor": partial(yahoo_volume_monitor, client=yahoo_client),
         "yahoo_options_snapshot": partial(yahoo_options_snapshot, client=yahoo_client),
         "yahoo_analyst_snapshot": partial(yahoo_analyst_snapshot, client=yahoo_client),
         "searxng_search": partial(
@@ -164,6 +167,7 @@ MARKET_DATA_TOOLBOX = ToolBox(
         YAHOO_SYMBOL_SEARCH_TOOL,
         YAHOO_QUOTE_SNAPSHOT_TOOL,
         YAHOO_MARKET_SNAPSHOT_TOOL,
+        YAHOO_VOLUME_MONITOR_TOOL,
         YAHOO_OPTIONS_SNAPSHOT_TOOL,
         YAHOO_ANALYST_SNAPSHOT_TOOL,
     ],
@@ -175,6 +179,7 @@ MARKET_DATA_TOOLBOX = ToolBox(
             YAHOO_SYMBOL_SEARCH_TOOL,
             YAHOO_QUOTE_SNAPSHOT_TOOL,
             YAHOO_MARKET_SNAPSHOT_TOOL,
+            YAHOO_VOLUME_MONITOR_TOOL,
             YAHOO_OPTIONS_SNAPSHOT_TOOL,
             YAHOO_ANALYST_SNAPSHOT_TOOL,
         ]

@@ -20,6 +20,7 @@ from .tools import (
     YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
     YAHOO_QUOTE_SNAPSHOT_TOOL,
     YAHOO_SYMBOL_SEARCH_TOOL,
+    YAHOO_VOLUME_MONITOR_TOOL,
     build_yahoo_tool_mapping,
     yahoo_analyst_snapshot,
     yahoo_market_snapshot,
@@ -29,6 +30,7 @@ from .tools import (
     yahoo_price_summary_with_chart_refs,
     yahoo_quote_snapshot,
     yahoo_symbol_search,
+    yahoo_volume_monitor,
 )
 
 __all__ = [
@@ -42,6 +44,7 @@ __all__ = [
     "YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL",
     "YAHOO_QUOTE_SNAPSHOT_TOOL",
     "YAHOO_SYMBOL_SEARCH_TOOL",
+    "YAHOO_VOLUME_MONITOR_TOOL",
     "YahooFinanceClient",
     "YahooFinanceError",
     "YahooOptionsResult",
@@ -58,4 +61,5 @@ __all__ = [
     "yahoo_price_summary_with_chart_refs",
     "yahoo_quote_snapshot",
     "yahoo_symbol_search",
+    "yahoo_volume_monitor",
 ]
