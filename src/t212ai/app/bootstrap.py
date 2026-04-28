@@ -8,7 +8,7 @@ from .config import AppSettings
 
 VALID_LLM_PROVIDERS = frozenset({"openai", "azure_openai", "none"})
 VALID_BROKER_PROVIDERS = frozenset({"trading212", "none"})
-VALID_MARKET_DATA_PROVIDERS = frozenset({"yahoo", "none"})
+VALID_MARKET_DATA_PROVIDERS = frozenset({"yahoo", "alpaca", "none"})
 VALID_MARKET_INTELLIGENCE_PROVIDERS = frozenset({"alpha_vantage", "none"})
 VALID_DISCLOSURE_PROVIDERS = frozenset({"sec_edgar", "none"})
 VALID_COMMUNITY_PROVIDERS = frozenset({"reddit", "none"})
@@ -74,6 +74,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "broker": _assess_broker_provider(settings),
         "telegram": _assess_telegram_provider(settings),
         "yahoo": _assess_yahoo_provider(settings),
+        "alpaca": _assess_alpaca_provider(settings),
         "alpha_vantage": _assess_alpha_vantage_provider(settings),
         "reddit": _assess_reddit_provider(settings),
         "searxng": _assess_searxng_provider(settings),
@@ -431,6 +432,33 @@ def _assess_yahoo_provider(settings: AppSettings) -> ProviderAssessment:
     )
 
 
+def _assess_alpaca_provider(settings: AppSettings) -> ProviderAssessment:
+    enabled = settings.market_data_provider == "alpaca"
+    missing = _missing_keys(
+        {
+            "ALPACA_API_KEY": settings.alpaca_api_key,
+            "ALPACA_API_SECRET": settings.alpaca_api_secret,
+        }
+    )
+    return ProviderAssessment(
+        name="alpaca",
+        label="Alpaca",
+        enabled=enabled,
+        optional=True,
+        configured=enabled and bool(settings.alpaca_api_key or settings.alpaca_api_secret),
+        ready=enabled and not missing,
+        required_keys=("ALPACA_API_KEY", "ALPACA_API_SECRET"),
+        missing_keys=missing if enabled else (),
+        errors=_provider_errors("Alpaca", missing) if enabled else (),
+        notes=(
+            f"Alpaca environment: {settings.alpaca_environment}.",
+            f"Alpaca market-data feed: {settings.alpaca_data_feed}.",
+        )
+        if enabled
+        else ("Alpaca market data is disabled.",),
+    )
+
+
 def _assess_alpha_vantage_provider(settings: AppSettings) -> ProviderAssessment:
     missing = _missing_keys({"ALPHA_VANTAGE_API_KEY": settings.alpha_vantage_api_key})
     enabled = settings.market_intelligence_provider == "alpha_vantage"
@@ -591,16 +619,21 @@ def _build_market_data_capability(
             optional=True,
             reasons=("Market data provider is disabled.",),
         )
-    provider = providers["yahoo"]
+    provider_key = "alpaca" if selected == "alpaca" else "yahoo"
+    provider = providers[provider_key]
     return CapabilityAssessment(
         name="market_data",
         label="Market data",
         available=provider.ready,
         optional=True,
-        selected_provider="yahoo",
+        selected_provider=selected,
         reasons=_reasons_for_capability(
             provider.ready,
-            "Enable Yahoo market data or set MARKET_DATA_PROVIDER=none.",
+            (
+                "Configure Alpaca market data credentials or select a different market-data provider."
+                if selected == "alpaca"
+                else "Enable Yahoo market data or set MARKET_DATA_PROVIDER=none."
+            ),
         ),
     )
 
@@ -804,6 +837,12 @@ def _smoke_probe_yahoo(_settings: AppSettings) -> None:
     YahooFinanceClient().get_quote_snapshot(["AAPL"])
 
 
+def _smoke_probe_alpaca(settings: AppSettings) -> None:
+    from t212ai.alpaca import AlpacaMarketDataClient
+
+    AlpacaMarketDataClient.from_settings(settings).get_quote_snapshot(["AAPL"])
+
+
 def _smoke_probe_alpha_vantage(settings: AppSettings) -> None:
     from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 
@@ -838,6 +877,7 @@ def _smoke_probe_sec_edgar(settings: AppSettings) -> None:
 _PROVIDER_SMOKE_PROBES = {
     "broker": _smoke_probe_trading212,
     "yahoo": _smoke_probe_yahoo,
+    "alpaca": _smoke_probe_alpaca,
     "alpha_vantage": _smoke_probe_alpha_vantage,
     "reddit": _smoke_probe_reddit,
     "searxng": _smoke_probe_searxng,

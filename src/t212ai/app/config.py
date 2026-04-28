@@ -5,6 +5,12 @@ import os
 from pathlib import Path
 from typing import Mapping
 
+from t212ai.alpaca.base import (
+    ALPACA_LIVE_TRADING_BASE_URL,
+    ALPACA_MARKET_DATA_BASE_URL,
+    ALPACA_PAPER_TRADING_BASE_URL,
+)
+
 
 DEFAULT_ENV_FILE_NAME = ".env"
 
@@ -123,6 +129,13 @@ class AppSettings:
     telegram_allowed_user_id: str | None = None
     alpha_vantage_api_key: str | None = None
     alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
+    alpaca_api_key: str | None = None
+    alpaca_api_secret: str | None = None
+    alpaca_environment: str = "paper"
+    alpaca_market_data_base_url: str = ALPACA_MARKET_DATA_BASE_URL
+    alpaca_paper_trading_base_url: str = ALPACA_PAPER_TRADING_BASE_URL
+    alpaca_live_trading_base_url: str = ALPACA_LIVE_TRADING_BASE_URL
+    alpaca_data_feed: str = "iex"
     reddit_client_id: str | None = None
     reddit_client_secret: str | None = None
     reddit_username: str | None = None
@@ -213,6 +226,22 @@ def get_app_settings(
             "ALPHA_VANTAGE_BASE_URL",
             "https://www.alphavantage.co/query",
         ),
+        alpaca_api_key=source.get("ALPACA_API_KEY"),
+        alpaca_api_secret=source.get("ALPACA_API_SECRET"),
+        alpaca_environment=source.get("ALPACA_ENVIRONMENT", "paper"),
+        alpaca_market_data_base_url=source.get(
+            "ALPACA_MARKET_DATA_BASE_URL",
+            ALPACA_MARKET_DATA_BASE_URL,
+        ),
+        alpaca_paper_trading_base_url=source.get(
+            "ALPACA_PAPER_TRADING_BASE_URL",
+            ALPACA_PAPER_TRADING_BASE_URL,
+        ),
+        alpaca_live_trading_base_url=source.get(
+            "ALPACA_LIVE_TRADING_BASE_URL",
+            ALPACA_LIVE_TRADING_BASE_URL,
+        ),
+        alpaca_data_feed=source.get("ALPACA_DATA_FEED", "iex"),
         reddit_client_id=source.get("REDDIT_CLIENT_ID"),
         reddit_client_secret=source.get("REDDIT_CLIENT_SECRET"),
         reddit_username=source.get("REDDIT_USERNAME"),
@@ -308,6 +337,12 @@ def _resolve_market_data_provider(source: Mapping[str, str]) -> str:
     explicit = str(source.get("MARKET_DATA_PROVIDER", "")).strip().lower()
     if explicit:
         return explicit
+    has_alpaca = any(
+        bool(str(source.get(key, "")).strip())
+        for key in ("ALPACA_API_KEY", "ALPACA_API_SECRET")
+    )
+    if has_alpaca and "YAHOO_ENABLED" not in source:
+        return "alpaca"
     if "YAHOO_ENABLED" in source:
         return "yahoo" if _env_bool_from_source(source, "YAHOO_ENABLED", False) else "none"
     return "yahoo"

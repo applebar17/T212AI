@@ -65,6 +65,16 @@ if TYPE_CHECKING:
     from t212ai.capabilities.protocols import MarketDataService
 
 
+def _market_data_provider_ready(
+    settings: AppSettings,
+    assessment: ConfigAssessment,
+) -> bool:
+    selected = _selected_provider(settings.market_data_provider)
+    if selected == "none":
+        return False
+    return _provider_ready(assessment, selected)
+
+
 def _build_chat_market_chart_tool() -> ToolSpec:
     tool = deepcopy(MARKET_GET_CHART_CONTEXT_TOOL)
     fn = tool.get("function", {})
@@ -105,10 +115,17 @@ def _resolve_market_data_service(
     if market_data_service is not None:
         return market_data_service
     resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
-    if (
-        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
-        and _provider_ready(resolved_assessment, "yahoo")
-    ):
+    selected_provider = _selected_provider(resolved_settings.market_data_provider)
+    if not _market_data_provider_ready(resolved_settings, resolved_assessment):
+        return None
+    if selected_provider == "alpaca":
+        from t212ai.alpaca.market_data import AlpacaMarketDataClient
+        from t212ai.capabilities.services import AlpacaMarketDataService
+
+        return AlpacaMarketDataService(AlpacaMarketDataClient.from_settings(resolved_settings))
+    if selected_provider == "yahoo":
+        from t212ai.capabilities.services import YahooMarketDataService
+
         return YahooMarketDataService(YahooFinanceClient())
     return None
 
@@ -120,10 +137,7 @@ def build_chat_toolbox(
 ) -> ToolBox:
     resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
     tools: list[ToolSpec] = []
-    if (
-        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
-        and _provider_ready(resolved_assessment, "yahoo")
-    ):
+    if _market_data_provider_ready(resolved_settings, resolved_assessment):
         tools.append(_build_chat_market_chart_tool())
     if (
         _selected_provider(resolved_settings.search_provider) == "searxng"
@@ -146,8 +160,7 @@ def build_research_toolbox(
     ):
         tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
     if (
-        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
-        and _provider_ready(resolved_assessment, "yahoo")
+        _market_data_provider_ready(resolved_settings, resolved_assessment)
     ):
         tools.append(MARKET_GET_MARKET_SNAPSHOT_TOOL)
     return ToolBox(name="research", tools=tools, tools_by_name=build_tool_index(tools))
@@ -160,10 +173,7 @@ def build_market_data_toolbox(
 ) -> ToolBox:
     resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
     tools: list[ToolSpec] = []
-    if (
-        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
-        and _provider_ready(resolved_assessment, "yahoo")
-    ):
+    if _market_data_provider_ready(resolved_settings, resolved_assessment):
         tools.extend(GENERIC_MARKET_DATA_TOOLS)
     return ToolBox(
         name="market_data",
@@ -200,10 +210,7 @@ def build_market_analyst_toolbox(
 ) -> ToolBox:
     resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
     tools: list[ToolSpec] = []
-    if (
-        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
-        and _provider_ready(resolved_assessment, "yahoo")
-    ):
+    if _market_data_provider_ready(resolved_settings, resolved_assessment):
         tools.extend([MARKET_GET_MARKET_SNAPSHOT_TOOL, MARKET_GET_VOLUME_MONITOR_TOOL])
     if (
         _selected_provider(resolved_settings.market_intelligence_provider)
@@ -286,7 +293,11 @@ def build_tool_mapping(
         settings=settings,
         assessment=assessment,
     )
-    yahoo_client = getattr(resolved_market_data_service, "client", None)
+    yahoo_client = (
+        getattr(resolved_market_data_service, "client", None)
+        if getattr(resolved_market_data_service, "provider_name", None) == "yahoo"
+        else None
+    )
     if yahoo_client is None and (
         _selected_provider((settings or get_app_settings()).market_data_provider) == "yahoo"
     ):

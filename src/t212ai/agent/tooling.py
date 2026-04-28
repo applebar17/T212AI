@@ -51,7 +51,7 @@ def _portfolio_summary(
     assessment: ConfigAssessment,
 ) -> str:
     facts = ["Portfolio snapshot, positions, pending orders"]
-    if settings.market_data_provider == "yahoo" and _provider_ready(assessment, "yahoo"):
+    if assessment.capabilities["market_data"].available:
         facts.append("market data context")
     if (
         settings.market_intelligence_provider == "alpha_vantage"

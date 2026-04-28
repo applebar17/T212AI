@@ -30,7 +30,7 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "telegram-token",
             "12345",
             "",
-            "y",
+            "1",
             "y",
             "alpha-key",
             "",
@@ -74,7 +74,7 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "",
             "2",
             "n",
-            "n",
+            "3",
             "n",
             "",
             "",
@@ -105,6 +105,38 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["REDDIT_ENABLED"] == "true"
     assert updates["REDDIT_USERNAME"] == "reddit-user"
     assert updates["REDDIT_PASSWORD"] == "reddit-password"
+
+
+def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
+    updates = cli.build_managed_env_values({})
+    responses = iter(
+        [
+            "3",
+            "2",
+            "n",
+            "2",
+            "1",
+            "alpaca-key",
+            "alpaca-secret",
+            "n",
+            "",
+            "",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+
+    cli.apply_configuration_wizard(io_runtime, updates)
+
+    assert updates["LLM_PROVIDER"] == "none"
+    assert updates["BROKER_PROVIDER"] == "none"
+    assert updates["MARKET_DATA_PROVIDER"] == "alpaca"
+    assert updates["ALPACA_ENVIRONMENT"] == "paper"
+    assert updates["ALPACA_API_KEY"] == "alpaca-key"
+    assert updates["ALPACA_API_SECRET"] == "alpaca-secret"
+    assert updates["YAHOO_ENABLED"] == "false"
 
 
 def test_update_env_file_preserves_unrelated_lines_and_updates_managed_keys(tmp_path) -> None:

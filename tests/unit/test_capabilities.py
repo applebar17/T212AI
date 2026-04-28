@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from t212ai.brokers.trading212.service import Trading212BrokerService
 from t212ai.capabilities import (
+    AlpacaMarketDataService,
     AlphaVantageMarketIntelligenceService,
     BrokerExecutionService,
     BrokerReadService,
@@ -14,7 +15,17 @@ from t212ai.capabilities import (
     SearxngSearchService,
     YahooMarketDataService,
 )
+from t212ai.capabilities.market_data_models import (
+    MarketPriceHistoryResult,
+    MarketQuoteSnapshotResult,
+    MarketSymbolSearchResult,
+)
 from t212ai.data_sources.reddit import RedditResearchService
+from t212ai.data_sources.yahoo.models import (
+    YahooPriceHistoryResult,
+    YahooQuoteSnapshotResult,
+    YahooSearchResult,
+)
 from t212ai.genai.models import ToolResult
 
 
@@ -53,8 +64,24 @@ class _FakeTrading212Api:
 
 
 class _FakeYahooClient:
-    def get_quote_snapshot(self, symbols: list[str]):
-        return {"quotes": symbols}
+    def get_quote_snapshot(self, symbols: list[str]) -> YahooQuoteSnapshotResult:
+        return YahooQuoteSnapshotResult(
+            quotes={
+                symbol: {
+                    "shortName": f"{symbol} Inc.",
+                    "regularMarketPrice": 100.0,
+                    "regularMarketChangePercent": 2.5,
+                    "regularMarketVolume": 123456,
+                    "marketCap": 1000000,
+                    "currency": "USD",
+                    "fullExchangeName": "NasdaqGS",
+                    "marketState": "REGULAR",
+                }
+                for symbol in symbols
+            },
+            errors={},
+            meta={"source": "fake"},
+        )
 
     def get_price_history(
         self,
@@ -65,9 +92,33 @@ class _FakeYahooClient:
         start: str | None = None,
         end: str | None = None,
         auto_adjust: bool = False,
-    ):
+    ) -> YahooPriceHistoryResult:
         del period, interval, start, end, auto_adjust
-        return {"series": symbols}
+        return YahooPriceHistoryResult(
+            series={
+                symbol: [
+                    {
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "open": 90,
+                        "high": 101,
+                        "low": 89,
+                        "close": 100,
+                        "volume": 1000,
+                    },
+                    {
+                        "timestamp": "2026-01-02T00:00:00Z",
+                        "open": 100,
+                        "high": 111,
+                        "low": 99,
+                        "close": 110,
+                        "volume": 2000,
+                    },
+                ]
+                for symbol in symbols
+            },
+            errors={},
+            meta={"source": "fake"},
+        )
 
     def search_symbols(
         self,
@@ -75,9 +126,102 @@ class _FakeYahooClient:
         *,
         quotes_count: int = 8,
         news_count: int = 0,
-    ):
+    ) -> YahooSearchResult:
         del quotes_count, news_count
-        return {"query": query}
+        return YahooSearchResult(
+            query=query,
+            quotes=[
+                {
+                    "symbol": "AAPL",
+                    "shortname": "Apple Inc.",
+                    "exchDisp": "NasdaqGS",
+                    "quoteType": "EQUITY",
+                }
+            ],
+            news=[],
+            meta={"source": "fake"},
+        )
+
+
+class _FakeAlpacaClient:
+    def get_quote_snapshot(self, symbols: list[str]) -> MarketQuoteSnapshotResult:
+        return MarketQuoteSnapshotResult(
+            quotes={
+                symbol: {
+                    "symbol": symbol,
+                    "name": None,
+                    "price": 101.0,
+                    "change_pct": 1.25,
+                    "volume": 777.0,
+                    "currency": "USD",
+                    "exchange": "IEX",
+                    "market_state": None,
+                }
+                for symbol in symbols
+            },
+            errors={},
+            meta={"provider": "alpaca", "feed": "iex"},
+        )
+
+    def get_price_history(
+        self,
+        symbols: list[str],
+        *,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: str | None = None,
+        end: str | None = None,
+        auto_adjust: bool = False,
+    ) -> MarketPriceHistoryResult:
+        del period, interval, start, end, auto_adjust
+        return MarketPriceHistoryResult(
+            series={
+                symbol: [
+                    {
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "open": 95,
+                        "high": 102,
+                        "low": 94,
+                        "close": 100,
+                        "volume": 500,
+                    },
+                    {
+                        "timestamp": "2026-01-02T00:00:00Z",
+                        "open": 100,
+                        "high": 104,
+                        "low": 99,
+                        "close": 101,
+                        "volume": 1000,
+                    },
+                ]
+                for symbol in symbols
+            },
+            errors={},
+            meta={"provider": "alpaca", "feed": "iex"},
+        )
+
+    def search_symbols(
+        self,
+        query: str,
+        *,
+        quotes_count: int = 8,
+        news_count: int = 0,
+    ) -> MarketSymbolSearchResult:
+        del quotes_count, news_count
+        return MarketSymbolSearchResult(
+            query=query,
+            candidates=[
+                {
+                    "symbol": "AAPL",
+                    "name": "Apple Inc.",
+                    "exchange": "NASDAQ",
+                    "asset_class": "us_equity",
+                    "status": "active",
+                    "tradable": True,
+                }
+            ],
+            meta={"provider": "alpaca"},
+        )
 
 
 class _FakeAlphaClient:
@@ -114,36 +258,44 @@ def test_trading212_broker_service_satisfies_capability_protocols() -> None:
     assert isinstance(service, BrokerExecutionService)
 
 
-def test_yahoo_market_data_service_delegates_to_existing_helpers(monkeypatch) -> None:
-    import t212ai.capabilities.services as capability_services
-
-    market_snapshot_result = ToolResult(status="ok", output="market snapshot")
-    volume_result = ToolResult(status="ok", output="volume monitor")
-    chart_result = ToolResult(status="ok", output="chart context")
-    monkeypatch.setattr(
-        capability_services,
-        "yahoo_market_snapshot",
-        lambda **kwargs: market_snapshot_result,
-    )
-    monkeypatch.setattr(
-        capability_services,
-        "yahoo_volume_monitor",
-        lambda **kwargs: volume_result,
-    )
-    monkeypatch.setattr(
-        capability_services,
-        "yahoo_price_summary_with_chart_refs",
-        lambda **kwargs: chart_result,
-    )
+def test_yahoo_market_data_service_returns_provider_neutral_contract() -> None:
     service = YahooMarketDataService(_FakeYahooClient())  # type: ignore[arg-type]
 
     assert isinstance(service, MarketDataService)
-    assert service.get_quote_snapshot(["AAPL"]) == {"quotes": ["AAPL"]}
-    assert service.get_price_history(["AAPL"]) == {"series": ["AAPL"]}
-    assert service.search_symbols("apple") == {"query": "apple"}
-    assert service.get_market_snapshot(["AAPL"]) is market_snapshot_result
-    assert service.get_volume_monitor(["AAPL"]) is volume_result
-    assert service.get_chart_context(["AAPL"]) is chart_result
+    quotes = service.get_quote_snapshot(["AAPL"])
+    history = service.get_price_history(["AAPL"])
+    search = service.search_symbols("apple")
+    snapshot = service.get_market_snapshot(["AAPL"])
+    volume = service.get_volume_monitor(["AAPL"])
+    chart = service.get_chart_context(["AAPL"])
+
+    assert quotes.meta["provider"] == "yahoo"
+    assert quotes.quotes["AAPL"]["price"] == 100.0
+    assert history.series["AAPL"][0]["close"] == 100
+    assert search.candidates[0]["symbol"] == "AAPL"
+    assert snapshot.data["quotes"]["AAPL"]["volume"] == 123456.0
+    assert volume.data["monitor"]["AAPL"]["signal"] == "anomalous"
+    assert chart.data["summary"]["AAPL"]["points"] == 2
+
+
+def test_alpaca_market_data_service_satisfies_same_capability_contract() -> None:
+    service = AlpacaMarketDataService(_FakeAlpacaClient())  # type: ignore[arg-type]
+
+    assert isinstance(service, MarketDataService)
+    quotes = service.get_quote_snapshot(["AAPL"])
+    history = service.get_price_history(["AAPL"])
+    search = service.search_symbols("apple")
+    snapshot = service.get_market_snapshot(["AAPL"])
+    volume = service.get_volume_monitor(["AAPL"])
+    chart = service.get_chart_context(["AAPL"])
+
+    assert quotes.meta["provider"] == "alpaca"
+    assert quotes.quotes["AAPL"]["price"] == 101.0
+    assert history.series["AAPL"][1]["close"] == 101
+    assert search.candidates[0]["symbol"] == "AAPL"
+    assert snapshot.data["quotes"]["AAPL"]["volume"] == 777.0
+    assert volume.data["monitor"]["AAPL"]["signal"] == "normal"
+    assert chart.data["summary"]["AAPL"]["points"] == 2
 
 
 def test_alpha_vantage_market_intelligence_service_delegates_to_tool(monkeypatch) -> None:

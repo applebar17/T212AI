@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .market_data_models import (
+    MarketPriceHistoryResult,
+    MarketQuoteSnapshotResult,
+    MarketSymbolSearchResult,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class CapabilityBinding:
@@ -12,3 +18,11 @@ class CapabilityBinding:
     selected_provider: str | None
     ready: bool
     implementation: Any | None = None
+
+
+__all__ = [
+    "CapabilityBinding",
+    "MarketPriceHistoryResult",
+    "MarketQuoteSnapshotResult",
+    "MarketSymbolSearchResult",
+]

@@ -16,9 +16,6 @@ from t212ai.genai.tracing import (
 if TYPE_CHECKING:
     from t212ai.capabilities.protocols import MarketDataService
 
-
-_MARKET_PROVIDER = "yahoo"
-
 _MARKET_PRICE_COMMON_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -222,7 +219,8 @@ def market_search_symbol(
     news_count: int = 0,
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_search_symbol")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_search_symbol")
     if service is None:
         return _missing_service_result("market_search_symbol")
     try:
@@ -233,14 +231,19 @@ def market_search_symbol(
         )
     except Exception as exc:
         return _exception_result(exc, operation="market_search_symbol")
-    candidates = list(result.quotes)
-    output = _format_symbol_search_output(query=query, candidates=candidates)
+    resolved_provider = _result_provider(result.meta, service=service)
+    candidates = list(result.candidates)
+    output = _format_symbol_search_output(
+        provider=resolved_provider,
+        query=query,
+        candidates=candidates,
+    )
     return ToolResult(
         status="ok",
         output=output,
         data={
             "query": result.query,
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "candidates": candidates,
         },
     )
@@ -257,7 +260,8 @@ def market_get_quote(
     symbols: list[str] | tuple[str, ...],
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_get_quote")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_get_quote")
     normalized = _normalize_symbols(symbols)
     if not normalized:
         return _input_error("At least one symbol is required.", "missing_symbols")
@@ -267,12 +271,17 @@ def market_get_quote(
         result = service.get_quote_snapshot(normalized)
     except Exception as exc:
         return _exception_result(exc, operation="market_get_quote")
-    output = _format_quote_output(result.quotes, result.errors)
+    resolved_provider = _result_provider(result.meta, service=service)
+    output = _format_quote_output(
+        provider=resolved_provider,
+        quotes=result.quotes,
+        errors=result.errors,
+    )
     return ToolResult(
         status="ok",
         output=output,
         data={
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "quotes": dict(result.quotes),
             "errors": dict(result.errors),
         },
@@ -295,7 +304,8 @@ def market_get_bars(
     auto_adjust: bool = False,
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_get_bars")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_get_bars")
     normalized = _normalize_symbols(symbols)
     if not normalized:
         return _input_error("At least one symbol is required.", "missing_symbols")
@@ -313,8 +323,9 @@ def market_get_bars(
     except Exception as exc:
         return _exception_result(exc, operation="market_get_bars")
     total_points = sum(len(points) for points in result.series.values())
+    resolved_provider = _result_provider(result.meta, service=service)
     output = (
-        f"Market bars via {_MARKET_PROVIDER} returned {total_points} point(s) for "
+        f"Market bars via {resolved_provider} returned {total_points} point(s) for "
         f"{len(result.series)} symbol(s)."
     )
     if result.errors:
@@ -323,7 +334,7 @@ def market_get_bars(
         status="ok",
         output=output,
         data={
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "series": dict(result.series),
             "errors": dict(result.errors),
             "meta": {
@@ -350,7 +361,8 @@ def market_get_volume_monitor(
     auto_adjust: bool = False,
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_get_volume_monitor")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_get_volume_monitor")
     normalized = _normalize_symbols(symbols)
     if not normalized:
         return _input_error("At least one symbol is required.", "missing_symbols")
@@ -376,11 +388,12 @@ def market_get_volume_monitor(
         quote_errors=_coerce_mapping(payload.get("quote_errors")),
         price_errors=_coerce_mapping(payload.get("price_errors")),
     )
+    resolved_provider = _tool_payload_provider(payload, result=result, service=service)
     return ToolResult(
         status="ok",
-        output=_format_volume_monitor_output(monitor),
+        output=_format_volume_monitor_output(provider=resolved_provider, monitor=monitor),
         data={
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "monitor": monitor,
             "quotes": quotes,
             "errors": errors,
@@ -405,7 +418,8 @@ def market_get_market_snapshot(
     auto_adjust: bool = False,
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_get_market_snapshot")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_get_market_snapshot")
     normalized = _normalize_symbols(symbols)
     if not normalized:
         return _input_error("At least one symbol is required.", "missing_symbols")
@@ -431,11 +445,16 @@ def market_get_market_snapshot(
         quote_errors=_coerce_mapping(payload.get("quote_errors")),
         price_errors=_coerce_mapping(payload.get("price_errors")),
     )
+    resolved_provider = _tool_payload_provider(payload, result=result, service=service)
     return ToolResult(
         status="ok",
-        output=_format_market_snapshot_output(quotes, price_summary),
+        output=_format_market_snapshot_output(
+            provider=resolved_provider,
+            quotes=quotes,
+            price_summary=price_summary,
+        ),
         data={
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "quotes": quotes,
             "price_summary": price_summary,
             "errors": errors,
@@ -460,7 +479,8 @@ def market_get_chart_context(
     auto_adjust: bool = False,
     service: "MarketDataService | None" = None,
 ) -> ToolResult:
-    set_trace_metadata(provider=_MARKET_PROVIDER, tool_name="market_get_chart_context")
+    provider = _provider_name(service=service)
+    set_trace_metadata(provider=provider, tool_name="market_get_chart_context")
     normalized = _normalize_symbols(symbols)
     if not normalized:
         return _input_error("At least one symbol is required.", "missing_symbols")
@@ -490,8 +510,9 @@ def market_get_chart_context(
     meta_payload = dict(meta)
     if total_points is not None:
         meta_payload["total_points"] = total_points
+    resolved_provider = _tool_payload_provider(payload, result=result, service=service)
     output = (
-        f"Chart-ready market context via {_MARKET_PROVIDER} for "
+        f"Chart-ready market context via {resolved_provider} for "
         f"{len(summary)} symbol(s). Use chart_refs and placement_guidance for rendering."
     )
     if errors:
@@ -500,7 +521,7 @@ def market_get_chart_context(
         status="ok",
         output=output,
         data={
-            "provider": _MARKET_PROVIDER,
+            "provider": resolved_provider,
             "summary": summary,
             "series": series,
             "chart_refs": chart_refs,
@@ -562,6 +583,39 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _provider_name(*, service: "MarketDataService | None") -> str:
+    return str(getattr(service, "provider_name", "market_data")).strip() or "market_data"
+
+
+def _result_provider(
+    meta: dict[str, Any] | None,
+    *,
+    service: "MarketDataService | None",
+) -> str:
+    if isinstance(meta, dict) and str(meta.get("provider") or "").strip():
+        return str(meta["provider"]).strip()
+    return _provider_name(service=service)
+
+
+def _tool_payload_provider(
+    payload: dict[str, Any],
+    *,
+    result: ToolResult,
+    service: "MarketDataService | None",
+) -> str:
+    meta = payload.get("meta")
+    if isinstance(meta, dict):
+        quote_meta = meta.get("quote")
+        if isinstance(quote_meta, dict) and str(quote_meta.get("provider") or "").strip():
+            return str(quote_meta["provider"]).strip()
+        price_meta = meta.get("price")
+        if isinstance(price_meta, dict) and str(price_meta.get("provider") or "").strip():
+            return str(price_meta["provider"]).strip()
+    if isinstance(result.meta, dict) and str(result.meta.get("provider") or "").strip():
+        return str(result.meta["provider"]).strip()
+    return _provider_name(service=service)
+
+
 def _combine_errors(**sources: dict[str, Any]) -> dict[str, dict[str, Any]]:
     combined: dict[str, dict[str, Any]] = {}
     for source_name, errors in sources.items():
@@ -572,19 +626,20 @@ def _combine_errors(**sources: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _format_symbol_search_output(
     *,
+    provider: str,
     query: str,
     candidates: list[dict[str, Any]],
 ) -> str:
     if not candidates:
         return (
-            f"Market symbol search via {_MARKET_PROVIDER} found no candidates for '{query}'. "
+            f"Market symbol search via {provider} found no candidates for '{query}'. "
             "Ask for a clearer company name, exchange, or symbol."
         )
     formatted: list[str] = []
     for item in candidates[:8]:
         symbol = item.get("symbol")
-        name = item.get("shortname") or item.get("longname")
-        exchange = item.get("exchDisp") or item.get("exchange")
+        name = item.get("name")
+        exchange = item.get("exchange")
         if name and exchange:
             formatted.append(f"{symbol} ({name}, {exchange})")
         elif name:
@@ -592,25 +647,27 @@ def _format_symbol_search_output(
         else:
             formatted.append(str(symbol))
     return (
-        f"Market symbol search via {_MARKET_PROVIDER} found {len(candidates)} candidate(s): "
+        f"Market symbol search via {provider} found {len(candidates)} candidate(s): "
         f"{'; '.join(formatted)}."
     )
 
 
 def _format_quote_output(
+    *,
+    provider: str,
     quotes: dict[str, Any],
     errors: dict[str, Any],
 ) -> str:
     if not quotes:
-        return f"Market quote snapshot via {_MARKET_PROVIDER} returned no quote data."
-    lines = [f"Market quote snapshot via {_MARKET_PROVIDER}."]
+        return f"Market quote snapshot via {provider} returned no quote data."
+    lines = [f"Market quote snapshot via {provider}."]
     for symbol, quote in list(quotes.items())[:8]:
         lines.append(
             "- "
-            f"{symbol}: price={_fmt(quote.get('regularMarketPrice'))} "
+            f"{symbol}: price={_fmt(quote.get('price'))} "
             f"{quote.get('currency') or ''}, "
-            f"change_pct={_fmt(quote.get('regularMarketChangePercent'))}%, "
-            f"volume={_fmt(quote.get('regularMarketVolume'))}."
+            f"change_pct={_fmt(quote.get('change_pct'))}%, "
+            f"volume={_fmt(quote.get('volume'))}."
         )
     if errors:
         lines.append(f"Errors for: {', '.join(errors.keys())}.")
@@ -618,28 +675,30 @@ def _format_quote_output(
 
 
 def _format_market_snapshot_output(
+    *,
+    provider: str,
     quotes: dict[str, Any],
     price_summary: dict[str, Any],
 ) -> str:
     symbols = list({*quotes.keys(), *price_summary.keys()})
     if not symbols:
-        return f"Market snapshot via {_MARKET_PROVIDER} returned no market context."
+        return f"Market snapshot via {provider} returned no market context."
     return (
-        f"Market snapshot via {_MARKET_PROVIDER} returned quote and price-summary "
+        f"Market snapshot via {provider} returned quote and price-summary "
         f"context for {len(symbols)} symbol(s)."
     )
 
 
-def _format_volume_monitor_output(monitor: dict[str, Any]) -> str:
+def _format_volume_monitor_output(*, provider: str, monitor: dict[str, Any]) -> str:
     if not monitor:
-        return f"Volume monitor via {_MARKET_PROVIDER} returned no relative-volume signals."
+        return f"Volume monitor via {provider} returned no relative-volume signals."
     fragments: list[str] = []
     for symbol, item in list(monitor.items())[:6]:
         fragments.append(
             f"{symbol}: signal={item.get('signal')}, "
             f"relative_volume={_fmt(item.get('relative_volume'))}x"
         )
-    return f"Volume monitor via {_MARKET_PROVIDER}: " + "; ".join(fragments) + "."
+    return f"Volume monitor via {provider}: " + "; ".join(fragments) + "."
 
 
 def _fmt(value: Any) -> str:

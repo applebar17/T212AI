@@ -317,7 +317,7 @@ def test_generic_market_get_quote_returns_provider_neutral_payload() -> None:
 
     assert result.status == "ok"
     assert result.data["provider"] == "yahoo"
-    assert result.data["quotes"]["AAPL"]["regularMarketPrice"] == 100.0
+    assert result.data["quotes"]["AAPL"]["price"] == 100.0
     assert result.data["errors"] == {}
 
 
@@ -339,7 +339,7 @@ def test_generic_market_get_market_snapshot_returns_provider_neutral_payload() -
 
     assert result.status == "ok"
     assert result.data["provider"] == "yahoo"
-    assert result.data["quotes"]["AAPL"]["regularMarketVolume"] == 123456
+    assert result.data["quotes"]["AAPL"]["volume"] == 123456.0
     assert result.data["price_summary"]["AAPL"]["points"] == 2
     assert result.data["errors"] == {}
 
@@ -352,7 +352,7 @@ def test_generic_market_get_volume_monitor_returns_provider_neutral_payload() ->
     assert result.status == "ok"
     assert result.data["provider"] == "yahoo"
     assert result.data["monitor"]["AAPL"]["signal"] == "anomalous"
-    assert result.data["quotes"]["AAPL"]["regularMarketVolume"] == 123456
+    assert result.data["quotes"]["AAPL"]["volume"] == 123456.0
     assert result.data["errors"] == {}
 
 

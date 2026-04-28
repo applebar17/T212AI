@@ -21,13 +21,14 @@ from t212ai.data_sources.reddit.models import (
     RedditThreadDigest,
 )
 from t212ai.data_sources.sec_edgar.models import EdgarFilingActivityResult
-from t212ai.data_sources.yahoo.models import (
-    YahooPriceHistoryResult,
-    YahooQuoteSnapshotResult,
-    YahooSearchResult,
-)
 from t212ai.genai.models import ToolResult
 from t212ai.genai.tools.search_registry import SearchResultRegistry
+
+from .market_data_models import (
+    MarketPriceHistoryResult,
+    MarketQuoteSnapshotResult,
+    MarketSymbolSearchResult,
+)
 
 
 @runtime_checkable
@@ -85,7 +86,7 @@ class MarketDataService(Protocol):
     def get_quote_snapshot(
         self,
         symbols: list[str],
-    ) -> YahooQuoteSnapshotResult: ...
+    ) -> MarketQuoteSnapshotResult: ...
 
     def get_price_history(
         self,
@@ -96,7 +97,7 @@ class MarketDataService(Protocol):
         start: str | None = None,
         end: str | None = None,
         auto_adjust: bool = False,
-    ) -> YahooPriceHistoryResult: ...
+    ) -> MarketPriceHistoryResult: ...
 
     def get_market_snapshot(
         self,
@@ -126,7 +127,7 @@ class MarketDataService(Protocol):
         *,
         quotes_count: int = 8,
         news_count: int = 0,
-    ) -> YahooSearchResult: ...
+    ) -> MarketSymbolSearchResult: ...
 
     def get_chart_context(
         self,

@@ -132,6 +132,72 @@ class FakeAlphaVantageClient:
         return cls()
 
 
+class FakeAlpacaMarketDataClient:
+    @classmethod
+    def from_settings(cls, settings=None):
+        del settings
+        return cls()
+
+    def get_quote_snapshot(self, symbols):
+        from t212ai.capabilities.market_data_models import MarketQuoteSnapshotResult
+
+        return MarketQuoteSnapshotResult(
+            quotes={
+                symbol: {
+                    "symbol": symbol,
+                    "price": 101.0,
+                    "change_pct": 1.25,
+                    "volume": 1000.0,
+                    "currency": "USD",
+                    "exchange": "IEX",
+                    "market_state": None,
+                }
+                for symbol in symbols
+            },
+            errors={},
+            meta={"provider": "alpaca", "feed": "iex"},
+        )
+
+    def get_price_history(self, symbols, **_kwargs):
+        from t212ai.capabilities.market_data_models import MarketPriceHistoryResult
+
+        return MarketPriceHistoryResult(
+            series={
+                symbol: [
+                    {
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "open": 100,
+                        "high": 102,
+                        "low": 99,
+                        "close": 101,
+                        "volume": 1000,
+                    }
+                ]
+                for symbol in symbols
+            },
+            errors={},
+            meta={"provider": "alpaca", "feed": "iex"},
+        )
+
+    def search_symbols(self, query, **_kwargs):
+        from t212ai.capabilities.market_data_models import MarketSymbolSearchResult
+
+        return MarketSymbolSearchResult(
+            query=query,
+            candidates=[
+                {
+                    "symbol": "AAPL",
+                    "name": "Apple Inc.",
+                    "exchange": "NASDAQ",
+                    "asset_class": "us_equity",
+                    "status": "active",
+                    "tradable": True,
+                }
+            ],
+            meta={"provider": "alpaca"},
+        )
+
+
 class FakeRedditClient:
     @classmethod
     def from_settings(cls, settings=None):
@@ -293,6 +359,36 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.specialist_tooling.order_toolbox is not None
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime
+
+
+def test_build_runtime_selects_alpaca_market_data_when_configured(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import t212ai.alpaca.market_data as alpaca_market_data_module
+
+    monkeypatch.setattr(
+        alpaca_market_data_module,
+        "AlpacaMarketDataClient",
+        FakeAlpacaMarketDataClient,
+    )
+    settings = get_app_settings(
+        env={
+            "MARKET_DATA_PROVIDER": "alpaca",
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+        }
+    )
+
+    runtime = build_runtime(settings)
+
+    assert runtime.alpaca_market_data_client is not None
+    assert runtime.market_data_service is not None
+    assert isinstance(runtime.market_data_service, MarketDataService)
+    assert runtime.capability_registry["market_data"].selected_provider == "alpaca"
+    assert runtime.capability_registry["market_data"].ready
 
 
 def test_runtime_backed_agent_handler_reuses_runtime_history(

@@ -15,6 +15,7 @@ from t212ai.agent.tooling import SpecialistTooling, build_specialist_tooling
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.calculator import CalculatorService
 from t212ai.capabilities import (
+    AlpacaMarketDataService,
     AlphaVantageMarketIntelligenceService,
     BrokerExecutionService,
     BrokerReadService,
@@ -92,6 +93,7 @@ class AppRuntime:
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None
     yahoo_client: YahooFinanceClient | None = None
+    alpaca_market_data_client: AlpacaMarketDataClient | None = None
     market_data_service: MarketDataService | None = None
     alpha_vantage_client: AlphaVantageClient | None = None
     market_intelligence_service: MarketIntelligenceService | None = None
@@ -223,6 +225,16 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
         except Exception as exc:  # pragma: no cover - constructor is simple
             runtime.component_errors["yahoo"] = str(exc)
 
+    if runtime.settings.market_data_provider == "alpaca":
+        try:
+            from t212ai.alpaca.market_data import AlpacaMarketDataClient
+
+            runtime.alpaca_market_data_client = AlpacaMarketDataClient.from_settings(
+                runtime.settings
+            )
+        except Exception as exc:
+            runtime.component_errors["alpaca"] = str(exc)
+
     if runtime.settings.alpha_vantage_enabled:
         try:
             runtime.alpha_vantage_client = AlphaVantageClient.from_settings(runtime.settings)
@@ -263,6 +275,14 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
         runtime.broker_execution_service = runtime.trading212_service
 
     if (
+        runtime.config_assessment.capabilities["market_data"].available
+        and runtime.settings.market_data_provider == "alpaca"
+        and runtime.alpaca_market_data_client is not None
+    ):
+        runtime.market_data_service = AlpacaMarketDataService(
+            runtime.alpaca_market_data_client
+        )
+    elif (
         runtime.config_assessment.capabilities["market_data"].available
         and runtime.yahoo_client is not None
     ):

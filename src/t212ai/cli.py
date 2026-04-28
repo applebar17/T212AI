@@ -35,8 +35,17 @@ BROKER_PROVIDER_OPTIONS = (
     ("trading212", "Trading 212"),
     ("none", "Disabled"),
 )
+MARKET_DATA_PROVIDER_OPTIONS = (
+    ("yahoo", "Yahoo Finance"),
+    ("alpaca", "Alpaca"),
+    ("none", "Disabled"),
+)
 ENVIRONMENT_OPTIONS = (
     ("demo", "Demo"),
+    ("live", "Live"),
+)
+ALPACA_ENVIRONMENT_OPTIONS = (
+    ("paper", "Paper"),
     ("live", "Live"),
 )
 REDDIT_AUTH_OPTIONS = (
@@ -49,6 +58,8 @@ SECRET_KEYS = frozenset(
         "AZURE_OPENAI_API_KEY",
         "T212_API_KEY",
         "T212_API_SECRET",
+        "ALPACA_API_KEY",
+        "ALPACA_API_SECRET",
         "TELEGRAM_BOT_TOKEN",
         "REDDIT_CLIENT_SECRET",
         "REDDIT_PASSWORD",
@@ -97,6 +108,18 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "T212_API_KEY",
             "T212_API_SECRET",
             "T212_LIVE_TRADING_ENABLED",
+        ),
+    ),
+    (
+        "Alpaca",
+        (
+            "ALPACA_ENVIRONMENT",
+            "ALPACA_API_KEY",
+            "ALPACA_API_SECRET",
+            "ALPACA_MARKET_DATA_BASE_URL",
+            "ALPACA_PAPER_TRADING_BASE_URL",
+            "ALPACA_LIVE_TRADING_BASE_URL",
+            "ALPACA_DATA_FEED",
         ),
     ),
     (
@@ -511,6 +534,34 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "ALPHA_VANTAGE_BASE_URL",
             settings.alpha_vantage_base_url,
         ),
+        "ALPACA_ENVIRONMENT": existing_raw.get(
+            "ALPACA_ENVIRONMENT",
+            settings.alpaca_environment,
+        ),
+        "ALPACA_API_KEY": existing_raw.get(
+            "ALPACA_API_KEY",
+            settings.alpaca_api_key or "",
+        ),
+        "ALPACA_API_SECRET": existing_raw.get(
+            "ALPACA_API_SECRET",
+            settings.alpaca_api_secret or "",
+        ),
+        "ALPACA_MARKET_DATA_BASE_URL": existing_raw.get(
+            "ALPACA_MARKET_DATA_BASE_URL",
+            settings.alpaca_market_data_base_url,
+        ),
+        "ALPACA_PAPER_TRADING_BASE_URL": existing_raw.get(
+            "ALPACA_PAPER_TRADING_BASE_URL",
+            settings.alpaca_paper_trading_base_url,
+        ),
+        "ALPACA_LIVE_TRADING_BASE_URL": existing_raw.get(
+            "ALPACA_LIVE_TRADING_BASE_URL",
+            settings.alpaca_live_trading_base_url,
+        ),
+        "ALPACA_DATA_FEED": existing_raw.get(
+            "ALPACA_DATA_FEED",
+            settings.alpaca_data_feed,
+        ),
         "REDDIT_CLIENT_ID": existing_raw.get(
             "REDDIT_CLIENT_ID",
             settings.reddit_client_id or "",
@@ -647,12 +698,31 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
         )
 
     io_runtime.write("")
-    yahoo_enabled = io_runtime.confirm(
-        "Enable Yahoo Finance market data?",
-        default=_env_truthy(updates["YAHOO_ENABLED"]),
+    market_data_provider = io_runtime.choose(
+        "Market data provider",
+        options=MARKET_DATA_PROVIDER_OPTIONS,
+        default=_safe_choice(
+            updates["MARKET_DATA_PROVIDER"],
+            {"yahoo", "alpaca", "none"},
+            "yahoo",
+        ),
     )
-    updates["MARKET_DATA_PROVIDER"] = "yahoo" if yahoo_enabled else "none"
-    updates["YAHOO_ENABLED"] = _bool_to_env(yahoo_enabled)
+    updates["MARKET_DATA_PROVIDER"] = market_data_provider
+    updates["YAHOO_ENABLED"] = _bool_to_env(market_data_provider == "yahoo")
+    if market_data_provider == "alpaca":
+        updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
+            "Alpaca environment",
+            options=ALPACA_ENVIRONMENT_OPTIONS,
+            default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
+        )
+        updates["ALPACA_API_KEY"] = io_runtime.prompt(
+            "ALPACA_API_KEY",
+            default=updates["ALPACA_API_KEY"],
+        )
+        updates["ALPACA_API_SECRET"] = io_runtime.prompt(
+            "ALPACA_API_SECRET",
+            default=updates["ALPACA_API_SECRET"],
+        )
 
     alpha_enabled = io_runtime.confirm(
         "Enable Alpha Vantage?",
@@ -778,6 +848,7 @@ def render_doctor_report(
         "broker",
         "telegram",
         "yahoo",
+        "alpaca",
         "alpha_vantage",
         "reddit",
         "searxng",

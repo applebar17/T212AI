@@ -169,6 +169,37 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
     assert settings.searxng_enabled
 
 
+def test_get_app_settings_supports_explicit_alpaca_market_data_provider() -> None:
+    settings = get_app_settings(
+        env={
+            "MARKET_DATA_PROVIDER": "alpaca",
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+            "ALPACA_ENVIRONMENT": "live",
+            "ALPACA_DATA_FEED": "sip",
+        }
+    )
+
+    assert settings.market_data_provider == "alpaca"
+    assert settings.alpaca_api_key == "alpaca-key"
+    assert settings.alpaca_api_secret == "alpaca-secret"
+    assert settings.alpaca_environment == "live"
+    assert settings.alpaca_data_feed == "sip"
+    assert not settings.yahoo_enabled
+
+
+def test_get_app_settings_can_infer_alpaca_market_data_from_credentials() -> None:
+    settings = get_app_settings(
+        env={
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+        }
+    )
+
+    assert settings.market_data_provider == "alpaca"
+    assert not settings.yahoo_enabled
+
+
 def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() -> None:
     settings = get_app_settings(
         env={
