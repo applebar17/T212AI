@@ -181,7 +181,26 @@ sequenceDiagram
     Reconcile->>DB: Sync local state with remote status
 ```
 
-## 7. Current Limitation
+## 7. Current Live Tool Surface
+
+```mermaid
+flowchart LR
+    ORCH[Orchestrator and Specialists] --> RTB[Runtime-built generic toolboxes]
+    RTB --> BROKER[Generic broker facade: broker_*]
+    RTB --> MARKET[Generic market-data facade: market_*]
+    RTB --> SPEC[Explicit specialist exceptions]
+
+    BROKER --> T212[Trading 212 adapter]
+    BROKER --> AB[Alpaca broker adapter]
+    MARKET --> Y[Yahoo adapter]
+    MARKET --> AM[Alpaca market-data adapter]
+    SPEC --> AV[Alpha Vantage intelligence]
+    SPEC --> EDGAR[SEC EDGAR disclosure]
+    SPEC --> SEARCH[SearXNG and scrape]
+    SPEC --> REDDIT[Reddit research]
+```
+
+## 8. Current Limitation
 
 ```mermaid
 flowchart TB
@@ -194,7 +213,7 @@ flowchart TB
     G --> H[Watchlist and broader scheduled jobs are still open]
 ```
 
-## 8. Current Vs Near-Term Direction
+## 9. Current Vs Near-Term Direction
 
 ```mermaid
 flowchart TD

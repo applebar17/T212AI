@@ -337,6 +337,9 @@ Exit criteria:
 
 ### Wave 7: Migration And Cleanup
 
+Status:
+- implemented in the current repo state
+
 Deliverables:
 
 - migrate specialist agents and toolbox summaries to the capability-based tool names

@@ -151,3 +151,18 @@ Current tracing coverage includes:
 - Yahoo public tools
 
 If you add a new agent or tool and it changes execution flow, add tracing in the same PR.
+
+## Capability-First Tool Surfaces
+
+Scope:
+- agents
+- tools
+- runtime
+- docs
+
+Rules:
+- new agent-facing tools and toolboxes must be capability-first rather than provider-branded
+- runtime code must use toolbox builders for live tool exposure instead of static provider/toolbox constants
+- generic broker and market-data facades are the preferred live agent surfaces
+- provider-specific tools belong in provider packages and should only be exposed to agents when the specialization is intentional and explicit
+- top-level compatibility re-exports may exist, but they should not be treated as the primary recommended surface in docs or new runtime code

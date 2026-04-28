@@ -137,6 +137,8 @@ Current status:
 - the agent architecture is in place and runtime-owned
 - routing and planning are consistent
 - persistent guideline context is available to the orchestrator and specialists
+- live specialist toolboxes are runtime-built and capability-first
+- provider-specific toolboxes are retained only as compatibility or explicit specialist exceptions
 - `OrderAgent` has a deterministic higher-level order-action path for:
   - prepared order submission
   - prepared order cancellation
@@ -164,6 +166,10 @@ Current status:
 - provider building blocks exist and are runtime-wired
 - the generic market-data facade can run on Yahoo or Alpaca
 - the generic broker facade can run on Trading 212 or Alpaca
+- the live agent-facing tool surface is generic-first:
+  - `market_*` for market data
+  - `broker_*` for broker operations
+- provider-specific tool modules remain available, but they are no longer the primary live agent surface
 - both broker providers support:
   - broker read capability
   - generic order preparation and execution capability
