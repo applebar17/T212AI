@@ -5,11 +5,13 @@ from dataclasses import dataclass, field
 from t212ai.agent import (
     AgentJudge,
     AgentReasoner,
+    CalculatorAgent,
     ChatHistoryManager,
     MainOrchestratorAgent,
     build_specialist_agents,
 )
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
+from t212ai.calculator import CalculatorService
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
 from t212ai.data_sources.yahoo import YahooFinanceClient
@@ -22,6 +24,7 @@ from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.proposals import ProposalService
+from t212ai.reconciliation import ReconciliationService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 try:
@@ -54,10 +57,13 @@ class AppRuntime:
     db_session_factory: sessionmaker[Session] | None = None
     pending_action_service: PendingActionService | None = None
     proposal_service: ProposalService | None = None
+    reconciliation_service: ReconciliationService | None = None
+    calculator_service: CalculatorService | None = None
     genai_client: GenAIClient | None = None
     agent_reasoner: AgentReasoner | None = None
     agent_judge: AgentJudge | None = None
     main_orchestrator: MainOrchestratorAgent | None = None
+    calculator_agent: CalculatorAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None
@@ -128,6 +134,8 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
     _build_workflow_stack(runtime)
+    _build_calculator_stack(runtime)
+    _build_reconciliation_stack(runtime)
     _build_agent_stack(runtime)
     return runtime
 
@@ -205,6 +213,29 @@ def _build_workflow_stack(runtime: AppRuntime) -> None:
             broker_service=runtime.trading212_service,
         )
         runtime.proposal_service = ProposalService(runtime.db_session_factory)
+
+
+def _build_calculator_stack(runtime: AppRuntime) -> None:
+    runtime.calculator_service = CalculatorService()
+    if runtime.agent_reasoner is not None:
+        runtime.calculator_agent = CalculatorAgent(
+            runtime.agent_reasoner,
+            guideline_service=runtime.guideline_memory_service,
+            calculator_service=runtime.calculator_service,
+        )
+
+
+def _build_reconciliation_stack(runtime: AppRuntime) -> None:
+    if (
+        runtime.trading212_service is None
+        or runtime.pending_action_service is None
+    ):
+        return
+    runtime.reconciliation_service = ReconciliationService(
+        broker_service=runtime.trading212_service,
+        pending_action_service=runtime.pending_action_service,
+        proposal_service=runtime.proposal_service,
+    )
 
 
 def _build_agent_stack(runtime: AppRuntime) -> None:
