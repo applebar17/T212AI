@@ -138,6 +138,12 @@ def test_get_app_settings_uses_default_guideline_memory_path() -> None:
     settings = get_app_settings(env={})
 
     assert settings.guideline_memory_path == "data/guidelines/guidelines.json"
+    assert settings.market_data_provider == "yahoo"
+    assert settings.disclosure_provider == "sec_edgar"
+    assert settings.market_intelligence_provider == "none"
+    assert settings.community_provider == "none"
+    assert settings.search_provider == "none"
+    assert settings.yahoo_enabled
 
 
 def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None:
@@ -153,6 +159,40 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
 
     assert settings.llm_provider == "openai"
     assert settings.broker_provider == "trading212"
+    assert settings.market_data_provider == "yahoo"
+    assert settings.market_intelligence_provider == "alpha_vantage"
+    assert settings.community_provider == "reddit"
+    assert settings.search_provider == "searxng"
+    assert settings.disclosure_provider == "sec_edgar"
     assert settings.alpha_vantage_enabled
     assert settings.reddit_enabled
     assert settings.searxng_enabled
+
+
+def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() -> None:
+    settings = get_app_settings(
+        env={
+            "MARKET_DATA_PROVIDER": "none",
+            "DISCLOSURE_PROVIDER": "none",
+            "COMMUNITY_PROVIDER": "none",
+            "SEARCH_PROVIDER": "none",
+            "MARKET_INTELLIGENCE_PROVIDER": "none",
+            "YAHOO_ENABLED": "true",
+            "ALPHA_VANTAGE_ENABLED": "true",
+            "ALPHA_VANTAGE_API_KEY": "alpha-key",
+            "REDDIT_ENABLED": "true",
+            "REDDIT_CLIENT_ID": "reddit-id",
+            "SEARXNG_ENABLED": "true",
+            "SEARXNG_BASE_URL": "https://search.example",
+        }
+    )
+
+    assert settings.market_data_provider == "none"
+    assert settings.disclosure_provider == "none"
+    assert settings.market_intelligence_provider == "none"
+    assert settings.community_provider == "none"
+    assert settings.search_provider == "none"
+    assert not settings.yahoo_enabled
+    assert not settings.alpha_vantage_enabled
+    assert not settings.reddit_enabled
+    assert not settings.searxng_enabled

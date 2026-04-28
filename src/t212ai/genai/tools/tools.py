@@ -7,6 +7,8 @@ from functools import partial
 import os
 from typing import Any, Callable
 
+from t212ai.app.bootstrap import ConfigAssessment, assess_settings
+from t212ai.app.config import AppSettings, get_app_settings
 from ..models import ToolError, ToolResult, ToolSpec
 from .base import ToolBox, build_tool_index
 from .scrape_article import SCRAPE_ARTICLE_TOOL, scrape_article
@@ -64,6 +66,191 @@ def _build_chat_yahoo_tool() -> ToolSpec:
     )
     fn["description"] = (description + suffix).strip()
     return tool
+
+
+def _resolve_toolbox_context(
+    settings: AppSettings | None,
+    assessment: ConfigAssessment | None,
+) -> tuple[AppSettings, ConfigAssessment]:
+    resolved_settings = settings or get_app_settings()
+    resolved_assessment = assessment or assess_settings(resolved_settings)
+    return resolved_settings, resolved_assessment
+
+
+def _provider_ready(assessment: ConfigAssessment, name: str) -> bool:
+    provider = assessment.providers.get(name)
+    return bool(provider and provider.ready)
+
+
+def _selected_provider(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def build_chat_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools: list[ToolSpec] = []
+    if (
+        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+        and _provider_ready(resolved_assessment, "yahoo")
+    ):
+        tools.append(_build_chat_yahoo_tool())
+    if (
+        _selected_provider(resolved_settings.search_provider) == "searxng"
+        and _provider_ready(resolved_assessment, "searxng")
+    ):
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+    return ToolBox(name="chat", tools=tools, tools_by_name=build_tool_index(tools))
+
+
+def build_research_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools: list[ToolSpec] = []
+    if (
+        _selected_provider(resolved_settings.search_provider) == "searxng"
+        and _provider_ready(resolved_assessment, "searxng")
+    ):
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+    if (
+        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+        and _provider_ready(resolved_assessment, "yahoo")
+    ):
+        tools.append(YAHOO_PRICE_SUMMARY_TOOL)
+    return ToolBox(name="research", tools=tools, tools_by_name=build_tool_index(tools))
+
+
+def build_market_data_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools: list[ToolSpec] = []
+    if (
+        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+        and _provider_ready(resolved_assessment, "yahoo")
+    ):
+        tools.extend(
+            [
+                YAHOO_PRICE_HISTORY_TOOL,
+                YAHOO_PRICE_SUMMARY_TOOL,
+                YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
+                YAHOO_SYMBOL_SEARCH_TOOL,
+                YAHOO_QUOTE_SNAPSHOT_TOOL,
+                YAHOO_MARKET_SNAPSHOT_TOOL,
+                YAHOO_VOLUME_MONITOR_TOOL,
+                YAHOO_OPTIONS_SNAPSHOT_TOOL,
+                YAHOO_ANALYST_SNAPSHOT_TOOL,
+            ]
+        )
+    return ToolBox(
+        name="market_data",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_yahoo_market_context_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools = (
+        list(YAHOO_MARKET_CONTEXT_TOOLS)
+        if (
+            _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+            and _provider_ready(resolved_assessment, "yahoo")
+        )
+        else []
+    )
+    return ToolBox(
+        name="yahoo_market_context",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_market_analyst_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools: list[ToolSpec] = []
+    if (
+        _selected_provider(resolved_settings.market_data_provider) == "yahoo"
+        and _provider_ready(resolved_assessment, "yahoo")
+    ):
+        tools.extend([YAHOO_MARKET_SNAPSHOT_TOOL, YAHOO_VOLUME_MONITOR_TOOL])
+    if (
+        _selected_provider(resolved_settings.market_intelligence_provider)
+        == "alpha_vantage"
+        and _provider_ready(resolved_assessment, "alpha_vantage")
+    ):
+        tools.append(ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL)
+    if (
+        _selected_provider(resolved_settings.disclosure_provider) == "sec_edgar"
+        and _provider_ready(resolved_assessment, "sec_edgar")
+    ):
+        tools.extend(
+            [
+                EDGAR_OWNERSHIP_ACTIVITY_TOOL,
+                EDGAR_MAJOR_STAKE_ACTIVITY_TOOL,
+                EDGAR_COMPANY_DISCLOSURE_SNAPSHOT_TOOL,
+            ]
+        )
+    if (
+        _selected_provider(resolved_settings.search_provider) == "searxng"
+        and _provider_ready(resolved_assessment, "searxng")
+    ):
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+    return ToolBox(
+        name="market_analyst",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_toolboxes(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> dict[str, ToolBox]:
+    chat = build_chat_toolbox(settings=settings, assessment=assessment)
+    research = build_research_toolbox(settings=settings, assessment=assessment)
+    market_data = build_market_data_toolbox(settings=settings, assessment=assessment)
+    yahoo_market_context = build_yahoo_market_context_toolbox(
+        settings=settings,
+        assessment=assessment,
+    )
+    market_analyst = build_market_analyst_toolbox(
+        settings=settings,
+        assessment=assessment,
+    )
+    return {
+        chat.name: chat,
+        research.name: research,
+        market_data.name: market_data,
+        yahoo_market_context.name: yahoo_market_context,
+        market_analyst.name: market_analyst,
+    }
+
+
+def _build_default_toolboxes() -> dict[str, ToolBox]:
+    default_settings = AppSettings()
+    default_assessment = assess_settings(default_settings)
+    return build_toolboxes(
+        settings=default_settings,
+        assessment=default_assessment,
+    )
 
 
 def build_tool_mapping(
@@ -158,97 +345,12 @@ def build_tool_mapping_for(
     return {name: handler for name, handler in mapping.items() if name in allowed}
 
 
-CHAT_TOOLBOX = ToolBox(
-    name="chat",
-    tools=[
-        _build_chat_yahoo_tool(),
-        SEARXNG_SEARCH_TOOL,
-        SCRAPE_ARTICLE_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            _build_chat_yahoo_tool(),
-            SEARXNG_SEARCH_TOOL,
-            SCRAPE_ARTICLE_TOOL,
-        ]
-    ),
-)
-
-RESEARCH_TOOLBOX = ToolBox(
-    name="research",
-    tools=[SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL, YAHOO_PRICE_SUMMARY_TOOL],
-    tools_by_name=build_tool_index(
-        [SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL, YAHOO_PRICE_SUMMARY_TOOL]
-    ),
-)
-
-MARKET_DATA_TOOLBOX = ToolBox(
-    name="market_data",
-    tools=[
-        YAHOO_PRICE_HISTORY_TOOL,
-        YAHOO_PRICE_SUMMARY_TOOL,
-        YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
-        YAHOO_SYMBOL_SEARCH_TOOL,
-        YAHOO_QUOTE_SNAPSHOT_TOOL,
-        YAHOO_MARKET_SNAPSHOT_TOOL,
-        YAHOO_VOLUME_MONITOR_TOOL,
-        YAHOO_OPTIONS_SNAPSHOT_TOOL,
-        YAHOO_ANALYST_SNAPSHOT_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            YAHOO_PRICE_HISTORY_TOOL,
-            YAHOO_PRICE_SUMMARY_TOOL,
-            YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
-            YAHOO_SYMBOL_SEARCH_TOOL,
-            YAHOO_QUOTE_SNAPSHOT_TOOL,
-            YAHOO_MARKET_SNAPSHOT_TOOL,
-            YAHOO_VOLUME_MONITOR_TOOL,
-            YAHOO_OPTIONS_SNAPSHOT_TOOL,
-            YAHOO_ANALYST_SNAPSHOT_TOOL,
-        ]
-    ),
-)
-
-YAHOO_MARKET_CONTEXT_TOOLBOX = ToolBox(
-    name="yahoo_market_context",
-    tools=YAHOO_MARKET_CONTEXT_TOOLS,
-    tools_by_name=build_tool_index(YAHOO_MARKET_CONTEXT_TOOLS),
-)
-
-MARKET_ANALYST_TOOLBOX = ToolBox(
-    name="market_analyst",
-    tools=[
-        YAHOO_MARKET_SNAPSHOT_TOOL,
-        YAHOO_VOLUME_MONITOR_TOOL,
-        ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL,
-        EDGAR_OWNERSHIP_ACTIVITY_TOOL,
-        EDGAR_MAJOR_STAKE_ACTIVITY_TOOL,
-        EDGAR_COMPANY_DISCLOSURE_SNAPSHOT_TOOL,
-        SEARXNG_SEARCH_TOOL,
-        SCRAPE_ARTICLE_TOOL,
-    ],
-    tools_by_name=build_tool_index(
-        [
-            YAHOO_MARKET_SNAPSHOT_TOOL,
-            YAHOO_VOLUME_MONITOR_TOOL,
-            ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL,
-            EDGAR_OWNERSHIP_ACTIVITY_TOOL,
-            EDGAR_MAJOR_STAKE_ACTIVITY_TOOL,
-            EDGAR_COMPANY_DISCLOSURE_SNAPSHOT_TOOL,
-            SEARXNG_SEARCH_TOOL,
-            SCRAPE_ARTICLE_TOOL,
-        ]
-    ),
-)
-
-TOOLBOXES = {
-    CHAT_TOOLBOX.name: CHAT_TOOLBOX,
-    RESEARCH_TOOLBOX.name: RESEARCH_TOOLBOX,
-    MARKET_DATA_TOOLBOX.name: MARKET_DATA_TOOLBOX,
-    YAHOO_MARKET_CONTEXT_TOOLBOX.name: YAHOO_MARKET_CONTEXT_TOOLBOX,
-    MARKET_ANALYST_TOOLBOX.name: MARKET_ANALYST_TOOLBOX,
-}
+TOOLBOXES = _build_default_toolboxes()
+CHAT_TOOLBOX = TOOLBOXES["chat"]
+RESEARCH_TOOLBOX = TOOLBOXES["research"]
+MARKET_DATA_TOOLBOX = TOOLBOXES["market_data"]
+YAHOO_MARKET_CONTEXT_TOOLBOX = TOOLBOXES["yahoo_market_context"]
+MARKET_ANALYST_TOOLBOX = TOOLBOXES["market_analyst"]
 
 
 def _provider_unavailable_tool(

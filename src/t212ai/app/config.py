@@ -97,6 +97,11 @@ def _strip_inline_comment(value: str) -> str:
 class AppSettings:
     llm_provider: str = "none"
     broker_provider: str = "none"
+    market_data_provider: str = "yahoo"
+    market_intelligence_provider: str = "none"
+    disclosure_provider: str = "sec_edgar"
+    community_provider: str = "none"
+    search_provider: str = "none"
     openai_api_key: str | None = None
     openai_chat_model_default: str = "gpt-4o-mini"
     openai_chat_model_smart: str = "gpt-4.1"
@@ -126,6 +131,9 @@ class AppSettings:
     reddit_user_agent: str | None = None
     reddit_base_url: str = "https://oauth.reddit.com"
     reddit_auth_url: str = "https://www.reddit.com/api/v1/access_token"
+    sec_edgar_user_agent: str | None = None
+    sec_edgar_submissions_base_url: str = "https://data.sec.gov/submissions"
+    sec_edgar_tickers_url: str = "https://www.sec.gov/files/company_tickers.json"
     yahoo_enabled: bool = False
     alpha_vantage_enabled: bool = False
     reddit_enabled: bool = False
@@ -157,6 +165,11 @@ def get_app_settings(
     return AppSettings(
         llm_provider=_resolve_llm_provider(source),
         broker_provider=_resolve_broker_provider(source),
+        market_data_provider=_resolve_market_data_provider(source),
+        market_intelligence_provider=_resolve_market_intelligence_provider(source),
+        disclosure_provider=_resolve_disclosure_provider(source),
+        community_provider=_resolve_community_provider(source),
+        search_provider=_resolve_search_provider(source),
         openai_api_key=source.get("OPENAI_API_KEY"),
         openai_chat_model_default=source.get(
             "OPENAI_CHAT_MODEL_DEFAULT",
@@ -214,35 +227,20 @@ def get_app_settings(
             "REDDIT_AUTH_URL",
             "https://www.reddit.com/api/v1/access_token",
         ),
-        yahoo_enabled=_env_bool_or_fallback(
-            source,
-            "YAHOO_ENABLED",
-            False,
+        sec_edgar_user_agent=source.get("SEC_EDGAR_USER_AGENT"),
+        sec_edgar_submissions_base_url=source.get(
+            "SEC_EDGAR_SUBMISSIONS_BASE_URL",
+            "https://data.sec.gov/submissions",
         ),
-        alpha_vantage_enabled=_env_bool_or_fallback(
-            source,
-            "ALPHA_VANTAGE_ENABLED",
-            False,
-            fallback_keys=("ALPHA_VANTAGE_API_KEY",),
+        sec_edgar_tickers_url=source.get(
+            "SEC_EDGAR_TICKERS_URL",
+            "https://www.sec.gov/files/company_tickers.json",
         ),
-        reddit_enabled=_env_bool_or_fallback(
-            source,
-            "REDDIT_ENABLED",
-            False,
-            fallback_keys=(
-                "REDDIT_CLIENT_ID",
-                "REDDIT_CLIENT_SECRET",
-                "REDDIT_REFRESH_TOKEN",
-                "REDDIT_USERNAME",
-                "REDDIT_PASSWORD",
-            ),
-        ),
-        searxng_enabled=_env_bool_or_fallback(
-            source,
-            "SEARXNG_ENABLED",
-            False,
-            fallback_keys=("SEARXNG_BASE_URL",),
-        ),
+        yahoo_enabled=_resolve_market_data_provider(source) == "yahoo",
+        alpha_vantage_enabled=_resolve_market_intelligence_provider(source)
+        == "alpha_vantage",
+        reddit_enabled=_resolve_community_provider(source) == "reddit",
+        searxng_enabled=_resolve_search_provider(source) == "searxng",
         guideline_memory_path=source.get(
             "GUIDELINE_MEMORY_PATH",
             "data/guidelines/guidelines.json",
@@ -303,4 +301,68 @@ def _resolve_broker_provider(source: Mapping[str, str]) -> str:
         for key in ("T212_API_KEY", "T212_API_SECRET")
     ):
         return "trading212"
+    return "none"
+
+
+def _resolve_market_data_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("MARKET_DATA_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    if "YAHOO_ENABLED" in source:
+        return "yahoo" if _env_bool_from_source(source, "YAHOO_ENABLED", False) else "none"
+    return "yahoo"
+
+
+def _resolve_market_intelligence_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("MARKET_INTELLIGENCE_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    if _env_bool_or_fallback(
+        source,
+        "ALPHA_VANTAGE_ENABLED",
+        False,
+        fallback_keys=("ALPHA_VANTAGE_API_KEY",),
+    ):
+        return "alpha_vantage"
+    return "none"
+
+
+def _resolve_disclosure_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("DISCLOSURE_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    return "sec_edgar"
+
+
+def _resolve_community_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("COMMUNITY_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    if _env_bool_or_fallback(
+        source,
+        "REDDIT_ENABLED",
+        False,
+        fallback_keys=(
+            "REDDIT_CLIENT_ID",
+            "REDDIT_CLIENT_SECRET",
+            "REDDIT_REFRESH_TOKEN",
+            "REDDIT_USERNAME",
+            "REDDIT_PASSWORD",
+        ),
+    ):
+        return "reddit"
+    return "none"
+
+
+def _resolve_search_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("SEARCH_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    if _env_bool_or_fallback(
+        source,
+        "SEARXNG_ENABLED",
+        False,
+        fallback_keys=("SEARXNG_BASE_URL",),
+    ):
+        return "searxng"
     return "none"

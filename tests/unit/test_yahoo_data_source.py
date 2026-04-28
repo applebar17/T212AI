@@ -15,7 +15,13 @@ from t212ai.data_sources.yahoo import (
     yahoo_quote_snapshot,
     yahoo_volume_monitor,
 )
-from t212ai.genai.tools import MARKET_DATA_TOOLBOX, YAHOO_MARKET_CONTEXT_TOOLBOX
+from t212ai.app.bootstrap import assess_settings
+from t212ai.app.config import get_app_settings
+from t212ai.genai.tools import (
+    MARKET_DATA_TOOLBOX,
+    YAHOO_MARKET_CONTEXT_TOOLBOX,
+    build_market_data_toolbox,
+)
 
 
 class StubYahooClient(YahooFinanceClient):
@@ -250,3 +256,13 @@ def test_yahoo_market_context_toolbox_includes_volume_monitor() -> None:
     names = YAHOO_MARKET_CONTEXT_TOOLBOX.tools_by_name
 
     assert "yahoo_volume_monitor" in names
+
+
+def test_market_data_toolbox_hides_yahoo_tools_when_market_data_is_disabled() -> None:
+    settings = get_app_settings(env={"MARKET_DATA_PROVIDER": "none", "YAHOO_ENABLED": "true"})
+    toolbox = build_market_data_toolbox(
+        settings=settings,
+        assessment=assess_settings(settings),
+    )
+
+    assert toolbox.tools_by_name == {}

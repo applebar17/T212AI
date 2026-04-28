@@ -14,6 +14,7 @@ from .app.bootstrap import (
     ensure_runtime_directories,
     preflight_reconcile,
     preflight_run_bot,
+    run_provider_smoke_tests,
 )
 from .app.config import (
     DEFAULT_ENV_FILE_NAME,
@@ -55,16 +56,21 @@ SECRET_KEYS = frozenset(
     }
 )
 MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "Provider selection",
         (
-            "LLM_PROVIDER",
-            "BROKER_PROVIDER",
-            "YAHOO_ENABLED",
-            "ALPHA_VANTAGE_ENABLED",
-            "REDDIT_ENABLED",
-            "SEARXNG_ENABLED",
-        ),
+            "Provider selection",
+            (
+                "LLM_PROVIDER",
+                "BROKER_PROVIDER",
+                "MARKET_DATA_PROVIDER",
+                "MARKET_INTELLIGENCE_PROVIDER",
+                "DISCLOSURE_PROVIDER",
+                "COMMUNITY_PROVIDER",
+                "SEARCH_PROVIDER",
+                "YAHOO_ENABLED",
+                "ALPHA_VANTAGE_ENABLED",
+                "REDDIT_ENABLED",
+                "SEARXNG_ENABLED",
+            ),
     ),
     (
         "OpenAI / Azure OpenAI",
@@ -119,6 +125,14 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "REDDIT_USER_AGENT",
             "REDDIT_BASE_URL",
             "REDDIT_AUTH_URL",
+        ),
+    ),
+    (
+        "SEC EDGAR filing intelligence",
+        (
+            "SEC_EDGAR_USER_AGENT",
+            "SEC_EDGAR_SUBMISSIONS_BASE_URL",
+            "SEC_EDGAR_TICKERS_URL",
         ),
     ),
     (
@@ -218,6 +232,11 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         default=None,
         help="Optional path to inspect instead of the active process environment.",
     )
+    doctor_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run optional live smoke probes for enabled providers.",
+    )
     doctor_parser.set_defaults(handler=command_doctor)
 
     run_parser = subparsers.add_parser(
@@ -295,10 +314,15 @@ def command_configure(args: argparse.Namespace) -> int:
     update_env_file(env_path, updates)
     settings = get_app_settings(env=updates)
     directories = ensure_runtime_directories(settings)
+    assessment = assess_settings(settings)
+    smoke_results = run_provider_smoke_tests(settings, assessment)
     io_runtime.write(f"Saved configuration to {env_path}.")
     io_runtime.write("Ensured local directories:")
     for directory in directories:
         io_runtime.write(f"- {directory}")
+    io_runtime.write("")
+    io_runtime.write("Provider readiness:")
+    io_runtime.write(render_provider_smoke_report(smoke_results))
     return 0
 
 
@@ -306,7 +330,8 @@ def command_doctor(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
     assessment = assess_settings(settings)
     preflight = preflight_run_bot(assessment)
-    print(render_doctor_report(settings, assessment, preflight))
+    smoke_results = run_provider_smoke_tests(settings, assessment) if args.smoke else None
+    print(render_doctor_report(settings, assessment, preflight, smoke_results=smoke_results))
     return 0 if assessment.is_valid else 1
 
 
@@ -398,6 +423,11 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
     values = {
         "LLM_PROVIDER": settings.llm_provider,
         "BROKER_PROVIDER": settings.broker_provider,
+        "MARKET_DATA_PROVIDER": settings.market_data_provider,
+        "MARKET_INTELLIGENCE_PROVIDER": settings.market_intelligence_provider,
+        "DISCLOSURE_PROVIDER": settings.disclosure_provider,
+        "COMMUNITY_PROVIDER": settings.community_provider,
+        "SEARCH_PROVIDER": settings.search_provider,
         "YAHOO_ENABLED": _bool_to_env(settings.yahoo_enabled),
         "ALPHA_VANTAGE_ENABLED": _bool_to_env(settings.alpha_vantage_enabled),
         "REDDIT_ENABLED": _bool_to_env(settings.reddit_enabled),
@@ -513,6 +543,18 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "REDDIT_AUTH_URL",
             settings.reddit_auth_url,
         ),
+        "SEC_EDGAR_USER_AGENT": existing_raw.get(
+            "SEC_EDGAR_USER_AGENT",
+            settings.sec_edgar_user_agent or "",
+        ),
+        "SEC_EDGAR_SUBMISSIONS_BASE_URL": existing_raw.get(
+            "SEC_EDGAR_SUBMISSIONS_BASE_URL",
+            settings.sec_edgar_submissions_base_url,
+        ),
+        "SEC_EDGAR_TICKERS_URL": existing_raw.get(
+            "SEC_EDGAR_TICKERS_URL",
+            settings.sec_edgar_tickers_url,
+        ),
         "GUIDELINE_MEMORY_PATH": existing_raw.get(
             "GUIDELINE_MEMORY_PATH",
             settings.guideline_memory_path,
@@ -609,11 +651,15 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
         "Enable Yahoo Finance market data?",
         default=_env_truthy(updates["YAHOO_ENABLED"]),
     )
+    updates["MARKET_DATA_PROVIDER"] = "yahoo" if yahoo_enabled else "none"
     updates["YAHOO_ENABLED"] = _bool_to_env(yahoo_enabled)
 
     alpha_enabled = io_runtime.confirm(
         "Enable Alpha Vantage?",
         default=_env_truthy(updates["ALPHA_VANTAGE_ENABLED"]),
+    )
+    updates["MARKET_INTELLIGENCE_PROVIDER"] = (
+        "alpha_vantage" if alpha_enabled else "none"
     )
     updates["ALPHA_VANTAGE_ENABLED"] = _bool_to_env(alpha_enabled)
     if alpha_enabled:
@@ -622,10 +668,22 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
             default=updates["ALPHA_VANTAGE_API_KEY"],
         )
 
+    disclosure_enabled = io_runtime.confirm(
+        "Enable SEC EDGAR filing intelligence?",
+        default=updates["DISCLOSURE_PROVIDER"].strip().lower() == "sec_edgar",
+    )
+    updates["DISCLOSURE_PROVIDER"] = "sec_edgar" if disclosure_enabled else "none"
+    if disclosure_enabled:
+        updates["SEC_EDGAR_USER_AGENT"] = io_runtime.prompt(
+            "SEC_EDGAR_USER_AGENT (optional)",
+            default=updates["SEC_EDGAR_USER_AGENT"],
+        )
+
     reddit_enabled = io_runtime.confirm(
         "Enable Reddit research integration?",
         default=_env_truthy(updates["REDDIT_ENABLED"]),
     )
+    updates["COMMUNITY_PROVIDER"] = "reddit" if reddit_enabled else "none"
     updates["REDDIT_ENABLED"] = _bool_to_env(reddit_enabled)
     if reddit_enabled:
         updates["REDDIT_CLIENT_ID"] = io_runtime.prompt(
@@ -664,6 +722,7 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
         "Enable SearXNG web search?",
         default=_env_truthy(updates["SEARXNG_ENABLED"]),
     )
+    updates["SEARCH_PROVIDER"] = "searxng" if searxng_enabled else "none"
     updates["SEARXNG_ENABLED"] = _bool_to_env(searxng_enabled)
     if searxng_enabled:
         updates["SEARXNG_BASE_URL"] = io_runtime.prompt(
@@ -703,6 +762,8 @@ def render_doctor_report(
     settings: AppSettings,
     assessment: ConfigAssessment,
     preflight,
+    *,
+    smoke_results: Mapping[str, object] | None = None,
 ) -> str:
     lines = [
         "brokerai doctor",
@@ -720,6 +781,7 @@ def render_doctor_report(
         "alpha_vantage",
         "reddit",
         "searxng",
+        "sec_edgar",
     ):
         provider = assessment.providers[key]
         lines.extend(_render_provider(provider))
@@ -732,6 +794,8 @@ def render_doctor_report(
         "broker_read",
         "broker_execution_eligibility",
         "market_data",
+        "market_intelligence",
+        "disclosure",
         "research_community_context",
         "search",
         "persistent_guideline_memory",
@@ -740,6 +804,8 @@ def render_doctor_report(
         lines.append(
             f"- {capability.label}: {'available' if capability.available else 'unavailable'}"
         )
+        if capability.selected_provider:
+            lines.append(f"  provider: {capability.selected_provider}")
         for reason in capability.reasons:
             lines.append(f"  reason: {reason}")
 
@@ -761,9 +827,21 @@ def render_doctor_report(
         for warning in assessment.warnings:
             lines.append(f"- {warning}")
 
+    if smoke_results:
+        lines.append("")
+        lines.append("Provider smoke checks:")
+        lines.append(render_provider_smoke_report(smoke_results))
+
     lines.append("")
     lines.append(f"LLM provider selection: {settings.llm_provider}")
     lines.append(f"Broker provider selection: {settings.broker_provider}")
+    lines.append(f"Market data provider selection: {settings.market_data_provider}")
+    lines.append(
+        f"Market intelligence provider selection: {settings.market_intelligence_provider}"
+    )
+    lines.append(f"Disclosure provider selection: {settings.disclosure_provider}")
+    lines.append(f"Community provider selection: {settings.community_provider}")
+    lines.append(f"Search provider selection: {settings.search_provider}")
     return "\n".join(lines)
 
 
@@ -840,6 +918,20 @@ def _render_provider(provider: ProviderAssessment) -> list[str]:
     for note in provider.notes:
         lines.append(f"  note: {note}")
     return lines
+
+
+def render_provider_smoke_report(smoke_results: Mapping[str, object]) -> str:
+    lines: list[str] = []
+    for result in smoke_results.values():
+        status = str(getattr(result, "status", "unknown"))
+        label = str(getattr(result, "label", "provider"))
+        message = str(getattr(result, "message", "")).strip()
+        lines.append(f"- {label}: {status}")
+        if message:
+            lines.append(f"  note: {message}")
+        for warning in getattr(result, "warnings", ()) or ():
+            lines.append(f"  warning: {warning}")
+    return "\n".join(lines)
 
 
 def _extract_env_key(line: str) -> str | None:

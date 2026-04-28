@@ -17,6 +17,7 @@ from t212ai.calculator import (
     CalculatorToolRuntime,
     build_calculator_tool_mapping,
 )
+from t212ai.genai.tools.base import ToolBox
 from t212ai.genai.models import ToolResult
 from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX
 from t212ai.guidelines.service import GuidelineMemoryService
@@ -51,6 +52,7 @@ class PortfolioAnalystAgent(BaseAgent):
         guideline_service: GuidelineMemoryService | None = None,
         *,
         portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None,
+        toolbox_summary: str | None = None,
     ) -> None:
         super().__init__(
             reasoner,
@@ -64,7 +66,7 @@ class PortfolioAnalystAgent(BaseAgent):
                     "Use Trading 212 as broker-authoritative state. For attention scans, "
                     "request fresh market/news context before making recommendations."
                 ),
-                toolbox_summary=(
+                toolbox_summary=toolbox_summary or (
                     "Portfolio snapshot, positions, pending orders, Yahoo market context, "
                     "Alpha Vantage intelligence, web search when needed."
                 ),
@@ -142,6 +144,8 @@ class OrderAgent(BaseAgent):
         broker_service: Trading212BrokerService | None = None,
         pending_action_service: PendingActionService | None = None,
         proposal_service: ProposalService | None = None,
+        toolbox: ToolBox | None = None,
+        toolbox_summary: str | None = None,
     ) -> None:
         super().__init__(
             reasoner,
@@ -153,7 +157,7 @@ class OrderAgent(BaseAgent):
                     "Require explicit confirmation before execution. Never retry "
                     "uncertain submissions without reconciliation."
                 ),
-                toolbox_summary=(
+                toolbox_summary=toolbox_summary or (
                     "Trading 212 pending orders, order lookup, higher-level prepare "
                     "order-action and prepare-cancel-action tools, plus deterministic "
                     "approval/execution through Telegram."
@@ -161,7 +165,7 @@ class OrderAgent(BaseAgent):
                 task_complexity=TaskComplexity.CRITICAL,
                 guideline_scopes=("global", "agent:order"),
                 guideline_include_categories=("investment_preference",),
-                toolbox=T212_ORDER_ACTION_TOOLBOX,
+                toolbox=toolbox or T212_ORDER_ACTION_TOOLBOX,
             ),
             guideline_service=guideline_service,
         )
@@ -587,7 +591,14 @@ class CalculatorAgent(BaseAgent):
 
 
 class MarketAnalystAgent(BaseAgent):
-    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
+    def __init__(
+        self,
+        reasoner,
+        guideline_service: GuidelineMemoryService | None = None,
+        *,
+        toolbox: ToolBox | None = None,
+        toolbox_summary: str | None = None,
+    ) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -600,21 +611,27 @@ class MarketAnalystAgent(BaseAgent):
                     "Use market data as context, not broker state. Distinguish latest "
                     "price context from slower research enrichment."
                 ),
-                toolbox_summary=(
+                toolbox_summary=toolbox_summary or (
                     "Market analyst toolbox: Yahoo market snapshot and relative-volume monitoring; "
                     "Alpha Vantage most-actively-traded context; SEC EDGAR insider, stake, and "
                     "official disclosure snapshots; web search and article scraping for expansion."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:market"),
-                toolbox=MARKET_ANALYST_TOOLBOX,
+                toolbox=toolbox or MARKET_ANALYST_TOOLBOX,
             ),
             guideline_service=guideline_service,
         )
 
 
 class CompanyAnalystAgent(BaseAgent):
-    def __init__(self, reasoner, guideline_service: GuidelineMemoryService | None = None) -> None:
+    def __init__(
+        self,
+        reasoner,
+        guideline_service: GuidelineMemoryService | None = None,
+        *,
+        toolbox_summary: str | None = None,
+    ) -> None:
         super().__init__(
             reasoner,
             AgentProfile(
@@ -627,7 +644,7 @@ class CompanyAnalystAgent(BaseAgent):
                     "Resolve ticker ambiguity first. Use multiple sources for thesis-level "
                     "claims and keep Yahoo as convenience context."
                 ),
-                toolbox_summary=(
+                toolbox_summary=toolbox_summary or (
                     "yahoo_market_context: symbol/quote/options/analyst context; "
                     "research: search and article scraping; "
                     "Alpha Vantage intelligence and fundamentals."

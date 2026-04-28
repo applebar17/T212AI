@@ -35,14 +35,27 @@ class SecEdgarClient:
 
     @classmethod
     def from_settings(cls, settings: object | None = None) -> "SecEdgarClient":
-        del settings
+        resolved = settings
         return cls(
-            submissions_base_url=os.getenv(
-                "SEC_EDGAR_SUBMISSIONS_BASE_URL",
-                SEC_EDGAR_SUBMISSIONS_BASE_URL,
+            submissions_base_url=getattr(
+                resolved,
+                "sec_edgar_submissions_base_url",
+                os.getenv(
+                    "SEC_EDGAR_SUBMISSIONS_BASE_URL",
+                    SEC_EDGAR_SUBMISSIONS_BASE_URL,
+                ),
             ),
-            tickers_url=os.getenv("SEC_EDGAR_TICKERS_URL", SEC_EDGAR_TICKERS_URL),
-            user_agent=os.getenv("SEC_EDGAR_USER_AGENT", DEFAULT_SEC_EDGAR_USER_AGENT),
+            tickers_url=getattr(
+                resolved,
+                "sec_edgar_tickers_url",
+                os.getenv("SEC_EDGAR_TICKERS_URL", SEC_EDGAR_TICKERS_URL),
+            ),
+            user_agent=getattr(
+                resolved,
+                "sec_edgar_user_agent",
+                os.getenv("SEC_EDGAR_USER_AGENT", DEFAULT_SEC_EDGAR_USER_AGENT),
+            )
+            or DEFAULT_SEC_EDGAR_USER_AGENT,
         )
 
     def get_company_tickers(self) -> dict[str, Any]:

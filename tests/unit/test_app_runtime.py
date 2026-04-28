@@ -148,6 +148,15 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.calculator_service is not None
+    assert runtime.specialist_tooling is not None
+    assert runtime.specialist_tooling.order_toolbox is None
+    assert set(runtime.toolboxes["market_analyst"].tools_by_name) == {
+        "yahoo_market_snapshot",
+        "yahoo_volume_monitor",
+        "edgar_recent_ownership_activity",
+        "edgar_recent_major_stake_activity",
+        "edgar_company_disclosure_snapshot",
+    }
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
     assert runtime.genai_client is None
@@ -236,6 +245,11 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.reddit_service is not None
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
+    market_tools = runtime.toolboxes["market_analyst"].tools_by_name
+    assert "alpha_vantage_most_actively_traded" in market_tools
+    assert "searxng_search" not in market_tools
+    assert runtime.specialist_tooling is not None
+    assert runtime.specialist_tooling.order_toolbox is not None
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime
 

@@ -33,6 +33,8 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "y",
             "y",
             "alpha-key",
+            "",
+            "",
             "n",
             "y",
             "https://search.example",
@@ -46,6 +48,11 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["LLM_PROVIDER"] == "openai"
     assert updates["OPENAI_API_KEY"] == "openai-key"
     assert updates["BROKER_PROVIDER"] == "none"
+    assert updates["MARKET_DATA_PROVIDER"] == "yahoo"
+    assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "alpha_vantage"
+    assert updates["DISCLOSURE_PROVIDER"] == "sec_edgar"
+    assert updates["COMMUNITY_PROVIDER"] == "none"
+    assert updates["SEARCH_PROVIDER"] == "searxng"
     assert updates["TELEGRAM_BOT_TOKEN"] == "telegram-token"
     assert updates["TELEGRAM_ALLOWED_CHAT_ID"] == "12345"
     assert updates["TELEGRAM_ALLOWED_USER_ID"] == ""
@@ -69,6 +76,8 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "n",
             "n",
             "n",
+            "",
+            "",
             "y",
             "reddit-id",
             "reddit-secret",
@@ -88,6 +97,11 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["AZURE_OPENAI_ENABLED"] == "true"
     assert updates["AZURE_OPENAI_ENDPOINT"] == "https://azure.example"
     assert updates["AZURE_OPENAI_API_KEY"] == "azure-key"
+    assert updates["MARKET_DATA_PROVIDER"] == "none"
+    assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "none"
+    assert updates["DISCLOSURE_PROVIDER"] == "sec_edgar"
+    assert updates["COMMUNITY_PROVIDER"] == "reddit"
+    assert updates["SEARCH_PROVIDER"] == "none"
     assert updates["REDDIT_ENABLED"] == "true"
     assert updates["REDDIT_USERNAME"] == "reddit-user"
     assert updates["REDDIT_PASSWORD"] == "reddit-password"

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from t212ai.app.bootstrap import assess_settings
+from t212ai.app.config import get_app_settings
 from t212ai.data_sources.sec_edgar import (
     EdgarInsiderManager,
     SEC_EDGAR_DISCLOSURE_TOOLBOX,
@@ -10,7 +12,7 @@ from t212ai.data_sources.sec_edgar import (
     edgar_recent_major_stake_activity,
     edgar_recent_ownership_activity,
 )
-from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX
+from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX, build_market_analyst_toolbox
 
 
 class FakeSecEdgarClient:
@@ -138,3 +140,15 @@ def test_sec_edgar_toolbox_and_market_analyst_toolbox_include_edgar_tools() -> N
     assert "edgar_recent_ownership_activity" in MARKET_ANALYST_TOOLBOX.tools_by_name
     assert "edgar_recent_major_stake_activity" in MARKET_ANALYST_TOOLBOX.tools_by_name
     assert "edgar_company_disclosure_snapshot" in MARKET_ANALYST_TOOLBOX.tools_by_name
+
+
+def test_market_analyst_toolbox_hides_edgar_tools_when_disclosure_is_disabled() -> None:
+    settings = get_app_settings(env={"DISCLOSURE_PROVIDER": "none"})
+    toolbox = build_market_analyst_toolbox(
+        settings=settings,
+        assessment=assess_settings(settings),
+    )
+
+    assert "edgar_recent_ownership_activity" not in toolbox.tools_by_name
+    assert "edgar_recent_major_stake_activity" not in toolbox.tools_by_name
+    assert "edgar_company_disclosure_snapshot" not in toolbox.tools_by_name

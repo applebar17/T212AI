@@ -8,6 +8,11 @@ from .config import AppSettings
 
 VALID_LLM_PROVIDERS = frozenset({"openai", "azure_openai", "none"})
 VALID_BROKER_PROVIDERS = frozenset({"trading212", "none"})
+VALID_MARKET_DATA_PROVIDERS = frozenset({"yahoo", "none"})
+VALID_MARKET_INTELLIGENCE_PROVIDERS = frozenset({"alpha_vantage", "none"})
+VALID_DISCLOSURE_PROVIDERS = frozenset({"sec_edgar", "none"})
+VALID_COMMUNITY_PROVIDERS = frozenset({"reddit", "none"})
+VALID_SEARCH_PROVIDERS = frozenset({"searxng", "none"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,7 @@ class CapabilityAssessment:
     label: str
     available: bool
     optional: bool
+    selected_provider: str | None = None
     reasons: tuple[str, ...] = ()
 
 
@@ -53,6 +59,15 @@ class StartupPreflight:
     warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderSmokeResult:
+    name: str
+    label: str
+    status: str
+    message: str
+    warnings: tuple[str, ...] = ()
+
+
 def assess_settings(settings: AppSettings) -> ConfigAssessment:
     providers = {
         "llm": _assess_llm_provider(settings),
@@ -62,13 +77,16 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "alpha_vantage": _assess_alpha_vantage_provider(settings),
         "reddit": _assess_reddit_provider(settings),
         "searxng": _assess_searxng_provider(settings),
+        "sec_edgar": _assess_sec_edgar_provider(settings),
     }
+    selector_errors = _validate_selector_values(settings)
     capabilities = {
         "llm_reasoning": CapabilityAssessment(
             name="llm_reasoning",
             label="LLM reasoning",
             available=providers["llm"].ready,
             optional=False,
+            selected_provider=settings.llm_provider if settings.llm_provider != "none" else None,
             reasons=_reasons_for_capability(
                 providers["llm"].ready,
                 "Configure a valid LLM provider and credentials.",
@@ -79,6 +97,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             label="Telegram bridge",
             available=providers["telegram"].ready,
             optional=False,
+            selected_provider="telegram" if providers["telegram"].enabled else None,
             reasons=_reasons_for_capability(
                 providers["telegram"].ready,
                 "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID.",
@@ -87,49 +106,50 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "broker_read": CapabilityAssessment(
             name="broker_read",
             label="Broker read",
-            available=providers["broker"].ready,
+            available=providers["broker"].ready
+            and settings.broker_provider in VALID_BROKER_PROVIDERS,
             optional=True,
-            reasons=_reasons_for_capability(
-                providers["broker"].ready,
-                "Configure BROKER_PROVIDER=trading212 plus T212 credentials.",
+            selected_provider=(
+                settings.broker_provider if settings.broker_provider != "none" else None
             ),
+            reasons=_broker_read_reasons(settings, providers["broker"]),
         ),
         "broker_execution_eligibility": CapabilityAssessment(
             name="broker_execution_eligibility",
             label="Broker execution eligibility",
             available=_broker_execution_available(settings, providers["broker"]),
             optional=True,
+            selected_provider=(
+                settings.broker_provider if settings.broker_provider != "none" else None
+            ),
             reasons=_broker_execution_reasons(settings, providers["broker"]),
         ),
-        "market_data": CapabilityAssessment(
-            name="market_data",
-            label="Market data",
-            available=providers["yahoo"].ready or providers["alpha_vantage"].ready,
-            optional=True,
-            reasons=_reasons_for_capability(
-                providers["yahoo"].ready or providers["alpha_vantage"].ready,
-                "Enable Yahoo and/or Alpha Vantage for market context.",
-            ),
-        ),
+        "market_data": _build_market_data_capability(settings, providers),
+        "market_intelligence": _build_market_intelligence_capability(settings, providers),
+        "disclosure": _build_disclosure_capability(settings, providers),
         "research_community_context": CapabilityAssessment(
             name="research_community_context",
             label="Research/community context",
-            available=providers["reddit"].ready,
+            available=providers["reddit"].ready
+            and settings.community_provider in VALID_COMMUNITY_PROVIDERS,
             optional=True,
-            reasons=_reasons_for_capability(
-                providers["reddit"].ready,
-                "Enable Reddit to add community discussion context.",
+            selected_provider=(
+                settings.community_provider
+                if settings.community_provider != "none"
+                else None
             ),
+            reasons=_community_reasons(settings, providers["reddit"]),
         ),
         "search": CapabilityAssessment(
             name="search",
             label="Search",
-            available=providers["searxng"].ready,
+            available=providers["searxng"].ready
+            and settings.search_provider in VALID_SEARCH_PROVIDERS,
             optional=True,
-            reasons=_reasons_for_capability(
-                providers["searxng"].ready,
-                "Enable SearXNG and set SEARXNG_BASE_URL.",
+            selected_provider=(
+                settings.search_provider if settings.search_provider != "none" else None
             ),
+            reasons=_search_reasons(settings, providers["searxng"]),
         ),
         "persistent_guideline_memory": CapabilityAssessment(
             name="persistent_guideline_memory",
@@ -148,6 +168,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         for provider in providers.values()
         for message in provider.errors
     )
+    errors = _unique_messages([*errors, *selector_errors])
     warnings = _unique_messages(
         message
         for provider in providers.values()
@@ -211,6 +232,52 @@ def ensure_runtime_directories(settings: AppSettings) -> tuple[Path, ...]:
     for directory in resolved:
         directory.mkdir(parents=True, exist_ok=True)
     return resolved
+
+
+def run_provider_smoke_tests(
+    settings: AppSettings,
+    assessment: ConfigAssessment,
+) -> dict[str, ProviderSmokeResult]:
+    results: dict[str, ProviderSmokeResult] = {}
+    for name, provider in assessment.providers.items():
+        if not provider.enabled:
+            continue
+        if not provider.ready:
+            results[name] = ProviderSmokeResult(
+                name=name,
+                label=provider.label,
+                status="invalid",
+                message="Structural readiness failed.",
+                warnings=provider.errors,
+            )
+            continue
+        probe = _PROVIDER_SMOKE_PROBES.get(name)
+        if probe is None:
+            results[name] = ProviderSmokeResult(
+                name=name,
+                label=provider.label,
+                status="ready",
+                message="Structural readiness passed. Live probe not implemented.",
+            )
+            continue
+        try:
+            probe(settings)
+        except Exception as exc:
+            results[name] = ProviderSmokeResult(
+                name=name,
+                label=provider.label,
+                status="warning",
+                message="Structural readiness passed, but the live smoke probe failed.",
+                warnings=(str(exc),),
+            )
+            continue
+        results[name] = ProviderSmokeResult(
+            name=name,
+            label=provider.label,
+            status="ready",
+            message="Structural readiness and live smoke probe passed.",
+        )
+    return results
 
 
 def _assess_llm_provider(settings: AppSettings) -> ProviderAssessment:
@@ -352,17 +419,21 @@ def _assess_yahoo_provider(settings: AppSettings) -> ProviderAssessment:
     return ProviderAssessment(
         name="yahoo",
         label="Yahoo Finance",
-        enabled=settings.yahoo_enabled,
+        enabled=settings.market_data_provider == "yahoo",
         optional=True,
-        configured=settings.yahoo_enabled,
-        ready=settings.yahoo_enabled,
-        notes=("Yahoo is best-effort and mostly no-auth.",) if settings.yahoo_enabled else (),
+        configured=settings.market_data_provider == "yahoo",
+        ready=settings.market_data_provider == "yahoo",
+        notes=(
+            "Yahoo is best-effort, mostly no-auth, and the default market-data baseline.",
+        )
+        if settings.market_data_provider == "yahoo"
+        else (),
     )
 
 
 def _assess_alpha_vantage_provider(settings: AppSettings) -> ProviderAssessment:
     missing = _missing_keys({"ALPHA_VANTAGE_API_KEY": settings.alpha_vantage_api_key})
-    enabled = settings.alpha_vantage_enabled
+    enabled = settings.market_intelligence_provider == "alpha_vantage"
     return ProviderAssessment(
         name="alpha_vantage",
         label="Alpha Vantage",
@@ -377,7 +448,7 @@ def _assess_alpha_vantage_provider(settings: AppSettings) -> ProviderAssessment:
 
 
 def _assess_reddit_provider(settings: AppSettings) -> ProviderAssessment:
-    enabled = settings.reddit_enabled
+    enabled = settings.community_provider == "reddit"
     missing = []
     if enabled and not str(settings.reddit_client_id or "").strip():
         missing.append("REDDIT_CLIENT_ID")
@@ -417,7 +488,7 @@ def _assess_reddit_provider(settings: AppSettings) -> ProviderAssessment:
 
 def _assess_searxng_provider(settings: AppSettings) -> ProviderAssessment:
     missing = _missing_keys({"SEARXNG_BASE_URL": settings.searxng_base_url})
-    enabled = settings.searxng_enabled
+    enabled = settings.search_provider == "searxng"
     return ProviderAssessment(
         name="searxng",
         label="SearXNG",
@@ -428,6 +499,32 @@ def _assess_searxng_provider(settings: AppSettings) -> ProviderAssessment:
         required_keys=("SEARXNG_BASE_URL",),
         missing_keys=missing if enabled else (),
         errors=_provider_errors("SearXNG", missing) if enabled else (),
+    )
+
+
+def _assess_sec_edgar_provider(settings: AppSettings) -> ProviderAssessment:
+    enabled = settings.disclosure_provider == "sec_edgar"
+    notes = (
+        "SEC EDGAR is the default disclosure provider and uses free public filings data.",
+    )
+    if not enabled:
+        return ProviderAssessment(
+            name="sec_edgar",
+            label="SEC EDGAR",
+            enabled=False,
+            optional=True,
+            configured=False,
+            ready=False,
+            notes=("SEC EDGAR disclosure integration is disabled.",),
+        )
+    return ProviderAssessment(
+        name="sec_edgar",
+        label="SEC EDGAR",
+        enabled=True,
+        optional=True,
+        configured=True,
+        ready=True,
+        notes=notes,
     )
 
 
@@ -457,6 +554,165 @@ def _broker_execution_reasons(
     )
 
 
+def _broker_read_reasons(
+    settings: AppSettings,
+    provider: ProviderAssessment,
+) -> tuple[str, ...]:
+    if settings.broker_provider not in VALID_BROKER_PROVIDERS:
+        return (
+            f"BROKER_PROVIDER has unsupported value '{settings.broker_provider}'.",
+        )
+    if settings.broker_provider == "none":
+        return ("Broker provider is disabled.",)
+    return _reasons_for_capability(
+        provider.ready,
+        "Configure BROKER_PROVIDER=trading212 plus T212 credentials.",
+    )
+
+
+def _build_market_data_capability(
+    settings: AppSettings,
+    providers: dict[str, ProviderAssessment],
+) -> CapabilityAssessment:
+    selected = str(settings.market_data_provider or "").strip().lower()
+    if selected not in VALID_MARKET_DATA_PROVIDERS:
+        return CapabilityAssessment(
+            name="market_data",
+            label="Market data",
+            available=False,
+            optional=True,
+            reasons=(f"MARKET_DATA_PROVIDER has unsupported value '{settings.market_data_provider}'.",),
+        )
+    if selected == "none":
+        return CapabilityAssessment(
+            name="market_data",
+            label="Market data",
+            available=False,
+            optional=True,
+            reasons=("Market data provider is disabled.",),
+        )
+    provider = providers["yahoo"]
+    return CapabilityAssessment(
+        name="market_data",
+        label="Market data",
+        available=provider.ready,
+        optional=True,
+        selected_provider="yahoo",
+        reasons=_reasons_for_capability(
+            provider.ready,
+            "Enable Yahoo market data or set MARKET_DATA_PROVIDER=none.",
+        ),
+    )
+
+
+def _build_market_intelligence_capability(
+    settings: AppSettings,
+    providers: dict[str, ProviderAssessment],
+) -> CapabilityAssessment:
+    selected = str(settings.market_intelligence_provider or "").strip().lower()
+    if selected not in VALID_MARKET_INTELLIGENCE_PROVIDERS:
+        return CapabilityAssessment(
+            name="market_intelligence",
+            label="Market intelligence",
+            available=False,
+            optional=True,
+            reasons=(
+                f"MARKET_INTELLIGENCE_PROVIDER has unsupported value '{settings.market_intelligence_provider}'.",
+            ),
+        )
+    if selected == "none":
+        return CapabilityAssessment(
+            name="market_intelligence",
+            label="Market intelligence",
+            available=False,
+            optional=True,
+            reasons=("Market intelligence provider is disabled.",),
+        )
+    provider = providers["alpha_vantage"]
+    return CapabilityAssessment(
+        name="market_intelligence",
+        label="Market intelligence",
+        available=provider.ready,
+        optional=True,
+        selected_provider="alpha_vantage",
+        reasons=_reasons_for_capability(
+            provider.ready,
+            "Configure Alpha Vantage credentials or disable market intelligence.",
+        ),
+    )
+
+
+def _build_disclosure_capability(
+    settings: AppSettings,
+    providers: dict[str, ProviderAssessment],
+) -> CapabilityAssessment:
+    selected = str(settings.disclosure_provider or "").strip().lower()
+    if selected not in VALID_DISCLOSURE_PROVIDERS:
+        return CapabilityAssessment(
+            name="disclosure",
+            label="Disclosure",
+            available=False,
+            optional=True,
+            reasons=(
+                f"DISCLOSURE_PROVIDER has unsupported value '{settings.disclosure_provider}'.",
+            ),
+        )
+    if selected == "none":
+        return CapabilityAssessment(
+            name="disclosure",
+            label="Disclosure",
+            available=False,
+            optional=True,
+            reasons=("Disclosure provider is disabled.",),
+        )
+    provider = providers["sec_edgar"]
+    return CapabilityAssessment(
+        name="disclosure",
+        label="Disclosure",
+        available=provider.ready,
+        optional=True,
+        selected_provider="sec_edgar",
+        reasons=_reasons_for_capability(
+            provider.ready,
+            "Enable SEC EDGAR disclosure integration or set DISCLOSURE_PROVIDER=none.",
+        ),
+    )
+
+
+def _community_reasons(
+    settings: AppSettings,
+    provider: ProviderAssessment,
+) -> tuple[str, ...]:
+    selected = str(settings.community_provider or "").strip().lower()
+    if selected not in VALID_COMMUNITY_PROVIDERS:
+        return (
+            f"COMMUNITY_PROVIDER has unsupported value '{settings.community_provider}'.",
+        )
+    if selected == "none":
+        return ("Community provider is disabled.",)
+    return _reasons_for_capability(
+        provider.ready,
+        "Enable Reddit to add community discussion context.",
+    )
+
+
+def _search_reasons(
+    settings: AppSettings,
+    provider: ProviderAssessment,
+) -> tuple[str, ...]:
+    selected = str(settings.search_provider or "").strip().lower()
+    if selected not in VALID_SEARCH_PROVIDERS:
+        return (
+            f"SEARCH_PROVIDER has unsupported value '{settings.search_provider}'.",
+        )
+    if selected == "none":
+        return ("Search provider is disabled.",)
+    return _reasons_for_capability(
+        provider.ready,
+        "Enable SearXNG and set SEARXNG_BASE_URL.",
+    )
+
+
 def _reasons_for_capability(available: bool, reason: str) -> tuple[str, ...]:
     return () if available else (reason,)
 
@@ -483,6 +739,110 @@ def _unique_messages(messages: list[str] | tuple[str, ...] | object) -> tuple[st
         seen.add(normalized)
         ordered.append(normalized)
     return tuple(ordered)
+
+
+def _validate_selector_values(settings: AppSettings) -> tuple[str, ...]:
+    errors: list[str] = []
+    errors.extend(
+        _selector_error(
+            "MARKET_DATA_PROVIDER",
+            settings.market_data_provider,
+            VALID_MARKET_DATA_PROVIDERS,
+        )
+    )
+    errors.extend(
+        _selector_error(
+            "MARKET_INTELLIGENCE_PROVIDER",
+            settings.market_intelligence_provider,
+            VALID_MARKET_INTELLIGENCE_PROVIDERS,
+        )
+    )
+    errors.extend(
+        _selector_error(
+            "DISCLOSURE_PROVIDER",
+            settings.disclosure_provider,
+            VALID_DISCLOSURE_PROVIDERS,
+        )
+    )
+    errors.extend(
+        _selector_error(
+            "COMMUNITY_PROVIDER",
+            settings.community_provider,
+            VALID_COMMUNITY_PROVIDERS,
+        )
+    )
+    errors.extend(
+        _selector_error(
+            "SEARCH_PROVIDER",
+            settings.search_provider,
+            VALID_SEARCH_PROVIDERS,
+        )
+    )
+    return _unique_messages(errors)
+
+
+def _selector_error(
+    name: str,
+    value: str,
+    allowed: frozenset[str],
+) -> tuple[str, ...]:
+    resolved = str(value or "").strip().lower()
+    if resolved in allowed:
+        return ()
+    return (f"{name} has unsupported value '{value}'.",)
+
+
+def _smoke_probe_trading212(settings: AppSettings) -> None:
+    from t212ai.brokers.trading212 import Trading212Client
+
+    Trading212Client.from_settings(settings).get_account_summary()
+
+
+def _smoke_probe_yahoo(_settings: AppSettings) -> None:
+    from t212ai.data_sources.yahoo import YahooFinanceClient
+
+    YahooFinanceClient().get_quote_snapshot(["AAPL"])
+
+
+def _smoke_probe_alpha_vantage(settings: AppSettings) -> None:
+    from t212ai.data_sources.alpha_vantage import AlphaVantageClient
+
+    AlphaVantageClient.from_settings(settings).market_status()
+
+
+def _smoke_probe_reddit(settings: AppSettings) -> None:
+    from t212ai.data_sources.reddit import RedditClient
+
+    RedditClient.from_settings(settings).subreddit_about("investing")
+
+
+def _smoke_probe_searxng(settings: AppSettings) -> None:
+    from t212ai.genai.tools.searxng import searxng_search
+
+    result = searxng_search(
+        query="market",
+        base_url=settings.searxng_base_url,
+        max_results=1,
+    )
+    if result.status != "ok":
+        message = result.error.message if result.error is not None else "SearXNG probe failed."
+        raise RuntimeError(message)
+
+
+def _smoke_probe_sec_edgar(settings: AppSettings) -> None:
+    from t212ai.data_sources.sec_edgar import SecEdgarClient
+
+    SecEdgarClient.from_settings(settings).get_company_tickers()
+
+
+_PROVIDER_SMOKE_PROBES = {
+    "broker": _smoke_probe_trading212,
+    "yahoo": _smoke_probe_yahoo,
+    "alpha_vantage": _smoke_probe_alpha_vantage,
+    "reddit": _smoke_probe_reddit,
+    "searxng": _smoke_probe_searxng,
+    "sec_edgar": _smoke_probe_sec_edgar,
+}
 
 
 def _sqlite_local_path(database_url: str) -> Path | None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -143,7 +143,7 @@ def _prepare_submitted_submit_order(
         prepared_order=prepared_order,
         original_user_message="buy one share",
         summary_text="Prepared buy order.",
-        expires_at=datetime(2026, 4, 28, 13, 0, tzinfo=timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     proposal_service.attach_pending_action(
         proposal.proposal_id,

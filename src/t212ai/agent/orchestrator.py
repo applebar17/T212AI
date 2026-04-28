@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from t212ai.brokers.trading212 import Trading212BrokerService
 from t212ai.guidelines.service import GuidelineMemoryService
@@ -29,6 +30,9 @@ from .specialists import (
     PortfolioAnalystAgent,
 )
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
+
+if TYPE_CHECKING:
+    from t212ai.genai.tools.base import ToolBox
 
 
 @dataclass(slots=True)
@@ -191,6 +195,12 @@ def build_specialist_agents(
     broker_service: Trading212BrokerService | None = None,
     pending_action_service: PendingActionService | None = None,
     proposal_service: ProposalService | None = None,
+    portfolio_toolbox_summary: str | None = None,
+    order_toolbox: "ToolBox | None" = None,
+    order_toolbox_summary: str | None = None,
+    market_toolbox: "ToolBox | None" = None,
+    market_toolbox_summary: str | None = None,
+    company_toolbox_summary: str | None = None,
 ) -> SpecialistAgents:
     if guideline_service is None:
         guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
@@ -199,6 +209,7 @@ def build_specialist_agents(
             reasoner,
             guideline_service=guideline_service,
             portfolio_summary_workflow=portfolio_summary_workflow,
+            toolbox_summary=portfolio_toolbox_summary,
         ),
         order=OrderAgent(
             reasoner,
@@ -207,9 +218,20 @@ def build_specialist_agents(
             broker_service=broker_service,
             pending_action_service=pending_action_service,
             proposal_service=proposal_service,
+            toolbox=order_toolbox,
+            toolbox_summary=order_toolbox_summary,
         ),
-        market=MarketAnalystAgent(reasoner, guideline_service=guideline_service),
-        company=CompanyAnalystAgent(reasoner, guideline_service=guideline_service),
+        market=MarketAnalystAgent(
+            reasoner,
+            guideline_service=guideline_service,
+            toolbox=market_toolbox,
+            toolbox_summary=market_toolbox_summary,
+        ),
+        company=CompanyAnalystAgent(
+            reasoner,
+            guideline_service=guideline_service,
+            toolbox_summary=company_toolbox_summary,
+        ),
         guideline_memory=GuidelineMemoryAgent(reasoner, guideline_service),
     )
 

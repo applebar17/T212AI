@@ -21,6 +21,12 @@ __all__ = [
     "TOOLBOXES",
     "build_tool_mapping",
     "build_tool_mapping_for",
+    "build_chat_toolbox",
+    "build_research_toolbox",
+    "build_market_data_toolbox",
+    "build_yahoo_market_context_toolbox",
+    "build_market_analyst_toolbox",
+    "build_toolboxes",
     "SEARXNG_SEARCH_TOOL",
     "searxng_search",
     "SCRAPE_ARTICLE_TOOL",
@@ -143,6 +149,12 @@ def __getattr__(name: str) -> Any:
         "TOOLBOXES",
         "build_tool_mapping",
         "build_tool_mapping_for",
+        "build_chat_toolbox",
+        "build_research_toolbox",
+        "build_market_data_toolbox",
+        "build_yahoo_market_context_toolbox",
+        "build_market_analyst_toolbox",
+        "build_toolboxes",
     }:
         from .tools import (
             CHAT_TOOLBOX,
@@ -152,8 +164,14 @@ def __getattr__(name: str) -> Any:
             TOOLBOXES,
             ToolBox,
             YAHOO_MARKET_CONTEXT_TOOLBOX,
+            build_chat_toolbox,
+            build_market_analyst_toolbox,
+            build_market_data_toolbox,
             build_tool_mapping,
             build_tool_mapping_for,
+            build_research_toolbox,
+            build_toolboxes,
+            build_yahoo_market_context_toolbox,
         )
 
         exports = {
@@ -166,6 +184,12 @@ def __getattr__(name: str) -> Any:
             "TOOLBOXES": TOOLBOXES,
             "build_tool_mapping": build_tool_mapping,
             "build_tool_mapping_for": build_tool_mapping_for,
+            "build_chat_toolbox": build_chat_toolbox,
+            "build_research_toolbox": build_research_toolbox,
+            "build_market_data_toolbox": build_market_data_toolbox,
+            "build_yahoo_market_context_toolbox": build_yahoo_market_context_toolbox,
+            "build_market_analyst_toolbox": build_market_analyst_toolbox,
+            "build_toolboxes": build_toolboxes,
         }
         return exports[name]
 

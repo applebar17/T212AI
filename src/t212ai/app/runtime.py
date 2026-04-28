@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from t212ai.agent import (
     AgentJudge,
@@ -10,6 +11,7 @@ from t212ai.agent import (
     MainOrchestratorAgent,
     build_specialist_agents,
 )
+from t212ai.agent.tooling import SpecialistTooling, build_specialist_tooling
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.calculator import CalculatorService
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
@@ -17,6 +19,7 @@ from t212ai.data_sources.reddit import RedditClient, RedditResearchService
 from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
 from t212ai.data_sources.yahoo import YahooFinanceClient
 from t212ai.genai import GenAIClient, genai_settings_from_app_settings
+from t212ai.genai.tools import build_toolboxes
 from t212ai.guidelines.service import (
     GuidelineMemoryService,
     build_empty_guideline_document,
@@ -44,6 +47,9 @@ from .bootstrap import (
     preflight_run_bot,
 )
 from .config import AppSettings, get_app_settings
+
+if TYPE_CHECKING:
+    from t212ai.genai.tools.base import ToolBox
 
 
 @dataclass(slots=True)
@@ -75,6 +81,8 @@ class AppRuntime:
     reddit_service: RedditResearchService | None = None
     sec_edgar_client: SecEdgarClient | None = None
     insider_manager: EdgarInsiderManager | None = None
+    toolboxes: dict[str, "ToolBox"] = field(default_factory=dict)
+    specialist_tooling: SpecialistTooling | None = None
     component_errors: dict[str, str] = field(default_factory=dict)
     startup_notes: tuple[str, ...] = ()
 
@@ -136,6 +144,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_database_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
+    _build_toolbox_stack(runtime)
     _build_workflow_stack(runtime)
     _build_calculator_stack(runtime)
     _build_reconciliation_stack(runtime)
@@ -202,12 +211,24 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
             runtime.reddit_service = RedditResearchService(client)
         except Exception as exc:
             runtime.component_errors["reddit"] = str(exc)
-    try:
-        client = SecEdgarClient.from_settings(runtime.settings)
-        runtime.sec_edgar_client = client
-        runtime.insider_manager = EdgarInsiderManager(client)
-    except Exception as exc:
-        runtime.component_errors["sec_edgar"] = str(exc)
+    if runtime.settings.disclosure_provider == "sec_edgar":
+        try:
+            client = SecEdgarClient.from_settings(runtime.settings)
+            runtime.sec_edgar_client = client
+            runtime.insider_manager = EdgarInsiderManager(client)
+        except Exception as exc:
+            runtime.component_errors["sec_edgar"] = str(exc)
+
+
+def _build_toolbox_stack(runtime: AppRuntime) -> None:
+    runtime.toolboxes = build_toolboxes(
+        settings=runtime.settings,
+        assessment=runtime.config_assessment,
+    )
+    runtime.specialist_tooling = build_specialist_tooling(
+        settings=runtime.settings,
+        assessment=runtime.config_assessment,
+    )
 
 
 def _build_workflow_stack(runtime: AppRuntime) -> None:
@@ -259,6 +280,36 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_service=runtime.trading212_service,
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,
+            portfolio_toolbox_summary=(
+                runtime.specialist_tooling.portfolio_toolbox_summary
+                if runtime.specialist_tooling is not None
+                else None
+            ),
+            order_toolbox=(
+                runtime.specialist_tooling.order_toolbox
+                if runtime.specialist_tooling is not None
+                else None
+            ),
+            order_toolbox_summary=(
+                runtime.specialist_tooling.order_toolbox_summary
+                if runtime.specialist_tooling is not None
+                else None
+            ),
+            market_toolbox=(
+                runtime.specialist_tooling.market_toolbox
+                if runtime.specialist_tooling is not None
+                else None
+            ),
+            market_toolbox_summary=(
+                runtime.specialist_tooling.market_toolbox_summary
+                if runtime.specialist_tooling is not None
+                else None
+            ),
+            company_toolbox_summary=(
+                runtime.specialist_tooling.company_toolbox_summary
+                if runtime.specialist_tooling is not None
+                else None
+            ),
         )
         runtime.main_orchestrator = MainOrchestratorAgent(
             runtime.agent_reasoner,
