@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from typing import Any
 
 from t212ai.genai.tracing import (
     _trace_agent_critique_outputs,
@@ -18,6 +17,12 @@ from t212ai.genai.tracing import (
 from .history import ChatHistoryWindow
 from .intents import AgentIntent, IntentKind
 from .planner import AgentPlan, TaskComplexity
+from .prompts import (
+    build_critique_system_prompt,
+    build_critique_user_prompt,
+    build_plan_system_prompt,
+    build_plan_user_prompt,
+)
 from .schemas import AgentCritique
 
 if TYPE_CHECKING:
@@ -109,15 +114,19 @@ class AgentReasoner:
             guidelines=guidelines,
             persistent_guidance=persistent_guidance,
         )
-        payload: dict[str, Any] = {
-            "user_request": user_request,
-            "agent_output": agent_output,
-            "plan": plan.model_dump(mode="json") if plan else None,
-        }
         messages = []
         if chat_history:
             messages.extend(chat_history.to_llm_messages())
-        messages.append({"role": "user", "content": str(payload)})
+        messages.append(
+            {
+                "role": "user",
+                "content": build_critique_user_prompt(
+                    user_request=user_request,
+                    agent_output=agent_output,
+                    plan_payload=plan.model_dump(mode="json") if plan else None,
+                ),
+            }
+        )
         result = self.genai.generate_structured(
             AgentCritique,
             system_prompt,
@@ -152,10 +161,9 @@ class AgentReasoner:
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    "Create a structured action plan.\n"
-                    f"Intent: {intent_payload}\n"
-                    f"User request: {user_request}"
+                "content": build_plan_user_prompt(
+                    user_request=user_request,
+                    intent_payload=intent_payload,
                 ),
             }
         )
@@ -170,21 +178,12 @@ class AgentReasoner:
         toolbox_summary: str,
         persistent_guidance: str | None,
     ) -> str:
-        persistent_section = ""
-        if persistent_guidance:
-            persistent_section = (
-                "\n\nPersistent guidance memory:\n"
-                f"{persistent_guidance}"
-            )
-        return (
-            f"You are {agent_name}.\n"
-            f"Purpose: {purpose}\n\n"
-            "Return only the structured AgentPlan schema. Do not include hidden reasoning. "
-            "Use explicit assumptions, required_context, tool_steps, risks, and "
-            "missing_inputs to make the plan auditable.\n\n"
-            f"Available capability/toolbox summary:\n{toolbox_summary}\n\n"
-            f"Agent-specific guidelines:\n{guidelines}"
-            f"{persistent_section}"
+        return build_plan_system_prompt(
+            agent_name=agent_name,
+            purpose=purpose,
+            guidelines=guidelines,
+            toolbox_summary=toolbox_summary,
+            persistent_guidance=persistent_guidance,
         )
 
     def _build_critique_prompt(
@@ -195,18 +194,9 @@ class AgentReasoner:
         guidelines: str,
         persistent_guidance: str | None,
     ) -> str:
-        persistent_section = ""
-        if persistent_guidance:
-            persistent_section = (
-                "\n\nPersistent guidance memory:\n"
-                f"{persistent_guidance}"
-            )
-        return (
-            f"You are judging work from {agent_name}.\n"
-            f"Agent purpose: {purpose}\n"
-            "Return only the structured AgentCritique schema. Check whether the "
-            "answer is complete, safe, grounded in available context, and clear. "
-            "Do not expose hidden reasoning; use concise findings.\n\n"
-            f"Judge guidelines:\n{guidelines}"
-            f"{persistent_section}"
+        return build_critique_system_prompt(
+            agent_name=agent_name,
+            purpose=purpose,
+            guidelines=guidelines,
+            persistent_guidance=persistent_guidance,
         )

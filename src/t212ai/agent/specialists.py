@@ -35,6 +35,12 @@ from t212ai.workflows import (
 from .base import AgentProfile, BaseAgent
 from .intents import AgentIntent, IntentKind
 from .planner import TaskComplexity
+from .prompts import (
+    CALCULATOR_REQUEST_SYSTEM_PROMPT,
+    ORDER_ACTION_REQUEST_SYSTEM_PROMPT,
+    build_calculator_request_user_prompt,
+    build_order_action_user_prompt,
+)
 from .schemas import AgentRequest, AgentResponse
 
 
@@ -276,30 +282,16 @@ class OrderAgent(BaseAgent):
         *,
         intent: AgentIntent,
     ) -> Trading212OrderActionRequest:
-        system_prompt = (
-            "Convert the user's Trading 212 order request into a structured "
-            "Trading212OrderActionRequest.\n\n"
-            "Rules:\n"
-            "- For buy/sell/trade requests, choose prepare_submit_order.\n"
-            "- For cancellation requests, choose prepare_cancel_order.\n"
-            "- Do not confirm or execute; only prepare an action.\n"
-            "- For cancellation, use target_order_id when explicit, otherwise use selector "
-            "latest, oldest, or only when the user's request clearly implies one.\n"
-            "- For order submission, include order_type, side, ticker, quantity, "
-            "limit_price, stop_price, time_validity, and extended_hours when known.\n"
-            "- For order submission, also include a short thesis, concise risks list, "
-            "and confidence between 0 and 1.\n"
-            "- Do not invent ambiguous order ids or prices."
-        )
+        system_prompt = ORDER_ACTION_REQUEST_SYSTEM_PROMPT
         messages = []
         if request.history:
             messages.extend(request.history.to_llm_messages())
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"Intent hint: {intent.kind.value}\n"
-                    f"User request: {request.user_message}"
+                "content": build_order_action_user_prompt(
+                    intent_kind=intent.kind.value,
+                    user_request=request.user_message,
                 ),
             }
         )
@@ -524,21 +516,18 @@ class CalculatorAgent(BaseAgent):
         )
 
     def _build_calculation_request(self, request: AgentRequest) -> CalculatorRequest:
-        system_prompt = (
-            "Convert the user's message into a structured CalculatorRequest.\n\n"
-            "Rules:\n"
-            "- Choose evaluate_formula when the request is best expressed as a single formula string.\n"
-            "- Choose sum, subtract, multiply, or divide only when the user clearly wants one of those operations.\n"
-            "- Choose finance-specific operations when the request is about order sizing, notional, portfolio weight, rebalance deltas, or P/L.\n"
-            "- Do not perform the calculation yourself.\n"
-            "- Populate only the fields needed by the chosen operation.\n"
-            "- Direction for P/L must be LONG or SHORT.\n"
-            "- Keep numeric values as plain decimal-friendly strings or numbers."
-        )
+        system_prompt = CALCULATOR_REQUEST_SYSTEM_PROMPT
         messages = []
         if request.history:
             messages.extend(request.history.to_llm_messages())
-        messages.append({"role": "user", "content": request.user_message})
+        messages.append(
+            {
+                "role": "user",
+                "content": build_calculator_request_user_prompt(
+                    user_request=request.user_message,
+                ),
+            }
+        )
         result = self.reasoner.genai.generate_structured(
             CalculatorRequest,
             system_prompt,

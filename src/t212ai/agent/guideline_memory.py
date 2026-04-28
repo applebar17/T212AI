@@ -22,6 +22,10 @@ from t212ai.guidelines import (
 from .base import AgentProfile, BaseAgent
 from .intents import AgentIntent, IntentKind
 from .planner import AgentPlan, TaskComplexity
+from .prompts import (
+    GUIDELINE_MUTATION_SYSTEM_PROMPT,
+    build_guideline_mutation_user_prompt,
+)
 from .schemas import AgentRequest, AgentResponse
 
 
@@ -99,29 +103,16 @@ class GuidelineMemoryAgent(BaseAgent):
         intent: AgentIntent,
     ) -> GuidelineMutationRequest:
         operation = intent.entities.get("operation")
-        system_prompt = (
-            "You convert explicit user guideline-memory requests into a structured "
-            "GuidelineMutationRequest.\n\n"
-            "Rules:\n"
-            "- Only choose create, update, archive, delete, list, or render.\n"
-            "- Use delete only when the user explicitly asked for permanent deletion.\n"
-            "- Use archive for forget/remove requests unless permanent delete was explicit.\n"
-            "- For create/update, include category, title, body, applies_to, and priority "
-            "when the user intent makes them clear.\n"
-            "- Use source='user' for requests coming from the user.\n"
-            "- If the user is asking to inspect current stored rules, choose list or render.\n"
-            "- Do not invent missing node ids; if the user refers to a specific stored rule "
-            "but the id is unknown, leave node_id null so the tools can fail loudly."
-        )
+        system_prompt = GUIDELINE_MUTATION_SYSTEM_PROMPT
         messages = []
         if request.history:
             messages.extend(request.history.to_llm_messages())
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"Intent operation hint: {operation or 'unknown'}\n"
-                    f"User request: {request.user_message}"
+                "content": build_guideline_mutation_user_prompt(
+                    operation=operation,
+                    user_request=request.user_message,
                 ),
             }
         )
