@@ -82,6 +82,10 @@ class ExecutionAttemptRow(Base):
     status: Mapped[str] = mapped_column(String(32), index=True)
     broker_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     broker_response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remote_status_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
-
+    reconciled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

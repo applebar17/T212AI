@@ -81,6 +81,17 @@ def render_proposal_detail_text(detail: ProposalDetail) -> str:
         )
         if attempt.error_message:
             lines.append(f"Execution error: {attempt.error_message}")
+        if attempt.reconciled_at is not None:
+            lines.append(
+                f"Last reconciled at: {_format_datetime(attempt.reconciled_at)}"
+            )
+        if attempt.remote_status is not None:
+            remote_order = attempt.remote_status.get("order")
+            if isinstance(remote_order, dict):
+                lines.append(
+                    "Latest remote order status: "
+                    f"{remote_order.get('status', 'unknown')}"
+                )
     return "\n".join(lines)
 
 

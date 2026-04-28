@@ -22,6 +22,8 @@ class PendingActionState(StrEnum):
     REJECTED = "rejected"
     EXPIRED = "expired"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    RECONCILED = "reconciled"
 
 
 class PendingAction(BaseModel):
@@ -42,6 +44,8 @@ class PendingAction(BaseModel):
     updated_at: datetime
     broker_result: dict[str, Any] | None = None
     error_message: str | None = None
+    remote_status: dict[str, Any] | None = None
+    last_reconciled_at: datetime | None = None
 
 
 class PendingActionDecisionStatus(StrEnum):

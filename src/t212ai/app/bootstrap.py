@@ -178,6 +178,27 @@ def preflight_run_bot(assessment: ConfigAssessment) -> StartupPreflight:
     )
 
 
+def preflight_reconcile(
+    assessment: ConfigAssessment,
+    settings: AppSettings,
+) -> StartupPreflight:
+    errors: list[str] = []
+    broker = assessment.providers["broker"]
+    if broker.enabled and broker.errors:
+        errors.extend(broker.errors)
+    if not assessment.capabilities["broker_read"].available:
+        errors.append(
+            "Reconciliation requires broker read access. Configure BROKER_PROVIDER=trading212 and valid Trading 212 credentials."
+        )
+    if not bool(str(settings.database_url or "").strip()):
+        errors.append("Reconciliation requires DATABASE_URL.")
+    return StartupPreflight(
+        ok=not errors,
+        blocking_errors=_unique_messages(errors),
+        warnings=assessment.warnings,
+    )
+
+
 def ensure_runtime_directories(settings: AppSettings) -> tuple[Path, ...]:
     directories = {
         Path("data"),

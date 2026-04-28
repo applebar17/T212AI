@@ -19,6 +19,8 @@ class ProposalStatus(StrEnum):
     AWAITING_APPROVAL = "awaiting_approval"
     REJECTED = "rejected"
     SUBMITTED = "submitted"
+    RECONCILED = "reconciled"
+    CANCELLED = "cancelled"
     EXECUTION_FAILED = "execution_failed"
 
 
@@ -34,6 +36,11 @@ class ApprovalSource(StrEnum):
 
 class ExecutionAttemptStatus(StrEnum):
     SUBMITTED = "submitted"
+    PENDING = "pending"
+    FILLED = "filled"
+    PARTIALLY_FILLED = "partially_filled"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
     FAILED = "failed"
 
 
@@ -78,10 +85,11 @@ class ExecutionAttempt(BaseModel):
     broker_response: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: datetime
+    remote_status: dict[str, Any] | None = None
+    reconciled_at: datetime | None = None
 
 
 class ProposalDetail(BaseModel):
     proposal: Proposal
     latest_approval_event: ApprovalEvent | None = None
     latest_execution_attempt: ExecutionAttempt | None = None
-

@@ -14,6 +14,7 @@ from .models import (
     OrderActionResult,
     OrderSide,
     OrderType,
+    PaginatedResponseHistoricalOrder,
     PortfolioSnapshot,
     PreparedOrder,
     StopLimitRequest,
@@ -41,6 +42,19 @@ class Trading212BrokerService:
 
     def get_order(self, order_id: int) -> Order:
         return self.api.get_order(order_id)
+
+    def list_historical_orders(
+        self,
+        *,
+        cursor: str | int | None = None,
+        ticker: str | None = None,
+        limit: int | None = None,
+    ) -> PaginatedResponseHistoricalOrder:
+        return self.api.list_historical_orders(
+            cursor=cursor,
+            ticker=ticker,
+            limit=limit,
+        )
 
     def prepare_order(
         self,

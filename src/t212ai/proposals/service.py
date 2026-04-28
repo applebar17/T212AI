@@ -96,6 +96,20 @@ class ProposalService:
             last_error=None,
         )
 
+    def mark_reconciled(self, proposal_id: str) -> Proposal | None:
+        return self._update_proposal(
+            proposal_id,
+            status=ProposalStatus.RECONCILED,
+            last_error=None,
+        )
+
+    def mark_cancelled(self, proposal_id: str, *, reason: str | None = None) -> Proposal | None:
+        return self._update_proposal(
+            proposal_id,
+            status=ProposalStatus.CANCELLED,
+            last_error=reason,
+        )
+
     def mark_execution_failed(self, proposal_id: str, *, error: str) -> Proposal | None:
         return self._update_proposal(
             proposal_id,
@@ -197,6 +211,65 @@ class ProposalService:
             session.flush()
             return _execution_attempt_model(row)
 
+    def sync_execution_attempt(
+        self,
+        *,
+        proposal_id: str,
+        pending_action_id: str | None,
+        broker_provider: str,
+        action_kind: ProposalActionKind,
+        status: ExecutionAttemptStatus,
+        broker_order_id: int | None = None,
+        broker_response: dict[str, Any] | None = None,
+        remote_status: dict[str, Any] | None = None,
+        error_message: str | None = None,
+    ) -> ExecutionAttempt:
+        with self._session_scope() as session:
+            row = session.scalar(
+                select(ExecutionAttemptRow)
+                .where(
+                    ExecutionAttemptRow.proposal_id == str(proposal_id),
+                    ExecutionAttemptRow.pending_action_id == (
+                        str(pending_action_id) if pending_action_id else None
+                    ),
+                )
+                .order_by(desc(ExecutionAttemptRow.created_at))
+                .limit(1)
+            )
+            if row is None:
+                row = ExecutionAttemptRow(
+                    attempt_id=_new_id("ea"),
+                    proposal_id=str(proposal_id),
+                    pending_action_id=(
+                        str(pending_action_id) if pending_action_id else None
+                    ),
+                    broker_provider=str(broker_provider),
+                    action_kind=action_kind.value,
+                    status=status.value,
+                )
+                session.add(row)
+            row.broker_provider = str(broker_provider)
+            row.action_kind = action_kind.value
+            row.status = status.value
+            if broker_order_id is not None:
+                row.broker_order_id = broker_order_id
+            if broker_response is not None:
+                row.broker_response_json = json.dumps(
+                    broker_response,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            if remote_status is not None:
+                row.remote_status_json = json.dumps(
+                    remote_status,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            row.error_message = error_message
+            row.reconciled_at = _utc_now()
+            session.flush()
+            return _execution_attempt_model(row)
+
     def _update_proposal(
         self,
         proposal_id: str,
@@ -255,6 +328,8 @@ class ProposalService:
             raise
         finally:
             session.close()
+
+
 def _proposal_model(row: ProposalRow) -> Proposal:
     return Proposal(
         proposal_id=row.proposal_id,
@@ -303,6 +378,12 @@ def _execution_attempt_model(row: ExecutionAttemptRow) -> ExecutionAttempt:
         ),
         error_message=row.error_message,
         created_at=_ensure_aware(row.created_at),
+        remote_status=(
+            json.loads(row.remote_status_json) if row.remote_status_json else None
+        ),
+        reconciled_at=(
+            _ensure_aware(row.reconciled_at) if row.reconciled_at is not None else None
+        ),
     )
 
 

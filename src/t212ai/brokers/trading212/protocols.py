@@ -84,6 +84,14 @@ class Trading212ApiProtocol(Protocol):
 
     def get_order(self, order_id: int) -> Order: ...
 
+    def list_historical_orders(
+        self,
+        *,
+        cursor: str | int | None = None,
+        ticker: str | None = None,
+        limit: int | None = None,
+    ) -> PaginatedResponseHistoricalOrder: ...
+
     def list_pies(self) -> list[AccountBucketResultResponse]: ...
 
     def create_pie(
@@ -118,6 +126,14 @@ class Trading212AgentBrokerProtocol(Protocol):
     def list_pending_orders(self) -> list[Order]: ...
 
     def get_order(self, order_id: int) -> Order: ...
+
+    def list_historical_orders(
+        self,
+        *,
+        cursor: str | int | None = None,
+        ticker: str | None = None,
+        limit: int | None = None,
+    ) -> PaginatedResponseHistoricalOrder: ...
 
     def prepare_order(
         self,

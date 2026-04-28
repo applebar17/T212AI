@@ -40,3 +40,8 @@ class PendingActionRow(Base):
     )
     broker_result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remote_status_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

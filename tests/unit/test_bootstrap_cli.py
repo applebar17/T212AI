@@ -15,6 +15,8 @@ def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
     assert parser.parse_args(["configure"]).handler is cli.command_configure
     assert parser.parse_args(["doctor"]).handler is cli.command_doctor
     assert parser.parse_args(["run", "bot"]).handler is cli.command_run_bot
+    assert parser.parse_args(["run", "reconcile-once"]).handler is cli.command_run_reconcile_once
+    assert parser.parse_args(["run", "worker"]).handler is cli.command_run_worker
 
 
 def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> None:
@@ -192,6 +194,99 @@ def test_run_bot_valid_preflight_invokes_telegram_service(
     assert calls["ran"] is True
     assert getattr(calls["settings"], "llm_provider") == "openai"
     assert calls["runtime"] is not None
+
+
+def test_run_reconcile_once_preflight_requires_broker(tmp_path, capsys) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    exit_code = cli.main(["run", "reconcile-once", "--env-file", str(env_file)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Reconciliation requires broker read access" in output
+
+
+def test_run_reconcile_once_invokes_reconciliation_runtime(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "BROKER_PROVIDER=trading212",
+                "T212_API_KEY=t212-key",
+                "T212_API_SECRET=t212-secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    class FakeResult:
+        def render_text(self) -> str:
+            return "reconciled"
+
+    class FakeRuntime:
+        reconciliation_service = object()
+
+    monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
+
+    def fake_run_reconcile_once(runtime):
+        calls["runtime"] = runtime
+        return FakeResult()
+
+    monkeypatch.setattr(cli, "run_reconcile_once", fake_run_reconcile_once)
+
+    exit_code = cli.main(["run", "reconcile-once", "--env-file", str(env_file)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert output.strip() == "reconciled"
+    assert isinstance(calls["runtime"], FakeRuntime)
+
+
+def test_run_worker_parses_interval_and_invokes_worker(monkeypatch, tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "BROKER_PROVIDER=trading212",
+                "T212_API_KEY=t212-key",
+                "T212_API_SECRET=t212-secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    class FakeRuntime:
+        reconciliation_service = object()
+
+    monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
+
+    def fake_run_worker(runtime, *, interval_seconds: int) -> int:
+        calls["runtime"] = runtime
+        calls["interval_seconds"] = interval_seconds
+        return 0
+
+    monkeypatch.setattr(cli, "run_reconcile_worker", fake_run_worker)
+
+    exit_code = cli.main(
+        ["run", "worker", "--env-file", str(env_file), "--reconcile-every", "15m"]
+    )
+
+    assert exit_code == 0
+    assert isinstance(calls["runtime"], FakeRuntime)
+    assert calls["interval_seconds"] == 900
+
+
+def test_parse_duration_to_seconds_supports_compact_forms() -> None:
+    assert cli.parse_duration_to_seconds("5m") == 300
+    assert cli.parse_duration_to_seconds("1h") == 3600
+    assert cli.parse_duration_to_seconds("45s") == 45
 
 
 def test_package_main_delegates_to_cli(monkeypatch) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, TextIO
@@ -11,6 +12,7 @@ from .app.bootstrap import (
     ProviderAssessment,
     assess_settings,
     ensure_runtime_directories,
+    preflight_reconcile,
     preflight_run_bot,
 )
 from .app.config import (
@@ -233,6 +235,32 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         help="Optional .env file to load before starting the bot.",
     )
     run_bot_parser.set_defaults(handler=command_run_bot)
+    run_reconcile_parser = run_subparsers.add_parser(
+        "reconcile-once",
+        help="Run one Trading 212 reconciliation pass.",
+    )
+    run_reconcile_parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional .env file to load before running reconciliation.",
+    )
+    run_reconcile_parser.set_defaults(handler=command_run_reconcile_once)
+
+    run_worker_parser = run_subparsers.add_parser(
+        "worker",
+        help="Run the reconciliation worker loop.",
+    )
+    run_worker_parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional .env file to load before running the worker.",
+    )
+    run_worker_parser.add_argument(
+        "--reconcile-every",
+        default="1h",
+        help="Reconciliation interval such as 5m, 15m, or 1h.",
+    )
+    run_worker_parser.set_defaults(handler=command_run_worker)
     return parser
 
 
@@ -303,6 +331,58 @@ def command_run_bot(args: argparse.Namespace) -> int:
         print(f"brokerai run bot failed: {exc}")
         return 1
     return 0
+
+
+def command_run_reconcile_once(args: argparse.Namespace) -> int:
+    settings = load_settings_from_cli(env_file=args.env_file)
+    assessment = assess_settings(settings)
+    preflight = preflight_reconcile(assessment, settings)
+    if not preflight.ok:
+        print(render_reconcile_failure(preflight))
+        return 1
+    if args.env_file is not None:
+        load_env_file(args.env_file, override=True)
+    ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
+    if runtime.reconciliation_service is None:
+        print("brokerai run reconcile-once failed: reconciliation runtime is not available.")
+        return 1
+    try:
+        result = run_reconcile_once(runtime)
+    except Exception as exc:  # pragma: no cover - startup safety net
+        print(f"brokerai run reconcile-once failed: {exc}")
+        return 1
+    print(result.render_text())
+    return 0
+
+
+def command_run_worker(args: argparse.Namespace) -> int:
+    settings = load_settings_from_cli(env_file=args.env_file)
+    assessment = assess_settings(settings)
+    preflight = preflight_reconcile(assessment, settings)
+    if not preflight.ok:
+        print(render_reconcile_failure(preflight))
+        return 1
+    try:
+        interval_seconds = parse_duration_to_seconds(args.reconcile_every)
+    except ValueError as exc:
+        print(f"brokerai run worker failed: {exc}")
+        return 1
+    if args.env_file is not None:
+        load_env_file(args.env_file, override=True)
+    ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
+    if runtime.reconciliation_service is None:
+        print("brokerai run worker failed: reconciliation runtime is not available.")
+        return 1
+    try:
+        return run_reconcile_worker(runtime, interval_seconds=interval_seconds)
+    except KeyboardInterrupt:
+        print("brokerai worker stopped.")
+        return 0
+    except Exception as exc:  # pragma: no cover - startup safety net
+        print(f"brokerai run worker failed: {exc}")
+        return 1
 
 
 def load_settings_from_cli(*, env_file: str | None) -> AppSettings:
@@ -700,6 +780,19 @@ def render_run_bot_failure(preflight) -> str:
     return "\n".join(lines)
 
 
+def render_reconcile_failure(preflight) -> str:
+    lines = ["brokerai reconciliation cannot start.", ""]
+    lines.append("Blocking issues:")
+    for error in preflight.blocking_errors:
+        lines.append(f"- {error}")
+    if preflight.warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        for warning in preflight.warnings:
+            lines.append(f"- {warning}")
+    return "\n".join(lines)
+
+
 def update_env_file(path: Path, updates: Mapping[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     existing_lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
@@ -804,3 +897,38 @@ def _safe_choice(value: str, allowed: set[str], default: str) -> str:
 def _default_prog_name() -> str:
     argv0 = Path(sys.argv[0]).name if sys.argv else ""
     return argv0 or "brokerai"
+
+
+def parse_duration_to_seconds(raw: str) -> int:
+    value = str(raw or "").strip().lower()
+    if not value:
+        raise ValueError("Duration is required.")
+    unit = value[-1]
+    if unit not in {"s", "m", "h"}:
+        raise ValueError("Duration must end with s, m, or h.")
+    amount = value[:-1]
+    if not amount.isdigit():
+        raise ValueError("Duration must start with an integer amount.")
+    quantity = int(amount)
+    if quantity <= 0:
+        raise ValueError("Duration must be greater than zero.")
+    if unit == "s":
+        return quantity
+    if unit == "m":
+        return quantity * 60
+    return quantity * 3600
+
+
+def run_reconcile_once(runtime) -> object:
+    if runtime.reconciliation_service is None:
+        raise RuntimeError("Reconciliation service is not configured.")
+    return runtime.reconciliation_service.reconcile_once()
+
+
+def run_reconcile_worker(runtime, *, interval_seconds: int) -> int:
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be greater than zero.")
+    while True:
+        result = run_reconcile_once(runtime)
+        print(result.render_text())
+        time.sleep(interval_seconds)

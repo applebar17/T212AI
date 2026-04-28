@@ -25,6 +25,13 @@ from .models import (
 from .orm import PendingActionRow
 
 
+class _Unset:
+    pass
+
+
+_UNSET = _Unset()
+
+
 class PendingActionService:
     def __init__(
         self,
@@ -146,6 +153,44 @@ class PendingActionService:
                 for row in rows
                 if row.state == PendingActionState.AWAITING_APPROVAL.value
             ]
+
+    def list_actions_for_reconciliation(self, *, limit: int = 100) -> list[PendingAction]:
+        with self._session_scope() as session:
+            query = (
+                select(PendingActionRow)
+                .where(PendingActionRow.state == PendingActionState.SUBMITTED.value)
+                .order_by(PendingActionRow.updated_at.asc())
+                .limit(max(1, int(limit)))
+            )
+            rows = list(session.scalars(query).all())
+            return [_to_model(row) for row in rows]
+
+    def apply_reconciliation(
+        self,
+        action_id: str,
+        *,
+        state: PendingActionState | None = None,
+        remote_status: dict[str, object] | None = None,
+        error_message: str | None | object = _UNSET,
+    ) -> PendingAction | None:
+        with self._session_scope() as session:
+            row = session.get(PendingActionRow, str(action_id))
+            if row is None:
+                return None
+            if state is not None:
+                row.state = state.value
+            if remote_status is not None:
+                row.remote_status_json = json.dumps(
+                    remote_status,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            if error_message is not _UNSET:
+                row.error_message = str(error_message) if error_message is not None else None
+            row.last_reconciled_at = _utc_now()
+            row.updated_at = _utc_now()
+            session.flush()
+            return _to_model(row)
 
     def approve_and_execute(
         self,
@@ -376,6 +421,9 @@ def _to_model(row: PendingActionRow) -> PendingAction:
     broker_result = None
     if row.broker_result_json:
         broker_result = json.loads(row.broker_result_json)
+    remote_status = None
+    if row.remote_status_json:
+        remote_status = json.loads(row.remote_status_json)
     return PendingAction(
         action_id=row.action_id,
         chat_id=row.chat_id,
@@ -394,6 +442,12 @@ def _to_model(row: PendingActionRow) -> PendingAction:
         updated_at=_ensure_aware(row.updated_at),
         broker_result=broker_result,
         error_message=row.error_message,
+        remote_status=remote_status,
+        last_reconciled_at=(
+            _ensure_aware(row.last_reconciled_at)
+            if row.last_reconciled_at is not None
+            else None
+        ),
     )
 
 
