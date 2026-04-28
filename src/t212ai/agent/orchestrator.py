@@ -166,6 +166,8 @@ class MainOrchestratorAgent(BaseAgent):
             return self.specialists.company
         if intent.kind == IntentKind.MANAGE_GUIDELINES:
             return self.specialists.guideline_memory
+        if intent.kind == IntentKind.CALCULATE:
+            return None
         if intent.kind == IntentKind.UNKNOWN and intent.entities.get("domain") == "market":
             return self.specialists.market
         if intent.kind == IntentKind.UNKNOWN:
@@ -225,6 +227,10 @@ def classify_message(message: str) -> AgentIntent:
         return AgentIntent(kind=IntentKind.REVIEW_PENDING_ORDERS, confidence=0.8)
     if any(word in text for word in ("buy", "sell", "place order", "trade")):
         return AgentIntent(kind=IntentKind.PROPOSE_TRADE, confidence=0.8)
+    has_digit = any(char.isdigit() for char in text)
+    has_operator = any(symbol in text for symbol in ("+", "-", "*", "/", "^", "%"))
+    if "calculate" in text or (has_digit and has_operator) or ("what is" in text and has_digit):
+        return AgentIntent(kind=IntentKind.CALCULATE, confidence=0.7)
     if any(word in text for word in ("portfolio", "position", "holding", "allocation")):
         return AgentIntent(kind=IntentKind.PORTFOLIO_SUMMARY, confidence=0.8)
     if any(word in text for word in ("attention", "risk", "exposure", "rebalance")):

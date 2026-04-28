@@ -17,6 +17,7 @@ class IntentKind(StrEnum):
     CANCEL_ORDER = "cancel_order"
     REVIEW_PENDING_ORDERS = "review_pending_orders"
     REBALANCE = "rebalance"
+    CALCULATE = "calculate"
     MANAGE_GUIDELINES = "manage_guidelines"
     HELP = "help"
     UNKNOWN = "unknown"

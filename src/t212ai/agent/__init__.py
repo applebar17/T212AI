@@ -21,6 +21,7 @@ from .planner import AgentPlan, TaskComplexity, ToolStep
 from .reasoning import AgentReasoner
 from .schemas import AgentCritique, AgentRequest, AgentResponse
 from .specialists import (
+    CalculatorAgent,
     CompanyAnalystAgent,
     MarketAnalystAgent,
     OrderAgent,
@@ -41,6 +42,7 @@ __all__ = [
     "ChatHistoryMessage",
     "ChatHistoryPolicy",
     "ChatHistoryWindow",
+    "CalculatorAgent",
     "CompanyAnalystAgent",
     "GuidelineMemoryAgent",
     "InMemoryChatHistoryStore",

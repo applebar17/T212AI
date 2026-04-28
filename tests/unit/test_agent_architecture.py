@@ -239,6 +239,7 @@ def test_orchestrator_routes_representative_requests() -> None:
         "cancel my oldest order": "order_agent",
         "what happened in the market today": "market_analyst",
         "analyze Apple earnings": "company_analyst",
+        "calculate 2 + 2": "main_orchestrator",
         "hello": "main_orchestrator",
         "/help": "main_orchestrator",
     }

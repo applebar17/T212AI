@@ -10,6 +10,13 @@ from t212ai.brokers.trading212 import (
     Trading212ToolRuntime,
     build_trading212_tool_mapping,
 )
+from t212ai.calculator import (
+    CALCULATOR_TOOLBOX,
+    CalculatorRequest,
+    CalculatorService,
+    CalculatorToolRuntime,
+    build_calculator_tool_mapping,
+)
 from t212ai.genai.models import ToolResult
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
@@ -426,6 +433,166 @@ class OrderAgent(BaseAgent):
             plan=plan,
             metadata=metadata,
             artifacts={"workflow": "order_action", "tool_result": result.model_dump(mode="json")},
+        )
+
+
+class CalculatorAgent(BaseAgent):
+    def __init__(
+        self,
+        reasoner,
+        guideline_service: GuidelineMemoryService | None = None,
+        *,
+        calculator_service: CalculatorService | None = None,
+    ) -> None:
+        super().__init__(
+            reasoner,
+            AgentProfile(
+                name="calculator_agent",
+                purpose=(
+                    "Translate natural-language calculation requests into deterministic "
+                    "formula or finance-specific calculations."
+                ),
+                guidelines=(
+                    "Never do arithmetic freehand. Always route calculation requests to "
+                    "deterministic calculator tools and return concise, auditable results."
+                ),
+                toolbox_summary=(
+                    "Deterministic calculator tools: formula evaluation, arithmetic, "
+                    "and finance-specific sizing and P/L helpers."
+                ),
+                task_complexity=TaskComplexity.EASY,
+                guideline_scopes=("global", "agent:calculator"),
+                toolbox=CALCULATOR_TOOLBOX,
+            ),
+            guideline_service=guideline_service,
+        )
+        self.calculator_service = calculator_service or CalculatorService()
+
+    def execute(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent,
+        task_complexity: TaskComplexity,
+        plan,
+    ) -> AgentResponse | None:
+        del task_complexity
+        if intent.kind != IntentKind.CALCULATE:
+            return None
+        try:
+            calculation_request = self._build_calculation_request(request)
+            result = self._execute_calculation_request(calculation_request)
+        except Exception as exc:
+            return AgentResponse(
+                final_answer=(
+                    "I couldn't translate the request into a deterministic calculation. "
+                    f"Reason: {exc}"
+                ),
+                selected_agent=self.name,
+                plan=plan,
+                metadata={"workflow": "calculator", "workflow_status": "error"},
+            )
+        metadata = {
+            "workflow": "calculator",
+            "workflow_status": result.status,
+            "operation": calculation_request.operation.value,
+        }
+        if result.status == "ok":
+            return AgentResponse(
+                final_answer=result.output or "Calculation completed.",
+                selected_agent=self.name,
+                plan=plan,
+                metadata=metadata,
+                artifacts={
+                    "workflow": "calculator",
+                    "calculator_result": result.data,
+                },
+            )
+        message = result.error.message if result.error is not None else "Calculation failed."
+        if result.error is not None and result.error.hint:
+            message = f"{message} Hint: {result.error.hint}"
+        return AgentResponse(
+            final_answer=message,
+            selected_agent=self.name,
+            plan=plan,
+            metadata=metadata,
+            artifacts={
+                "workflow": "calculator",
+                "tool_result": result.model_dump(mode="json"),
+            },
+        )
+
+    def _build_calculation_request(self, request: AgentRequest) -> CalculatorRequest:
+        system_prompt = (
+            "Convert the user's message into a structured CalculatorRequest.\n\n"
+            "Rules:\n"
+            "- Choose evaluate_formula when the request is best expressed as a single formula string.\n"
+            "- Choose sum, subtract, multiply, or divide only when the user clearly wants one of those operations.\n"
+            "- Choose finance-specific operations when the request is about order sizing, notional, portfolio weight, rebalance deltas, or P/L.\n"
+            "- Do not perform the calculation yourself.\n"
+            "- Populate only the fields needed by the chosen operation.\n"
+            "- Direction for P/L must be LONG or SHORT.\n"
+            "- Keep numeric values as plain decimal-friendly strings or numbers."
+        )
+        messages = []
+        if request.history:
+            messages.extend(request.history.to_llm_messages())
+        messages.append({"role": "user", "content": request.user_message})
+        result = self.reasoner.genai.generate_structured(
+            CalculatorRequest,
+            system_prompt,
+            messages,
+            model=self.reasoner.genai.chat_model_for("default"),
+            temperature=0.0,
+        )
+        return CalculatorRequest.model_validate(result)
+
+    def _execute_calculation_request(self, request: CalculatorRequest) -> ToolResult:
+        runtime = CalculatorToolRuntime(service=self.calculator_service)
+        tool_mapping = build_calculator_tool_mapping(runtime)
+        operation = request.operation.value
+        if operation == "evaluate_formula":
+            return tool_mapping["calc_evaluate_formula"](request.expression or "")
+        if operation == "sum":
+            return tool_mapping["calc_sum"](request.operands)
+        if operation == "subtract":
+            return tool_mapping["calc_subtract"](request.operands)
+        if operation == "multiply":
+            return tool_mapping["calc_multiply"](request.operands)
+        if operation == "divide":
+            return tool_mapping["calc_divide"](request.operands)
+        if operation == "quantity_from_budget_and_price":
+            return tool_mapping["calc_quantity_from_budget_and_price"](
+                request.budget,
+                request.price,
+            )
+        if operation == "notional_from_quantity_and_price":
+            return tool_mapping["calc_notional_from_quantity_and_price"](
+                request.quantity,
+                request.price,
+            )
+        if operation == "position_weight":
+            return tool_mapping["calc_position_weight"](
+                request.position_value,
+                request.portfolio_value,
+            )
+        if operation == "rebalance_delta":
+            return tool_mapping["calc_rebalance_delta"](
+                request.current_value,
+                request.target_weight_pct,
+                request.portfolio_value,
+            )
+        if operation == "pnl_amount":
+            return tool_mapping["calc_pnl_amount"](
+                request.entry_price,
+                request.current_price,
+                request.quantity,
+                request.direction.value,
+            )
+        return tool_mapping["calc_pnl_percent"](
+            request.entry_price,
+            request.current_price,
+            request.direction.value,
         )
 
 
