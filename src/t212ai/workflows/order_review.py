@@ -22,7 +22,7 @@ def _utcnow() -> datetime:
 
 
 class PendingOrderReviewItem(BaseModel):
-    order_id: int | None = None
+    order_id: str | None = None
     ticker: str | None = None
     instrument_name: str | None = None
     side: str | None = None
@@ -40,6 +40,7 @@ class PendingOrderReviewItem(BaseModel):
 
 
 class PendingOrdersReviewResult(BaseModel):
+    provider_label: str = "Trading 212"
     reviewed_at: datetime
     order_count: int = 0
     attention_order_count: int = 0
@@ -49,7 +50,7 @@ class PendingOrdersReviewResult(BaseModel):
 
     def render_text(self) -> str:
         lines = [
-            "Trading 212 pending orders review.",
+            f"{self.provider_label} pending orders review.",
             f"Reviewed at: {_format_value(self.reviewed_at)}.",
             f"Pending order count: {self.order_count}.",
         ]
@@ -88,40 +89,51 @@ class PendingOrdersReviewResult(BaseModel):
                         "  attention_flags: " + "; ".join(order.attention_flags) + "."
                     )
         else:
-            lines.append("Order details: no active/pending orders returned by Trading 212.")
+            lines.append(
+                f"Order details: no active/pending orders returned by {self.provider_label}."
+            )
         return "\n".join(lines)
 
 
 @dataclass(slots=True)
 class PendingOrdersReviewWorkflow:
     broker: BrokerReadService
+    provider_label: str = "Trading 212"
     clock: Callable[[], datetime] = field(default=_utcnow)
 
     @traceable(name="Pending Orders Review Workflow", run_type="chain")
     def run(self) -> PendingOrdersReviewResult:
-        set_trace_metadata(workflow="pending_orders_review", provider="trading212")
+        set_trace_metadata(
+            workflow="pending_orders_review",
+            provider=self.provider_label.lower(),
+        )
         try:
             orders = self.broker.list_pending_orders()
         except Exception as exc:
             raise WorkflowExecutionError(
-                "Unable to retrieve pending Trading 212 orders.",
+                f"Unable to retrieve pending {self.provider_label} orders.",
                 code="pending_orders_failed",
                 hint=(
-                    "Check Trading 212 credentials, broker connectivity, and whether "
-                    "the orders scope is enabled for the selected environment."
+                    f"Check {self.provider_label} credentials, broker connectivity, "
+                    "and whether order access is enabled for the selected environment."
                 ),
                 details={
                     "error_type": exc.__class__.__name__,
                     "error": str(exc),
                 },
             ) from exc
-        return _build_pending_orders_review(orders, reviewed_at=self.clock())
+        return _build_pending_orders_review(
+            orders,
+            reviewed_at=self.clock(),
+            provider_label=self.provider_label,
+        )
 
 
 def _build_pending_orders_review(
     orders: list[BrokerOrder],
     *,
     reviewed_at: datetime,
+    provider_label: str,
 ) -> PendingOrdersReviewResult:
     normalized_orders = [
         _summarize_order(order, reviewed_at=reviewed_at)
@@ -137,7 +149,7 @@ def _build_pending_orders_review(
     attention_count = sum(1 for item in normalized_orders if item.attention_flags)
     highlights: list[str] = []
     if not normalized_orders:
-        highlights.append("Trading 212 returned no active or pending orders.")
+        highlights.append(f"{provider_label} returned no active or pending orders.")
     else:
         oldest = max(
             (item.age_hours for item in normalized_orders if item.age_hours is not None),
@@ -160,6 +172,7 @@ def _build_pending_orders_review(
             )
 
     return PendingOrdersReviewResult(
+        provider_label=provider_label,
         reviewed_at=reviewed_at,
         order_count=len(normalized_orders),
         attention_order_count=attention_count,
@@ -199,7 +212,7 @@ def _summarize_order(
         flags.append("Filled quantity is below requested quantity.")
 
     return PendingOrderReviewItem(
-        order_id=order.id,
+        order_id=str(order.id) if order.id is not None else None,
         ticker=order.ticker,
         instrument_name=order.instrument.name if order.instrument else None,
         side=_enum_value(order.side),

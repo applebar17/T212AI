@@ -29,6 +29,7 @@ class PortfolioPositionSummary(BaseModel):
 
 
 class PortfolioSummaryResult(BaseModel):
+    provider_label: str = "Trading 212"
     as_of: datetime
     account_currency: str | None = None
     total_value: Decimal | None = None
@@ -46,7 +47,7 @@ class PortfolioSummaryResult(BaseModel):
 
     def render_text(self) -> str:
         lines = [
-            "Trading 212 portfolio summary.",
+            f"{self.provider_label} portfolio summary.",
             f"As of: {_format_value(self.as_of)}.",
             (
                 "Account: "
@@ -97,33 +98,39 @@ class PortfolioSummaryResult(BaseModel):
 @dataclass(slots=True)
 class PortfolioSummaryWorkflow:
     broker: BrokerReadService
+    provider_label: str = "Trading 212"
     max_positions: int = 5
 
     @traceable(name="Portfolio Summary Workflow", run_type="chain")
     def run(self) -> PortfolioSummaryResult:
-        set_trace_metadata(workflow="portfolio_summary", provider="trading212")
+        set_trace_metadata(workflow="portfolio_summary", provider=self.provider_label.lower())
         try:
             snapshot = self.broker.get_portfolio_snapshot()
         except Exception as exc:
             raise WorkflowExecutionError(
-                "Unable to retrieve the Trading 212 portfolio snapshot.",
+                f"Unable to retrieve the {self.provider_label} portfolio snapshot.",
                 code="broker_snapshot_failed",
                 hint=(
-                    "Check Trading 212 credentials, demo/live environment selection, "
-                    "portfolio and orders scopes, and broker connectivity."
+                    f"Check {self.provider_label} credentials, selected environment, "
+                    "portfolio/orders access, and broker connectivity."
                 ),
                 details={
                     "error_type": exc.__class__.__name__,
                     "error": str(exc),
                 },
             ) from exc
-        return _build_portfolio_summary(snapshot, max_positions=self.max_positions)
+        return _build_portfolio_summary(
+            snapshot,
+            max_positions=self.max_positions,
+            provider_label=self.provider_label,
+        )
 
 
 def _build_portfolio_summary(
     snapshot: BrokerPortfolioSnapshot,
     *,
     max_positions: int,
+    provider_label: str,
 ) -> PortfolioSummaryResult:
     account = snapshot.account
     cash = account.cash
@@ -146,7 +153,7 @@ def _build_portfolio_summary(
 
     highlights: list[str] = []
     if not snapshot.positions:
-        highlights.append("Trading 212 returned no open positions.")
+        highlights.append(f"{provider_label} returned no open positions.")
     if top_positions and (top_positions[0].weight_pct or Decimal("0")) >= Decimal("50"):
         highlights.append(
             f"Largest position {_format_value(top_positions[0].ticker)} accounts for "
@@ -177,6 +184,7 @@ def _build_portfolio_summary(
         )
 
     return PortfolioSummaryResult(
+        provider_label=provider_label,
         as_of=snapshot.as_of,
         account_currency=account.currency,
         total_value=account.total_value,

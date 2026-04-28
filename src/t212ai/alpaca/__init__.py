@@ -16,6 +16,8 @@ __all__ = [
     "ALPACA_PAPER_TRADING_BASE_URL",
     "AlpacaApiError",
     "AlpacaBaseClient",
+    "AlpacaBrokerClient",
+    "AlpacaBrokerService",
     "AlpacaMarketDataClient",
 ]
 
@@ -25,4 +27,11 @@ def __getattr__(name: str):
         from .market_data import AlpacaMarketDataClient
 
         return AlpacaMarketDataClient
+    if name in {"AlpacaBrokerClient", "AlpacaBrokerService"}:
+        from .broker import AlpacaBrokerClient, AlpacaBrokerService
+
+        return {
+            "AlpacaBrokerClient": AlpacaBrokerClient,
+            "AlpacaBrokerService": AlpacaBrokerService,
+        }[name]
     raise AttributeError(name)

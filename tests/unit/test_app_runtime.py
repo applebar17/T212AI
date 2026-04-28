@@ -198,6 +198,89 @@ class FakeAlpacaMarketDataClient:
         )
 
 
+class FakeAlpacaBrokerClient:
+    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+    @classmethod
+    def from_settings(cls, settings=None):
+        del settings
+        return cls()
+
+    def get_account(self):
+        return {
+            "id": "account-1",
+            "account_number": "PA1234567",
+            "currency": "USD",
+            "buying_power": "5000",
+            "portfolio_value": "7500",
+        }
+
+    def list_positions(self):
+        return [
+            {
+                "symbol": "AAPL",
+                "qty": "2",
+                "qty_available": "2",
+                "avg_entry_price": "150",
+                "current_price": "175",
+                "market_value": "350",
+                "cost_basis": "300",
+                "unrealized_pl": "50",
+            }
+        ]
+
+    def list_orders(self, *, status: str, limit: int | None = None, ticker: str | None = None, cursor=None):
+        del limit, ticker, cursor
+        if status == "open":
+            return [
+                {
+                    "id": "alpaca-open-1",
+                    "symbol": "MSFT",
+                    "qty": "1",
+                    "filled_qty": "0",
+                    "side": "buy",
+                    "status": "new",
+                    "type": "limit",
+                    "limit_price": "320",
+                    "time_in_force": "day",
+                    "created_at": self.reviewed_at.isoformat().replace("+00:00", "Z"),
+                    "extended_hours": False,
+                }
+            ]
+        return []
+
+    def get_order(self, order_ref: str):
+        return {
+            "id": order_ref,
+            "symbol": "MSFT",
+            "qty": "1",
+            "side": "buy",
+            "status": "new",
+            "type": "limit",
+            "time_in_force": "day",
+        }
+
+    def place_order(self, payload):
+        return {
+            "id": "alpaca-order-1",
+            "symbol": payload["symbol"],
+            "qty": payload["qty"],
+            "filled_qty": "0",
+            "side": payload["side"],
+            "status": "accepted",
+            "type": payload["type"],
+            "time_in_force": payload["time_in_force"],
+            "limit_price": payload.get("limit_price"),
+            "stop_price": payload.get("stop_price"),
+            "extended_hours": payload.get("extended_hours"),
+            "client_order_id": payload.get("client_order_id"),
+            "created_at": self.reviewed_at.isoformat().replace("+00:00", "Z"),
+        }
+
+    def cancel_order(self, order_ref: str):
+        del order_ref
+
+
 class FakeRedditClient:
     @classmethod
     def from_settings(cls, settings=None):
@@ -389,6 +472,36 @@ def test_build_runtime_selects_alpaca_market_data_when_configured(
     assert isinstance(runtime.market_data_service, MarketDataService)
     assert runtime.capability_registry["market_data"].selected_provider == "alpaca"
     assert runtime.capability_registry["market_data"].ready
+
+
+def test_build_runtime_selects_alpaca_broker_when_configured(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import t212ai.app.runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "AlpacaBrokerClient", FakeAlpacaBrokerClient)
+    settings = get_app_settings(
+        env={
+            "BROKER_PROVIDER": "alpaca",
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+        }
+    )
+
+    runtime = build_runtime(settings)
+
+    assert runtime.alpaca_broker_client is not None
+    assert runtime.alpaca_broker_service is not None
+    assert runtime.broker_read_service is not None
+    assert runtime.broker_execution_service is not None
+    assert isinstance(runtime.broker_read_service, BrokerReadService)
+    assert isinstance(runtime.broker_execution_service, BrokerExecutionService)
+    assert runtime.reconciliation_service is not None
+    assert runtime.capability_registry["broker_read"].selected_provider == "alpaca"
+    assert runtime.capability_registry["broker_read"].ready
 
 
 def test_runtime_backed_agent_handler_reuses_runtime_history(

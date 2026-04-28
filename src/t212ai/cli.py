@@ -33,6 +33,7 @@ LLM_PROVIDER_OPTIONS = (
 )
 BROKER_PROVIDER_OPTIONS = (
     ("trading212", "Trading 212"),
+    ("alpaca", "Alpaca"),
     ("none", "Disabled"),
 )
 MARKET_DATA_PROVIDER_OPTIONS = (
@@ -279,7 +280,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     run_bot_parser.set_defaults(handler=command_run_bot)
     run_reconcile_parser = run_subparsers.add_parser(
         "reconcile-once",
-        help="Run one Trading 212 reconciliation pass.",
+        help="Run one broker reconciliation pass.",
     )
     run_reconcile_parser.add_argument(
         "--env-file",
@@ -290,7 +291,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
 
     run_worker_parser = run_subparsers.add_parser(
         "worker",
-        help="Run the reconciliation worker loop.",
+        help="Run the broker reconciliation worker loop.",
     )
     run_worker_parser.add_argument(
         "--env-file",
@@ -653,7 +654,7 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
     broker_provider = io_runtime.choose(
         "Broker provider",
         options=BROKER_PROVIDER_OPTIONS,
-        default=_safe_choice(updates["BROKER_PROVIDER"], {"trading212", "none"}, "none"),
+        default=_safe_choice(updates["BROKER_PROVIDER"], {"trading212", "alpaca", "none"}, "none"),
     )
     updates["BROKER_PROVIDER"] = broker_provider
     if broker_provider == "trading212":
@@ -678,6 +679,20 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
             updates["T212_LIVE_TRADING_ENABLED"] = _bool_to_env(allow_live)
         else:
             updates["T212_LIVE_TRADING_ENABLED"] = "false"
+    elif broker_provider == "alpaca":
+        updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
+            "Alpaca environment",
+            options=ALPACA_ENVIRONMENT_OPTIONS,
+            default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
+        )
+        updates["ALPACA_API_KEY"] = io_runtime.prompt(
+            "ALPACA_API_KEY",
+            default=updates["ALPACA_API_KEY"],
+        )
+        updates["ALPACA_API_SECRET"] = io_runtime.prompt(
+            "ALPACA_API_SECRET",
+            default=updates["ALPACA_API_SECRET"],
+        )
 
     io_runtime.write("")
     if io_runtime.confirm(
@@ -698,18 +713,37 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
         )
 
     io_runtime.write("")
-    market_data_provider = io_runtime.choose(
-        "Market data provider",
-        options=MARKET_DATA_PROVIDER_OPTIONS,
-        default=_safe_choice(
-            updates["MARKET_DATA_PROVIDER"],
-            {"yahoo", "alpaca", "none"},
-            "yahoo",
-        ),
-    )
+    market_data_provider: str
+    if broker_provider == "alpaca" and updates["MARKET_DATA_PROVIDER"] != "alpaca":
+        reuse_alpaca = io_runtime.confirm(
+            "Reuse Alpaca for market data too?",
+            default=True,
+        )
+        if reuse_alpaca:
+            market_data_provider = "alpaca"
+        else:
+            market_data_provider = io_runtime.choose(
+                "Market data provider",
+                options=MARKET_DATA_PROVIDER_OPTIONS,
+                default=_safe_choice(
+                    updates["MARKET_DATA_PROVIDER"],
+                    {"yahoo", "alpaca", "none"},
+                    "yahoo",
+                ),
+            )
+    else:
+        market_data_provider = io_runtime.choose(
+            "Market data provider",
+            options=MARKET_DATA_PROVIDER_OPTIONS,
+            default=_safe_choice(
+                updates["MARKET_DATA_PROVIDER"],
+                {"yahoo", "alpaca", "none"},
+                "yahoo",
+            ),
+        )
     updates["MARKET_DATA_PROVIDER"] = market_data_provider
     updates["YAHOO_ENABLED"] = _bool_to_env(market_data_provider == "yahoo")
-    if market_data_provider == "alpaca":
+    if market_data_provider == "alpaca" and broker_provider != "alpaca":
         updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
             "Alpaca environment",
             options=ALPACA_ENVIRONMENT_OPTIONS,

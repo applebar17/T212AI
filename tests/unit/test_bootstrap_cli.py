@@ -25,7 +25,7 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
         [
             "1",
             "openai-key",
-            "2",
+            "3",
             "y",
             "telegram-token",
             "12345",
@@ -72,7 +72,7 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "https://azure.example",
             "azure-key",
             "",
-            "2",
+            "3",
             "n",
             "3",
             "n",
@@ -112,7 +112,7 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     responses = iter(
         [
             "3",
-            "2",
+            "3",
             "n",
             "2",
             "1",
@@ -136,6 +136,37 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     assert updates["ALPACA_ENVIRONMENT"] == "paper"
     assert updates["ALPACA_API_KEY"] == "alpaca-key"
     assert updates["ALPACA_API_SECRET"] == "alpaca-secret"
+    assert updates["YAHOO_ENABLED"] == "false"
+
+
+def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse() -> None:
+    updates = cli.build_managed_env_values({})
+    responses = iter(
+        [
+            "3",
+            "2",
+            "1",
+            "alpaca-broker-key",
+            "alpaca-broker-secret",
+            "n",
+            "y",
+            "n",
+            "",
+            "",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+
+    cli.apply_configuration_wizard(io_runtime, updates)
+
+    assert updates["BROKER_PROVIDER"] == "alpaca"
+    assert updates["MARKET_DATA_PROVIDER"] == "alpaca"
+    assert updates["ALPACA_ENVIRONMENT"] == "paper"
+    assert updates["ALPACA_API_KEY"] == "alpaca-broker-key"
+    assert updates["ALPACA_API_SECRET"] == "alpaca-broker-secret"
     assert updates["YAHOO_ENABLED"] == "false"
 
 

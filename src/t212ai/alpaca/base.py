@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from http.client import HTTPResponse
 from typing import Any
 from typing import TYPE_CHECKING
 
@@ -77,12 +78,25 @@ class AlpacaBaseClient:
         base_url: str,
         path: str,
         query: dict[str, Any] | None = None,
+        method: str = "GET",
+        body: dict[str, Any] | None = None,
+        allow_empty: bool = False,
     ) -> Any:
         url = self._build_url(base_url, path, query=query)
-        request = urllib.request.Request(url, headers=self._headers())
+        encoded_body = None
+        headers = self._headers()
+        if body is not None:
+            encoded_body = json.dumps(body, ensure_ascii=True, sort_keys=True).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            url,
+            headers=headers,
+            data=encoded_body,
+            method=method.upper(),
+        )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                payload = response.read().decode("utf-8")
+                payload = _read_response_payload(response)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise AlpacaApiError(
@@ -96,6 +110,13 @@ class AlpacaBaseClient:
                 f"Network error contacting Alpaca: {exc.reason}",
                 code="network_error",
             ) from exc
+        if not payload:
+            if allow_empty:
+                return None
+            raise AlpacaApiError(
+                "Alpaca returned an empty response body.",
+                code="empty_response",
+            )
         try:
             return json.loads(payload)
         except json.JSONDecodeError as exc:
@@ -138,3 +159,10 @@ def _clean_params(values: dict[str, Any]) -> dict[str, Any]:
             continue
         cleaned[key] = value
     return cleaned
+
+
+def _read_response_payload(response: HTTPResponse) -> str:
+    raw = response.read()
+    if not raw:
+        return ""
+    return raw.decode("utf-8")

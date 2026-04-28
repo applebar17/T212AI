@@ -188,7 +188,7 @@ def test_get_app_settings_supports_explicit_alpaca_market_data_provider() -> Non
     assert not settings.yahoo_enabled
 
 
-def test_get_app_settings_can_infer_alpaca_market_data_from_credentials() -> None:
+def test_get_app_settings_requires_explicit_alpaca_market_data_provider() -> None:
     settings = get_app_settings(
         env={
             "ALPACA_API_KEY": "alpaca-key",
@@ -196,8 +196,25 @@ def test_get_app_settings_can_infer_alpaca_market_data_from_credentials() -> Non
         }
     )
 
-    assert settings.market_data_provider == "alpaca"
-    assert not settings.yahoo_enabled
+    assert settings.market_data_provider == "yahoo"
+    assert settings.yahoo_enabled
+
+
+def test_get_app_settings_supports_explicit_alpaca_broker_provider() -> None:
+    settings = get_app_settings(
+        env={
+            "BROKER_PROVIDER": "alpaca",
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+            "ALPACA_ENVIRONMENT": "live",
+        }
+    )
+
+    assert settings.broker_provider == "alpaca"
+    assert settings.alpaca_api_key == "alpaca-key"
+    assert settings.alpaca_api_secret == "alpaca-secret"
+    assert settings.alpaca_environment == "live"
+    assert settings.market_data_provider == "yahoo"
 
 
 def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() -> None:

@@ -39,8 +39,14 @@ _ACTIVE_REMOTE_STATUSES = {
     BrokerOrderStatus.CONFIRMED,
     BrokerOrderStatus.NEW,
     BrokerOrderStatus.CANCELLING,
+    BrokerOrderStatus.PENDING_CANCEL,
     BrokerOrderStatus.REPLACING,
+    BrokerOrderStatus.PENDING_REPLACE,
     BrokerOrderStatus.PARTIALLY_FILLED,
+    BrokerOrderStatus.DONE_FOR_DAY,
+    BrokerOrderStatus.ACCEPTED,
+    BrokerOrderStatus.ACCEPTED_FOR_BIDDING,
+    BrokerOrderStatus.PENDING_NEW,
 }
 
 
@@ -57,6 +63,7 @@ class _Resolution:
 @dataclass(slots=True)
 class ReconciliationService:
     broker_service: BrokerReadService
+    broker_provider: str
     pending_action_service: PendingActionService
     proposal_service: ProposalService | None = None
     history_limit: int = 50
@@ -66,11 +73,14 @@ class ReconciliationService:
         started_at = _utc_now()
         set_trace_metadata(
             service="reconciliation",
-            provider="trading212",
+            provider=self.broker_provider,
             history_limit=self.history_limit,
             limit=limit,
         )
-        actions = self.pending_action_service.list_actions_for_reconciliation(limit=limit)
+        actions = self.pending_action_service.list_actions_for_reconciliation(
+            limit=limit,
+            broker_provider=self.broker_provider,
+        )
         pending_orders = self.broker_service.list_pending_orders()
         historical_page = self.broker_service.list_historical_orders(limit=self.history_limit)
         historical_orders = list(historical_page.items)
@@ -190,7 +200,7 @@ class ReconciliationService:
                     new_state=PendingActionState.SUBMITTED,
                     remote_order_ref=broker_order_ref,
                     remote_status=_order_snapshot(order, source="pending_orders"),
-                    note="Remote order is still active in Trading 212 pending orders.",
+                    note=f"Remote order is still active in {_display_broker_name(self.broker_provider)} pending orders.",
                 )
             if broker_order_ref in history_index:
                 return self._resolution_from_historical_order(
@@ -218,7 +228,8 @@ class ReconciliationService:
             new_state=PendingActionState.SUBMITTED,
             note=(
                 "The submitted order was not found in current pending orders or the recent "
-                "historical-order page. It will be checked again on the next reconciliation run."
+                f"{_display_broker_name(self.broker_provider)} historical-order page. "
+                "It will be checked again on the next reconciliation run."
             ),
         )
 
@@ -244,7 +255,7 @@ class ReconciliationService:
                 new_state=PendingActionState.SUBMITTED,
                 remote_order_ref=target_order_ref,
                 remote_status=_order_snapshot(order, source="pending_orders"),
-                note="The target order is still visible in Trading 212 pending orders.",
+                note=f"The target order is still visible in {_display_broker_name(self.broker_provider)} pending orders.",
             )
         historical = history_index.get(target_order_ref)
         if historical is None or historical.order is None:
@@ -253,7 +264,7 @@ class ReconciliationService:
                 new_state=PendingActionState.SUBMITTED,
                 note=(
                     "The target order is no longer pending, but a matching historical order "
-                    "was not found in the recent history page."
+                    f"was not found in recent {_display_broker_name(self.broker_provider)} history."
                 ),
             )
         status = historical.order.status
@@ -265,7 +276,7 @@ class ReconciliationService:
                 new_state=PendingActionState.RECONCILED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="The target order is finalized in Trading 212 history as cancelled/replaced.",
+                note=f"The target order is finalized in {_display_broker_name(self.broker_provider)} history as cancelled/replaced.",
             )
         if status in {BrokerOrderStatus.FILLED, BrokerOrderStatus.PARTIALLY_FILLED}:
             return _Resolution(
@@ -282,8 +293,8 @@ class ReconciliationService:
                 new_state=PendingActionState.FAILED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders show the target order as rejected.",
-                error_message="Remote order is rejected in Trading 212 history.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders show the target order as rejected.",
+                error_message=f"Remote order is rejected in {_display_broker_name(self.broker_provider)} history.",
             )
         return _Resolution(
             outcome=ReconciliationOutcome.PENDING,
@@ -314,7 +325,7 @@ class ReconciliationService:
                 new_state=PendingActionState.RECONCILED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders show the order as filled.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders show the order as filled.",
             )
         if status == BrokerOrderStatus.PARTIALLY_FILLED:
             return _Resolution(
@@ -322,7 +333,7 @@ class ReconciliationService:
                 new_state=PendingActionState.RECONCILED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders show the order as partially filled.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders show the order as partially filled.",
             )
         if status in {BrokerOrderStatus.CANCELLED, BrokerOrderStatus.REPLACED}:
             return _Resolution(
@@ -330,7 +341,7 @@ class ReconciliationService:
                 new_state=PendingActionState.CANCELLED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders show the order as cancelled/replaced.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders show the order as cancelled/replaced.",
             )
         if status == BrokerOrderStatus.REJECTED:
             return _Resolution(
@@ -338,8 +349,8 @@ class ReconciliationService:
                 new_state=PendingActionState.FAILED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders show the order as rejected.",
-                error_message="Remote order is rejected in Trading 212 history.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders show the order as rejected.",
+                error_message=f"Remote order is rejected in {_display_broker_name(self.broker_provider)} history.",
             )
         if status in _ACTIVE_REMOTE_STATUSES:
             return _Resolution(
@@ -347,7 +358,7 @@ class ReconciliationService:
                 new_state=PendingActionState.SUBMITTED,
                 remote_order_ref=remote_order_ref,
                 remote_status=snapshot,
-                note="Trading 212 historical orders still show the order as active.",
+                note=f"{_display_broker_name(self.broker_provider)} historical orders still show the order as active.",
             )
         return _Resolution(
             outcome=ReconciliationOutcome.UNRESOLVED,
@@ -477,9 +488,16 @@ def _order_matches_action(action: PendingAction, order: BrokerOrder) -> bool:
     if side and getattr(order.side, "value", order.side) != str(side).upper():
         return False
     if signed_quantity is not None and order.quantity is not None:
-        if not _decimal_equal(order.quantity, _to_decimal(signed_quantity)):
+        if not _decimal_equal(abs(order.quantity), abs(_to_decimal(signed_quantity) or Decimal("0"))):
             return False
     if isinstance(request_payload, dict):
+        client_order_id = _payload_value(request_payload, "client_order_id")
+        if client_order_id is not None:
+            remote_client_order_id = None
+            if isinstance(order.raw_provider_payload, dict):
+                remote_client_order_id = _payload_value(order.raw_provider_payload, "client_order_id")
+            if remote_client_order_id is not None and str(remote_client_order_id).strip() != str(client_order_id).strip():
+                return False
         limit_price = _payload_value(request_payload, "limitPrice")
         stop_price = _payload_value(request_payload, "stopPrice")
         if limit_price is not None and order.limit_price is not None:
@@ -561,3 +579,12 @@ def _to_decimal(value: Any) -> Decimal | None:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _display_broker_name(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "trading212":
+        return "Trading 212"
+    if normalized == "alpaca":
+        return "Alpaca"
+    return str(provider or "broker").replace("_", " ").strip().title() or "Broker"

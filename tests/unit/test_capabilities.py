@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from t212ai.alpaca.broker import AlpacaBrokerService
 from t212ai.brokers.trading212.service import Trading212BrokerService
 from t212ai.capabilities import (
     AlpacaMarketDataService,
@@ -224,6 +225,35 @@ class _FakeAlpacaClient:
         )
 
 
+class _FakeAlpacaBrokerClient:
+    def get_account(self):
+        return {"account_number": "PA123", "currency": "USD", "buying_power": "1000", "portfolio_value": "1200"}
+
+    def list_positions(self):
+        return []
+
+    def list_orders(self, *, status: str, limit: int | None = None, ticker: str | None = None, cursor=None):
+        del status, limit, ticker, cursor
+        return []
+
+    def get_order(self, order_ref: str):
+        return {"id": order_ref, "symbol": "AAPL", "qty": "1", "side": "buy", "status": "new", "type": "market", "time_in_force": "day"}
+
+    def place_order(self, payload):
+        return {
+            "id": "alpaca-order-1",
+            "symbol": payload["symbol"],
+            "qty": payload["qty"],
+            "side": payload["side"],
+            "status": "accepted",
+            "type": payload["type"],
+            "time_in_force": payload["time_in_force"],
+        }
+
+    def cancel_order(self, order_ref: str):
+        del order_ref
+
+
 class _FakeAlphaClient:
     pass
 
@@ -253,6 +283,13 @@ class _FakeEdgarManager:
 
 def test_trading212_broker_service_satisfies_capability_protocols() -> None:
     service = Trading212BrokerService(_FakeTrading212Api())  # type: ignore[arg-type]
+
+    assert isinstance(service, BrokerReadService)
+    assert isinstance(service, BrokerExecutionService)
+
+
+def test_alpaca_broker_service_satisfies_capability_protocols() -> None:
+    service = AlpacaBrokerService(_FakeAlpacaBrokerClient())  # type: ignore[arg-type]
 
     assert isinstance(service, BrokerReadService)
     assert isinstance(service, BrokerExecutionService)

@@ -7,7 +7,7 @@ from .config import AppSettings
 
 
 VALID_LLM_PROVIDERS = frozenset({"openai", "azure_openai", "none"})
-VALID_BROKER_PROVIDERS = frozenset({"trading212", "none"})
+VALID_BROKER_PROVIDERS = frozenset({"trading212", "alpaca", "none"})
 VALID_MARKET_DATA_PROVIDERS = frozenset({"yahoo", "alpaca", "none"})
 VALID_MARKET_INTELLIGENCE_PROVIDERS = frozenset({"alpha_vantage", "none"})
 VALID_DISCLOSURE_PROVIDERS = frozenset({"sec_edgar", "none"})
@@ -210,7 +210,7 @@ def preflight_reconcile(
         errors.extend(broker.errors)
     if not assessment.capabilities["broker_read"].available:
         errors.append(
-            "Reconciliation requires broker read access. Configure BROKER_PROVIDER=trading212 and valid Trading 212 credentials."
+            "Reconciliation requires broker read access. Configure BROKER_PROVIDER plus valid credentials for the selected broker."
         )
     if not bool(str(settings.database_url or "").strip()):
         errors.append("Reconciliation requires DATABASE_URL.")
@@ -358,27 +358,46 @@ def _assess_broker_provider(settings: AppSettings) -> ProviderAssessment:
             ready=False,
             notes=("Broker provider is disabled.",),
         )
+    if provider == "trading212":
+        missing = _missing_keys(
+            {
+                "T212_API_KEY": settings.trading212_api_key,
+                "T212_API_SECRET": settings.trading212_api_secret,
+            }
+        )
+        notes = (
+            f"Trading 212 environment: {settings.trading212_environment}.",
+            f"Live trading enabled: {settings.live_trading_enabled}.",
+        )
+        return ProviderAssessment(
+            name="broker",
+            label="Trading 212 broker",
+            enabled=True,
+            optional=True,
+            configured=bool(settings.trading212_api_key or settings.trading212_api_secret),
+            ready=not missing,
+            required_keys=("T212_API_KEY", "T212_API_SECRET"),
+            missing_keys=missing,
+            errors=_provider_errors("Trading 212", missing),
+            notes=notes,
+        )
     missing = _missing_keys(
         {
-            "T212_API_KEY": settings.trading212_api_key,
-            "T212_API_SECRET": settings.trading212_api_secret,
+            "ALPACA_API_KEY": settings.alpaca_api_key,
+            "ALPACA_API_SECRET": settings.alpaca_api_secret,
         }
-    )
-    notes = (
-        f"Trading 212 environment: {settings.trading212_environment}.",
-        f"Live trading enabled: {settings.live_trading_enabled}.",
     )
     return ProviderAssessment(
         name="broker",
-        label="Trading 212",
+        label="Alpaca broker",
         enabled=True,
         optional=True,
-        configured=bool(settings.trading212_api_key or settings.trading212_api_secret),
+        configured=bool(settings.alpaca_api_key or settings.alpaca_api_secret),
         ready=not missing,
-        required_keys=("T212_API_KEY", "T212_API_SECRET"),
+        required_keys=("ALPACA_API_KEY", "ALPACA_API_SECRET"),
         missing_keys=missing,
-        errors=_provider_errors("Trading 212", missing),
-        notes=notes,
+        errors=_provider_errors("Alpaca broker", missing),
+        notes=(f"Alpaca environment: {settings.alpaca_environment}.",),
     )
 
 
@@ -562,6 +581,8 @@ def _broker_execution_available(
 ) -> bool:
     if not broker.ready:
         return False
+    if str(settings.broker_provider or "").strip().lower() == "alpaca":
+        return True
     if str(settings.trading212_environment or "").strip().lower() != "live":
         return True
     return settings.live_trading_enabled
@@ -573,6 +594,8 @@ def _broker_execution_reasons(
 ) -> tuple[str, ...]:
     if not broker.ready:
         return ("Broker credentials are not ready for execution.",)
+    if str(settings.broker_provider or "").strip().lower() == "alpaca":
+        return ()
     if str(settings.trading212_environment or "").strip().lower() != "live":
         return ()
     if settings.live_trading_enabled:
@@ -594,7 +617,7 @@ def _broker_read_reasons(
         return ("Broker provider is disabled.",)
     return _reasons_for_capability(
         provider.ready,
-        "Configure BROKER_PROVIDER=trading212 plus T212 credentials.",
+        "Configure BROKER_PROVIDER and valid credentials for the selected broker.",
     )
 
 
@@ -825,10 +848,19 @@ def _selector_error(
     return (f"{name} has unsupported value '{value}'.",)
 
 
-def _smoke_probe_trading212(settings: AppSettings) -> None:
-    from t212ai.brokers.trading212 import Trading212Client
+def _smoke_probe_broker(settings: AppSettings) -> None:
+    provider = str(settings.broker_provider or "").strip().lower()
+    if provider == "trading212":
+        from t212ai.brokers.trading212 import Trading212Client
 
-    Trading212Client.from_settings(settings).get_account_summary()
+        Trading212Client.from_settings(settings).get_account_summary()
+        return
+    if provider == "alpaca":
+        from t212ai.alpaca import AlpacaBrokerClient
+
+        AlpacaBrokerClient.from_settings(settings).get_account()
+        return
+    raise RuntimeError("Broker provider is not configured for smoke testing.")
 
 
 def _smoke_probe_yahoo(_settings: AppSettings) -> None:
@@ -875,7 +907,7 @@ def _smoke_probe_sec_edgar(settings: AppSettings) -> None:
 
 
 _PROVIDER_SMOKE_PROBES = {
-    "broker": _smoke_probe_trading212,
+    "broker": _smoke_probe_broker,
     "yahoo": _smoke_probe_yahoo,
     "alpaca": _smoke_probe_alpaca,
     "alpha_vantage": _smoke_probe_alpha_vantage,

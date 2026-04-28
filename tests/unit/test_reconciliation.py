@@ -19,6 +19,7 @@ from t212ai.brokers.trading212.models import (
     Position,
 )
 from t212ai.brokers.trading212.service import Trading212BrokerService
+from t212ai.alpaca.broker import AlpacaBrokerService
 from t212ai.pending_actions import PendingActionService, PendingActionState
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.proposals import (
@@ -96,6 +97,64 @@ class FakeReconciliationApi:
         del order_id
 
 
+class FakeAlpacaReconciliationApi:
+    def __init__(
+        self,
+        *,
+        pending_orders: list[dict] | None = None,
+        historical_orders: list[dict] | None = None,
+        remote_order_ref: str = "alpaca-401",
+    ) -> None:
+        self.pending_orders = pending_orders or []
+        self.historical_orders = historical_orders or []
+        self.remote_order_ref = remote_order_ref
+
+    def get_account(self):
+        return {
+            "account_number": "PA1234567",
+            "currency": "USD",
+            "buying_power": "1000",
+            "portfolio_value": "3500",
+        }
+
+    def list_positions(self):
+        return []
+
+    def list_orders(self, *, status: str, limit: int | None = None, ticker: str | None = None, cursor=None):
+        del limit, ticker, cursor
+        if status == "open":
+            return list(self.pending_orders)
+        return list(self.historical_orders)
+
+    def get_order(self, order_ref: str):
+        return {
+            "id": order_ref,
+            "symbol": "AAPL",
+            "qty": "1",
+            "side": "buy",
+            "status": "new",
+            "type": "market",
+            "time_in_force": "day",
+        }
+
+    def place_order(self, payload):
+        return {
+            "id": self.remote_order_ref,
+            "symbol": payload["symbol"],
+            "qty": payload["qty"],
+            "filled_qty": "0",
+            "side": payload["side"],
+            "status": "accepted",
+            "type": payload["type"],
+            "time_in_force": payload["time_in_force"],
+            "client_order_id": payload.get("client_order_id"),
+            "created_at": "2026-04-28T12:00:00Z",
+        }
+
+    def cancel_order(self, order_ref: str) -> None:
+        del order_ref
+
+
 def _build_services(tmp_path, *, api: FakeReconciliationApi):
     engine = build_engine(f"sqlite:///{tmp_path / 'reconcile.db'}")
     ensure_schema(engine)
@@ -108,6 +167,27 @@ def _build_services(tmp_path, *, api: FakeReconciliationApi):
     proposal_service = ProposalService(session_factory)
     reconciliation_service = ReconciliationService(
         broker_service=broker_service,
+        broker_provider="trading212",
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+    return session_factory, broker_service, pending_action_service, proposal_service, reconciliation_service
+
+
+def _build_alpaca_services(tmp_path, *, api: FakeAlpacaReconciliationApi):
+    engine = build_engine(f"sqlite:///{tmp_path / 'reconcile-alpaca.db'}")
+    ensure_schema(engine)
+    session_factory = build_session_factory(engine)
+    broker_service = AlpacaBrokerService(api)  # type: ignore[arg-type]
+    pending_action_service = PendingActionService(
+        session_factory,
+        broker_service=broker_service,
+        broker_services_by_provider={"alpaca": broker_service},
+    )
+    proposal_service = ProposalService(session_factory)
+    reconciliation_service = ReconciliationService(
+        broker_service=broker_service,
+        broker_provider="alpaca",
         pending_action_service=pending_action_service,
         proposal_service=proposal_service,
     )
@@ -295,3 +375,82 @@ def test_reconciliation_maps_terminal_remote_statuses(
     assert detail.proposal.status == expected_proposal_status
     assert detail.latest_execution_attempt is not None
     assert detail.latest_execution_attempt.status == expected_attempt_status
+
+
+def test_reconciliation_supports_alpaca_provider_refs(tmp_path) -> None:
+    historical = {
+        "id": "alpaca-401",
+        "symbol": "AAPL",
+        "qty": "1",
+        "filled_qty": "1",
+        "filled_avg_price": "180",
+        "side": "buy",
+        "status": "filled",
+        "type": "market",
+        "time_in_force": "day",
+        "client_order_id": "t212ai-test",
+        "created_at": "2026-04-28T12:00:00Z",
+    }
+    _session_factory, broker_service, pending_action_service, proposal_service, reconciliation_service = _build_alpaca_services(
+        tmp_path,
+        api=FakeAlpacaReconciliationApi(historical_orders=[historical]),
+    )
+    proposal = proposal_service.create_submit_order_proposal(
+        chat_id="123",
+        user_id=456,
+        intent_kind="propose_trade",
+        original_user_message="buy one share",
+        action_summary="BUY AAPL via MARKET order",
+        order_intent={"ticker": "AAPL", "side": "BUY", "quantity": "1"},
+        thesis="User requested a direct market order.",
+        risks=["Immediate execution risk"],
+        confidence=0.7,
+    )
+    prepared_order = broker_service.prepare_order(
+        order_type="MARKET",
+        side="BUY",
+        ticker="AAPL",
+        quantity="1",
+    )
+    pending_action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=456,
+        prepared_order=prepared_order,
+        original_user_message="buy one share",
+        summary_text="Prepared buy order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        broker_provider="alpaca",
+    )
+    proposal_service.attach_pending_action(
+        proposal.proposal_id,
+        pending_action_id=pending_action.action_id,
+    )
+    decision = pending_action_service.approve_and_execute(
+        pending_action.action_id,
+        chat_id="123",
+        user_id=456,
+    )
+    updated_action = decision.action
+    assert updated_action is not None
+    proposal_service.record_execution_attempt(
+        proposal_id=proposal.proposal_id,
+        pending_action_id=updated_action.action_id,
+        broker_provider=updated_action.broker_provider,
+        action_kind=ProposalActionKind.SUBMIT_ORDER,
+        status=ExecutionAttemptStatus.SUBMITTED,
+        broker_order_ref="alpaca-401",
+        broker_response=updated_action.broker_result,
+    )
+    proposal_service.mark_submitted(proposal.proposal_id)
+
+    result = reconciliation_service.reconcile_once()
+    action = pending_action_service.get_action(updated_action.action_id)
+    detail = proposal_service.get_proposal(proposal.proposal_id)
+
+    assert result.finalized_actions == 1
+    assert action is not None
+    assert action.state == PendingActionState.RECONCILED
+    assert detail is not None
+    assert detail.proposal.status == ProposalStatus.RECONCILED
+    assert detail.latest_execution_attempt is not None
+    assert detail.latest_execution_attempt.status == ExecutionAttemptStatus.FILLED

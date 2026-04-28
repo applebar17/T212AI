@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from t212ai.brokers.models import BrokerOrderActionResult, PreparedBrokerOrder
 from t212ai.brokers.trading212.models import (
     Order,
     OrderActionResult,
@@ -152,3 +153,72 @@ def test_pending_action_service_filters_awaiting_actions_by_chat_and_user(tmp_pa
     assert [item.action_id for item in matching] == [action.action_id]
     assert other_user == []
     assert other_chat == []
+
+
+def test_pending_action_service_executes_alpaca_prepared_order_with_provider_mapping(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'pending-actions-alpaca.db'}")
+    ensure_schema(engine)
+
+    class FakeAlpacaExecutionBroker:
+        def __init__(self) -> None:
+            self.submitted_orders: list[PreparedBrokerOrder] = []
+
+        def submit_prepared_order(self, prepared_order: PreparedBrokerOrder) -> BrokerOrderActionResult:
+            self.submitted_orders.append(prepared_order)
+            return BrokerOrderActionResult(
+                broker_provider="alpaca",
+                action="submit_order",
+                status="accepted",
+                order_id="alpaca-order-1",
+                message="Submitted to Alpaca.",
+            )
+
+        def cancel_order(self, order_ref: str) -> BrokerOrderActionResult:
+            return BrokerOrderActionResult(
+                broker_provider="alpaca",
+                action="cancel_order",
+                status="accepted",
+                order_id=order_ref,
+                message="Cancelled.",
+            )
+
+    broker = FakeAlpacaExecutionBroker()
+    service = PendingActionService(
+        build_session_factory(engine),
+        broker_services_by_provider={"alpaca": broker},
+    )
+    action = service.create_submit_action(
+        chat_id="123",
+        user_id=456,
+        prepared_order=PreparedBrokerOrder(
+            broker_provider="alpaca",
+            order_type="LIMIT",
+            side="BUY",
+            ticker="AAPL",
+            quantity=Decimal("1"),
+            signed_quantity=Decimal("1"),
+            limit_price=Decimal("180"),
+            time_in_force="DAY",
+            extended_hours=False,
+            request_payload={
+                "symbol": "AAPL",
+                "qty": "1",
+                "side": "buy",
+                "type": "limit",
+                "time_in_force": "day",
+                "limit_price": "180",
+                "client_order_id": "t212ai-test",
+            },
+            order_fingerprint="alpaca1234567890",
+        ),
+        original_user_message="buy apple",
+        summary_text="Prepared AAPL order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        broker_provider="alpaca",
+    )
+
+    result = service.approve_and_execute(action.action_id, chat_id="123", user_id=456)
+
+    assert result.status == PendingActionDecisionStatus.SUBMITTED
+    assert broker.submitted_orders[0].broker_provider == "alpaca"
+    assert broker.submitted_orders[0].request_payload["client_order_id"] == "t212ai-test"

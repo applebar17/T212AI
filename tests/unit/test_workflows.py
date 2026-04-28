@@ -150,7 +150,7 @@ def test_pending_orders_review_workflow_flags_old_and_partial_orders() -> None:
     assert result.order_count == 2
     assert result.attention_order_count == 2
     assert result.status_breakdown == {"NEW": 1, "PARTIALLY_FILLED": 1}
-    assert result.orders[0].order_id == 101
+    assert result.orders[0].order_id == "101"
     assert "Order is partially filled." in result.orders[0].attention_flags
     assert "Order has been open for more than 24 hours." in result.orders[0].attention_flags
     assert "Market order is still pending more than 1 hour after creation." in result.orders[1].attention_flags

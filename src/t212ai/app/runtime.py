@@ -11,6 +11,8 @@ from t212ai.agent import (
     MainOrchestratorAgent,
     build_specialist_agents,
 )
+from t212ai.alpaca import AlpacaBrokerClient, AlpacaMarketDataClient
+from t212ai.alpaca.broker import AlpacaBrokerService
 from t212ai.agent.tooling import SpecialistTooling, build_specialist_tooling
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.calculator import CalculatorService
@@ -88,6 +90,8 @@ class AppRuntime:
     calculator_agent: CalculatorAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
+    alpaca_broker_client: AlpacaBrokerClient | None = None
+    alpaca_broker_service: AlpacaBrokerService | None = None
     broker_read_service: BrokerReadService | None = None
     broker_execution_service: BrokerExecutionService | None = None
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None
@@ -192,17 +196,30 @@ def _build_genai_stack(runtime: AppRuntime) -> None:
 
 
 def _build_broker_stack(runtime: AppRuntime) -> None:
-    if runtime.settings.broker_provider != "trading212":
+    provider = str(runtime.settings.broker_provider or "").strip().lower()
+    if provider == "none":
         return
-    try:
-        client = Trading212Client.from_settings(runtime.settings)
-        service = Trading212BrokerService(client)
-    except Exception as exc:
-        runtime.component_errors["trading212"] = str(exc)
-        return
+    if provider == "trading212":
+        try:
+            client = Trading212Client.from_settings(runtime.settings)
+            service = Trading212BrokerService(client)
+        except Exception as exc:
+            runtime.component_errors["trading212"] = str(exc)
+            return
 
-    runtime.trading212_client = client
-    runtime.trading212_service = service
+        runtime.trading212_client = client
+        runtime.trading212_service = service
+        return
+    if provider == "alpaca":
+        try:
+            client = AlpacaBrokerClient.from_settings(runtime.settings)
+            service = AlpacaBrokerService(client)
+        except Exception as exc:
+            runtime.component_errors["alpaca_broker"] = str(exc)
+            return
+
+        runtime.alpaca_broker_client = client
+        runtime.alpaca_broker_service = service
 
 
 def _build_database_stack(runtime: AppRuntime) -> None:
@@ -227,8 +244,6 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
 
     if runtime.settings.market_data_provider == "alpaca":
         try:
-            from t212ai.alpaca.market_data import AlpacaMarketDataClient
-
             runtime.alpaca_market_data_client = AlpacaMarketDataClient.from_settings(
                 runtime.settings
             )
@@ -270,9 +285,13 @@ def _build_toolbox_stack(runtime: AppRuntime) -> None:
 
 def _build_capability_stack(runtime: AppRuntime) -> None:
     broker_provider = runtime.config_assessment.providers["broker"]
-    if broker_provider.ready and runtime.trading212_service is not None:
-        runtime.broker_read_service = runtime.trading212_service
-        runtime.broker_execution_service = runtime.trading212_service
+    if broker_provider.ready:
+        if runtime.trading212_service is not None:
+            runtime.broker_read_service = runtime.trading212_service
+            runtime.broker_execution_service = runtime.trading212_service
+        elif runtime.alpaca_broker_service is not None:
+            runtime.broker_read_service = runtime.alpaca_broker_service
+            runtime.broker_execution_service = runtime.alpaca_broker_service
 
     if (
         runtime.config_assessment.capabilities["market_data"].available
@@ -362,9 +381,14 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
 
 def _build_workflow_stack(runtime: AppRuntime) -> None:
     if runtime.broker_read_service is not None:
-        runtime.portfolio_summary_workflow = PortfolioSummaryWorkflow(runtime.broker_read_service)
+        provider_label = _display_broker_name(runtime.settings.broker_provider)
+        runtime.portfolio_summary_workflow = PortfolioSummaryWorkflow(
+            runtime.broker_read_service,
+            provider_label=provider_label,
+        )
         runtime.pending_orders_review_workflow = PendingOrdersReviewWorkflow(
-            runtime.broker_read_service
+            runtime.broker_read_service,
+            provider_label=provider_label,
         )
     if runtime.db_session_factory is not None:
         runtime.pending_action_service = PendingActionService(
@@ -391,12 +415,13 @@ def _build_calculator_stack(runtime: AppRuntime) -> None:
 
 def _build_reconciliation_stack(runtime: AppRuntime) -> None:
     if (
-        runtime.trading212_service is None
+        runtime.broker_read_service is None
         or runtime.pending_action_service is None
     ):
         return
     runtime.reconciliation_service = ReconciliationService(
-        broker_service=runtime.trading212_service,
+        broker_service=runtime.broker_read_service,
+        broker_provider=runtime.settings.broker_provider,
         pending_action_service=runtime.pending_action_service,
         proposal_service=runtime.proposal_service,
     )
@@ -476,3 +501,12 @@ def _capability_provider(runtime: AppRuntime, name: str) -> str | None:
     if capability is None:
         return None
     return capability.selected_provider
+
+
+def _display_broker_name(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "trading212":
+        return "Trading 212"
+    if normalized == "alpaca":
+        return "Alpaca"
+    return str(provider or "Broker").replace("_", " ").strip().title() or "Broker"

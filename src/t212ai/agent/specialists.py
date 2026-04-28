@@ -64,7 +64,7 @@ class PortfolioAnalystAgent(BaseAgent):
                     "and attention items."
                 ),
                 guidelines=(
-                    "Use Trading 212 as broker-authoritative state. For attention scans, "
+                    "Use the configured broker as account-authoritative state. For attention scans, "
                     "request fresh market/news context before making recommendations."
                 ),
                 toolbox_summary=toolbox_summary or (
@@ -105,7 +105,7 @@ class PortfolioAnalystAgent(BaseAgent):
         except WorkflowExecutionError as exc:
             return AgentResponse(
                 final_answer=(
-                    "I couldn't retrieve the Trading 212 portfolio summary. "
+                    "I couldn't retrieve the broker portfolio summary. "
                     f"Reason: {exc}. Hint: {exc.hint}"
                 ),
                 selected_agent=self.name,
@@ -178,7 +178,7 @@ class OrderAgent(BaseAgent):
         resolved_execution_service = broker_execution_service or broker_service
         resolved_provider = broker_provider
         if broker_service is not None and broker_provider == "broker":
-            resolved_provider = "trading212"
+            resolved_provider = getattr(broker_service, "provider_name", "broker")
         self.broker_read_service = resolved_read_service
         self.broker_execution_service = resolved_execution_service
         self.broker_provider = resolved_provider
@@ -206,7 +206,7 @@ class OrderAgent(BaseAgent):
             except WorkflowExecutionError as exc:
                 return AgentResponse(
                     final_answer=(
-                        "I couldn't review pending Trading 212 orders. "
+                        "I couldn't review pending broker orders. "
                         f"Reason: {exc}. Hint: {exc.hint}"
                     ),
                     selected_agent=self.name,

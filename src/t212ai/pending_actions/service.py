@@ -165,14 +165,21 @@ class PendingActionService:
                 if row.state == PendingActionState.AWAITING_APPROVAL.value
             ]
 
-    def list_actions_for_reconciliation(self, *, limit: int = 100) -> list[PendingAction]:
+    def list_actions_for_reconciliation(
+        self,
+        *,
+        limit: int = 100,
+        broker_provider: str | None = None,
+    ) -> list[PendingAction]:
         with self._session_scope() as session:
-            query = (
-                select(PendingActionRow)
-                .where(PendingActionRow.state == PendingActionState.SUBMITTED.value)
-                .order_by(PendingActionRow.updated_at.asc())
-                .limit(max(1, int(limit)))
+            query = select(PendingActionRow).where(
+                PendingActionRow.state == PendingActionState.SUBMITTED.value
             )
+            if broker_provider:
+                query = query.where(
+                    PendingActionRow.broker_provider == str(broker_provider).strip().lower()
+                )
+            query = query.order_by(PendingActionRow.updated_at.asc()).limit(max(1, int(limit)))
             rows = list(session.scalars(query).all())
             return [_to_model(row) for row in rows]
 

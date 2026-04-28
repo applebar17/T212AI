@@ -43,6 +43,8 @@ from .protocols import Trading212ApiProtocol
 class Trading212BrokerService:
     """Composes low-level API calls into stable application operations."""
 
+    provider_name = "trading212"
+
     def __init__(self, api: Trading212ApiProtocol) -> None:
         self.api = api
 

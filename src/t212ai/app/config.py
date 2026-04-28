@@ -337,12 +337,6 @@ def _resolve_market_data_provider(source: Mapping[str, str]) -> str:
     explicit = str(source.get("MARKET_DATA_PROVIDER", "")).strip().lower()
     if explicit:
         return explicit
-    has_alpaca = any(
-        bool(str(source.get(key, "")).strip())
-        for key in ("ALPACA_API_KEY", "ALPACA_API_SECRET")
-    )
-    if has_alpaca and "YAHOO_ENABLED" not in source:
-        return "alpaca"
     if "YAHOO_ENABLED" in source:
         return "yahoo" if _env_bool_from_source(source, "YAHOO_ENABLED", False) else "none"
     return "yahoo"
