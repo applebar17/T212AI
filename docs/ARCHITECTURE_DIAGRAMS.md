@@ -33,6 +33,7 @@ flowchart TD
     ORCH --> MEMORY[Guideline Memory Agent]
 
     RT --> T212[Trading 212 Service]
+    RT --> ALPACA[Alpaca Market Data and Broker Services]
     RT --> YAHOO[Yahoo Client]
     RT --> ALPHA[Alpha Vantage Client]
     RT --> REDDIT[Reddit Research Service]
@@ -72,7 +73,9 @@ flowchart LR
     RT --> CALCAGENT[Standalone Calculator Agent]
 
     RT --> T212[Trading 212 Client and Service]
+    RT --> AB[Alpaca Broker Client and Service]
     RT --> Y[Yahoo Client]
+    RT --> AM[Alpaca Market Data Client]
     RT --> A[Alpha Vantage Client]
     RT --> RD[Reddit Client and Service]
     RT --> W1[Portfolio Summary Workflow]
@@ -87,7 +90,7 @@ flowchart LR
     classDef wired fill:#dff3e4,stroke:#2d6a4f,color:#1b4332;
     classDef partial fill:#fff3cd,stroke:#b08900,color:#5f3b00;
 
-    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,DB,PACT,PROP,RECON,CALCSVC,GENAI,REASON,JUDGE,ORCH,CALCAGENT,T212,Y,A,RD,BOT,TG,W1,W2 wired;
+    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,DB,PACT,PROP,RECON,CALCSVC,GENAI,REASON,JUDGE,ORCH,CALCAGENT,T212,AB,Y,AM,A,RD,BOT,TG,W1,W2 wired;
 ```
 
 ## 3. Current Startup And Worker Surfaces
@@ -184,7 +187,7 @@ sequenceDiagram
 flowchart TB
     A[Runtime is composed] --> B[Agents can route and plan]
     B --> C[Execution safety baseline is in place]
-    C --> D[Proposal persistence and reconciliation baseline are in place]
+    C --> D[Proposal persistence and broker-aware reconciliation baseline are in place]
     D --> E[Calculator baseline exists as a standalone specialist]
     E --> F[But market context is still not unified]
     F --> G[Company and market thin flows are still missing]
@@ -196,9 +199,9 @@ flowchart TB
 ```mermaid
 flowchart TD
     NOW[Current repo] --> A[Runtime-owned app graph]
-    NOW --> B[Approval-safe order flow]
+    NOW --> B[Approval-safe order flow for Trading 212 and Alpaca]
     NOW --> C[Proposal and execution journaling]
-    NOW --> D[Reconciliation worker baseline]
+    NOW --> D[Broker-provider-aware reconciliation worker baseline]
     NOW --> E[Standalone calculator agent]
 
     A --> NEXT1[Unified market-context layer]

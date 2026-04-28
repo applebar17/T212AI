@@ -71,7 +71,9 @@ Implemented:
 - GenAI client wiring from `AppSettings`
 - `AgentReasoner`, `AgentJudge`, `MainOrchestratorAgent`, and standalone `CalculatorAgent` wiring
 - Trading 212 runtime wiring
+- Alpaca broker runtime wiring
 - Yahoo runtime wiring
+- Alpaca market-data runtime wiring
 - Alpha Vantage runtime wiring
 - Reddit runtime wiring
 
@@ -151,15 +153,21 @@ Implemented:
 - Trading 212 low-level API client
 - Trading 212 broker service and tools
 - Trading 212 historical-order read surface for reconciliation
+- Alpaca shared HTTP base
+- Alpaca market-data client and service
+- Alpaca broker client and service
 - Yahoo client and tools
 - Alpha Vantage client and intelligence tools
 - Reddit client, research service, and tools
 
 Current status:
 - provider building blocks exist and are runtime-wired
-- Trading 212 supports both:
-  - low-level broker tools
-  - higher-level conversational order-action tools
+- the generic market-data facade can run on Yahoo or Alpaca
+- the generic broker facade can run on Trading 212 or Alpaca
+- both broker providers support:
+  - broker read capability
+  - generic order preparation and execution capability
+  - approval-safe pending-action execution
   - reconciliation reads against pending orders and recent historical orders
 
 Missing:
@@ -212,20 +220,24 @@ Missing:
 ### 8. Execution And Approval Model
 
 Implemented:
+- generic broker order tools
 - Trading 212 `prepare_order`
 - Trading 212 `place_order`
 - Trading 212 `cancel_order`
+- Alpaca `prepare_order`
+- Alpaca `place_order`
+- Alpaca `cancel_order`
 - state-changing tool gating
 - persistent pending-action records
 - persistent proposal records and execution journaling
-- higher-level Trading 212 order-action tools:
-  - `t212_prepare_order_action`
-  - `t212_prepare_cancel_action`
+- broker-neutral order-action tools:
+  - `broker_prepare_order_action`
+  - `broker_prepare_cancel_action`
 - Telegram approval buttons
 - Telegram text fallback approval/rejection
 - deterministic approval resolution against exact stored prepared actions
 - optional Telegram user-level authorization
-- backend reconciliation against remote pending orders and recent order history
+- backend reconciliation against remote pending orders and recent order history for both broker providers
 
 Current status:
 - execution safety is no longer only at the raw tool level
@@ -234,7 +246,7 @@ Current status:
   - persist pending action
   - approve through button or chat fallback
   - execute that exact stored action without a fresh LLM redesign
-  - reconcile local state against Trading 212 remote state later
+  - reconcile local state against the active broker remote state later
 
 Current internal state shape:
 - `awaiting_approval`
@@ -256,7 +268,7 @@ Missing:
 | Bootstrap CLI | public setup + diagnostics + run surface | baseline done |
 | Runtime composition | runtime-owned app graph | baseline done |
 | Telegram bridge | natural-language front door | baseline done, still thin |
-| Trading 212 integration | normalized broker interface + tools | baseline done |
+| Broker integration | generic broker interface + two providers | baseline done |
 | External data | multi-provider research/context layer | baseline done, not unified |
 | Orchestrator/specialists | routed agent-of-agents design | done at baseline |
 | Persistent memory | long-term guidelines/config memory | done at baseline |

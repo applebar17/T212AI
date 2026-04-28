@@ -196,3 +196,163 @@ The system is ready for wider use when:
 - how aggressive the planner should be before it asks clarifying questions
 - when to add deeper company research specialists
 - what summary or journaling data should be retained for weekly highlights
+
+## Provider Abstraction And Alpaca Roadmap
+
+Status: settled direction, implementation pending by waves.
+
+### Confirmed Direction
+
+- provider selection should be capability-driven, not vendor-driven
+- agent-facing tools should converge toward stable domain tools
+- tool and toolbox visibility must be driven by runtime configuration
+- Yahoo remains the default market-data baseline because it is free and accessible
+- Alpaca should be supported as:
+  - an optional better market-data provider
+  - a future broker provider
+- in v1, use one primary provider per capability
+- existing providers remain valid and should be reused during migration
+
+### Capability Model
+
+The app should move toward these primary configurable capabilities:
+
+- `BROKER_PROVIDER=trading212|alpaca|none`
+- `MARKET_DATA_PROVIDER=yahoo|alpaca|none`
+- `MARKET_INTELLIGENCE_PROVIDER=alpha_vantage|none`
+- `DISCLOSURE_PROVIDER=sec_edgar|none`
+- `COMMUNITY_PROVIDER=reddit|none`
+- `SEARCH_PROVIDER=searxng|none`
+
+For v1:
+
+- Yahoo is the baseline `MARKET_DATA_PROVIDER`
+- Alpaca, when configured, becomes the preferred market-data provider
+- Trading 212 remains the baseline `BROKER_PROVIDER`
+- Alpha Vantage, SEC EDGAR, Reddit, and SearXNG remain optional capability-specific providers
+
+### Wave 1: Runtime-Driven Tool Visibility
+
+Deliverables:
+
+- audit current provider/tool wiring
+- stop exposing non-configured tools to agents
+- replace static always-on toolboxes with runtime/config-aware toolbox construction
+- ensure agent toolbox summaries only mention configured capabilities
+- preserve current provider-specific tool handlers during this wave
+- update CLI doctor/configure flow so enabled providers are smoke-tested and marked ready or invalid
+
+Exit criteria:
+
+- if Alpha Vantage is not configured, Alpha Vantage tools are not visible or callable
+- if Reddit is not configured, Reddit tools are not visible or callable
+- if SearXNG is not configured, search tools are not visible or callable
+- toolbox visibility matches the runtime capability graph
+
+### Wave 2: Capability Interfaces
+
+Deliverables:
+
+- introduce app-level capability protocols/interfaces
+- split broker contracts into at least:
+  - `BrokerReadService`
+  - `BrokerExecutionService`
+- introduce a `MarketDataService` interface for quote, bars, and volume monitoring
+- keep existing provider implementations, but start adapting them to those interfaces
+- do not remove current provider-specific services yet
+
+Exit criteria:
+
+- runtime can reason in terms of capabilities instead of raw provider classes
+- the app has stable internal contracts for broker and market-data behavior
+
+### Wave 3: Generic Market-Data Tool Facade
+
+Deliverables:
+
+- add provider-neutral market-data tools such as:
+  - `market_get_quote`
+  - `market_get_bars`
+  - `market_get_volume_monitor`
+  - `market_get_market_snapshot`
+- map those tools to the configured `MARKET_DATA_PROVIDER`
+- keep Yahoo as the default implementation
+- keep existing Yahoo-specific tools during transition where still needed
+
+Exit criteria:
+
+- agents can access market data through stable capability tools
+- Yahoo remains the no-config-surprise baseline
+
+### Wave 4: Alpaca Market-Data Integration
+
+Deliverables:
+
+- add `AlpacaMarketDataClient`
+- add Alpaca adapter/service implementing the market-data capability
+- support candle/bar retrieval and volume-monitoring-friendly market data
+- wire Alpaca into CLI configuration and doctor checks
+- allow users to choose Alpaca as `MARKET_DATA_PROVIDER`
+
+Exit criteria:
+
+- Alpaca can fully back the generic market-data tool facade
+- Yahoo remains available as the baseline alternative
+
+### Wave 5: Generic Broker Tool Facade
+
+Deliverables:
+
+- add provider-neutral broker tools such as:
+  - `broker_get_portfolio_snapshot`
+  - `broker_list_pending_orders`
+  - `broker_prepare_order_action`
+  - `broker_prepare_cancel_action`
+- map those tools to the configured broker capability
+- adapt current Trading 212 flow to the generic broker tool facade
+- keep execution safety, approval, proposals, and reconciliation unchanged in behavior
+
+Exit criteria:
+
+- agents can use broker capability tools without depending on Trading 212-specific names
+- existing Trading 212 execution safety flow still works through the new abstraction
+
+### Wave 6: Alpaca Broker Integration
+
+Status:
+- implemented in the current repo state
+
+Deliverables:
+
+- add `AlpacaBrokerClient`
+- add Alpaca broker adapter implementing broker read and execution capabilities
+- wire Alpaca into CLI configuration and provider smoke tests
+- support choosing Alpaca as `BROKER_PROVIDER`
+- define and document any provider-specific behavioral differences that do not fit the common contract exactly
+
+Exit criteria:
+
+- runtime can operate with either Trading 212 or Alpaca as the active broker provider
+- the common broker tool facade works for both providers on supported operations
+
+### Wave 7: Migration And Cleanup
+
+Deliverables:
+
+- migrate specialist agents and toolbox summaries to the capability-based tool names
+- reduce direct provider-specific tool exposure in agent-facing toolboxes
+- retain provider-specific tools only where they are intentionally specialized
+- update architecture docs and developer guidelines
+
+Exit criteria:
+
+- the agent layer thinks primarily in capabilities, not vendors
+- provider-specific tools are implementation details or explicit specialist exceptions
+
+### Rules To Preserve Throughout The Migration
+
+- do not break the existing Trading 212 order-safety flow
+- do not expose non-configured tools to the LLM
+- keep Yahoo as the default market-data baseline unless the user explicitly configures Alpaca
+- prefer additive migration over large rewrites
+- keep CLI/provider smoke tests aligned with runtime capability checks
