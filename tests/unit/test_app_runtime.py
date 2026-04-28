@@ -148,6 +148,8 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.calculator_service is not None
+    assert runtime.sec_edgar_client is not None
+    assert runtime.insider_manager is not None
     assert runtime.genai_client is None
     assert runtime.calculator_agent is None
     assert runtime.main_orchestrator is None
@@ -183,6 +185,8 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.proposal_service is not None
     assert runtime.calculator_service is not None
     assert runtime.calculator_agent is not None
+    assert runtime.sec_edgar_client is not None
+    assert runtime.insider_manager is not None
     assert runtime.has_agent_runtime
     assert runtime.component_errors == {}
 
@@ -230,6 +234,8 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.alpha_vantage_client is not None
     assert runtime.reddit_client is not None
     assert runtime.reddit_service is not None
+    assert runtime.sec_edgar_client is not None
+    assert runtime.insider_manager is not None
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime
 

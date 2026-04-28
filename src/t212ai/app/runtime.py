@@ -14,6 +14,7 @@ from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
 from t212ai.calculator import CalculatorService
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
+from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
 from t212ai.data_sources.yahoo import YahooFinanceClient
 from t212ai.genai import GenAIClient, genai_settings_from_app_settings
 from t212ai.guidelines.service import (
@@ -72,6 +73,8 @@ class AppRuntime:
     alpha_vantage_client: AlphaVantageClient | None = None
     reddit_client: RedditClient | None = None
     reddit_service: RedditResearchService | None = None
+    sec_edgar_client: SecEdgarClient | None = None
+    insider_manager: EdgarInsiderManager | None = None
     component_errors: dict[str, str] = field(default_factory=dict)
     startup_notes: tuple[str, ...] = ()
 
@@ -199,6 +202,12 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
             runtime.reddit_service = RedditResearchService(client)
         except Exception as exc:
             runtime.component_errors["reddit"] = str(exc)
+    try:
+        client = SecEdgarClient.from_settings(runtime.settings)
+        runtime.sec_edgar_client = client
+        runtime.insider_manager = EdgarInsiderManager(client)
+    except Exception as exc:
+        runtime.component_errors["sec_edgar"] = str(exc)
 
 
 def _build_workflow_stack(runtime: AppRuntime) -> None:

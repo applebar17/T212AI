@@ -8,13 +8,13 @@ from functools import partial
 from typing import Any, Callable
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
+from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
     _trace_tool_function_inputs,
     _trace_tool_function_outputs,
     set_trace_metadata,
     traceable,
 )
-from t212ai.genai.tools.tools import ToolBox, build_tool_index
 
 from .client import AlphaVantageApiError, AlphaVantageClient
 from .models import AlphaVantageResponse

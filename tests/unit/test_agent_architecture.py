@@ -191,6 +191,17 @@ def test_specialist_agent_returns_standardized_response() -> None:
     assert "portfolio_analyst prepared a plan" in response.final_answer
 
 
+def test_market_analyst_agent_exposes_market_analyst_toolbox() -> None:
+    from t212ai.agent import MarketAnalystAgent
+
+    agent = MarketAnalystAgent(_reasoner())
+
+    assert agent.profile.toolbox is not None
+    assert agent.profile.toolbox.name == "market_analyst"
+    assert "edgar_company_disclosure_snapshot" in agent.profile.toolbox.tools_by_name
+    assert "yahoo_volume_monitor" in agent.profile.toolbox.tools_by_name
+
+
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
     agent = PortfolioAnalystAgent(
         _reasoner(),

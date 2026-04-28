@@ -18,6 +18,7 @@ from t212ai.calculator import (
     build_calculator_tool_mapping,
 )
 from t212ai.genai.models import ToolResult
+from t212ai.genai.tools import MARKET_ANALYST_TOOLBOX
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
     PendingActionService,
@@ -611,11 +612,13 @@ class MarketAnalystAgent(BaseAgent):
                     "price context from slower research enrichment."
                 ),
                 toolbox_summary=(
-                    "market_data: Yahoo market data and analytics; "
-                    "Alpha Vantage commodities and intelligence; web search for source expansion."
+                    "Market analyst toolbox: Yahoo market snapshot and relative-volume monitoring; "
+                    "Alpha Vantage most-actively-traded context; SEC EDGAR insider, stake, and "
+                    "official disclosure snapshots; web search and article scraping for expansion."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:market"),
+                toolbox=MARKET_ANALYST_TOOLBOX,
             ),
             guideline_service=guideline_service,
         )
