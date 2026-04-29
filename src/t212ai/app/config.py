@@ -163,6 +163,8 @@ class AppSettings:
     alpha_vantage_enabled: bool = False
     reddit_enabled: bool = False
     searxng_enabled: bool = False
+    app_log_level: str = "INFO"
+    app_log_file_path: str = "data/logs/t212ai.log"
     guideline_memory_path: str = "data/guidelines/guidelines.json"
     database_url: str = "sqlite:///./data/t212ai.db"
     searxng_base_url: str | None = None
@@ -319,6 +321,8 @@ def get_app_settings(
         == "alpha_vantage",
         reddit_enabled=_resolve_community_provider(source) == "reddit",
         searxng_enabled=_resolve_search_provider(source) == "searxng",
+        app_log_level=source.get("APP_LOG_LEVEL", "INFO"),
+        app_log_file_path=source.get("APP_LOG_FILE_PATH", "data/logs/t212ai.log"),
         guideline_memory_path=source.get(
             "GUIDELINE_MEMORY_PATH",
             "data/guidelines/guidelines.json",

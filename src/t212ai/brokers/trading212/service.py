@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
+import logging
 from typing import Any
 
 from t212ai.brokers.models import (
@@ -38,6 +39,8 @@ from .models import (
     TimeValidity,
 )
 from .protocols import Trading212ApiProtocol
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Trading212BrokerService:
@@ -146,6 +149,13 @@ class Trading212BrokerService:
         self,
         prepared_order: PreparedBrokerOrder,
     ) -> BrokerOrderActionResult:
+        LOGGER.info(
+            "Submitting Trading 212 order ticker=%s order_type=%s signed_quantity=%s fingerprint=%s",
+            prepared_order.ticker,
+            prepared_order.order_type,
+            prepared_order.signed_quantity,
+            prepared_order.order_fingerprint,
+        )
         order_type = prepared_order.order_type
         payload = prepared_order.request_payload
         if order_type == BrokerOrderType.MARKET:
@@ -159,6 +169,12 @@ class Trading212BrokerService:
         else:  # pragma: no cover - enum exhaustiveness guard
             raise ValueError(f"Unsupported order type: {order_type}")
 
+        LOGGER.info(
+            "Trading 212 order accepted ticker=%s order_id=%s status=%s",
+            prepared_order.ticker,
+            order.id,
+            order.status,
+        )
         return BrokerOrderActionResult(
             broker_provider="trading212",
             action="submit_order",

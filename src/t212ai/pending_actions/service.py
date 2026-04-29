@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import logging
 from typing import Any, Iterator
 from uuid import uuid4
 
@@ -34,6 +35,7 @@ class _Unset:
 
 
 _UNSET = _Unset()
+LOGGER = logging.getLogger(__name__)
 
 
 class PendingActionService:
@@ -86,6 +88,14 @@ class PendingActionService:
         with self._session_scope() as session:
             session.add(row)
             session.flush()
+            LOGGER.info(
+                "Created pending submit action action_id=%s provider=%s chat_id=%s user_id=%s summary=%s",
+                action_id,
+                resolved_provider,
+                chat_id,
+                user_id,
+                summary_text,
+            )
             return _to_model(row)
 
     def create_cancel_action(
@@ -276,19 +286,38 @@ class PendingActionService:
 
             row.state = PendingActionState.APPROVED.value
             row.updated_at = _utc_now()
+            LOGGER.info(
+                "Approving pending action action_id=%s provider=%s kind=%s chat_id=%s user_id=%s summary=%s",
+                row.action_id,
+                row.broker_provider,
+                row.kind,
+                chat_id,
+                user_id,
+                row.summary_text,
+            )
             try:
                 broker_result = self._execute_row(row, broker_service=broker_service)
             except Exception as exc:
                 row.state = PendingActionState.FAILED.value
-                row.error_message = str(exc)
+                row.error_message = _execution_error_message(exc)
                 row.updated_at = _utc_now()
+                LOGGER.exception(
+                    "Pending action execution failed action_id=%s provider=%s kind=%s summary=%s",
+                    row.action_id,
+                    row.broker_provider,
+                    row.kind,
+                    row.summary_text,
+                )
                 session.flush()
                 action = _to_model(row)
                 return PendingActionDecisionResult(
                     status=PendingActionDecisionStatus.FAILED,
-                    message=f"Execution failed: {exc}",
+                    message=f"Execution failed: {_execution_error_message(exc)}",
                     action=action,
-                    edit_text=_finalized_text(action, f"Execution failed: {exc}"),
+                    edit_text=_finalized_text(
+                        action,
+                        f"Execution failed: {_execution_error_message(exc)}",
+                    ),
                 )
 
             row.state = PendingActionState.SUBMITTED.value
@@ -298,6 +327,13 @@ class PendingActionService:
                 sort_keys=True,
             )
             row.updated_at = _utc_now()
+            LOGGER.info(
+                "Submitted pending action action_id=%s provider=%s kind=%s broker_order_id=%s",
+                row.action_id,
+                row.broker_provider,
+                row.kind,
+                getattr(broker_result, "order_id", None),
+            )
             session.flush()
             action = _to_model(row)
             broker_name = _display_broker_name(action.broker_provider)
@@ -534,3 +570,24 @@ def _display_broker_name(provider: str) -> str:
     if str(provider).strip().lower() == "trading212":
         return "Trading 212"
     return str(provider or "broker").replace("_", " ").strip().title() or "Broker"
+
+
+def _execution_error_message(exc: Exception) -> str:
+    parts = [f"{exc.__class__.__name__}: {exc}"]
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None and str(status_code).strip():
+        parts.append(f"status_code={status_code}")
+    body = getattr(exc, "body", None)
+    if body is not None and str(body).strip():
+        parts.append(f"body={_truncate(str(body), 300)}")
+    code = getattr(exc, "code", None)
+    if code is not None and str(code).strip():
+        parts.append(f"code={code}")
+    return " | ".join(parts)
+
+
+def _truncate(value: str, limit: int) -> str:
+    raw = str(value)
+    if len(raw) <= limit:
+        return raw
+    return raw[: limit - 3] + "..."

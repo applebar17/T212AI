@@ -381,23 +381,26 @@ class OrderAgent(BaseAgent):
     ) -> BrokerOrderActionRequest | ToolResult:
         if action_request.action != BrokerOrderAction.PREPARE_SUBMIT_ORDER:
             return action_request
-        liquidation_requested = action_request.use_full_position_size or (
-            str(intent.entities.get("action", "")).strip().lower() == "liquidate"
+        side = str(action_request.side or "").strip().upper()
+        liquidation_intent = str(intent.entities.get("action", "")).strip().lower() == "liquidate"
+        full_position_requested = action_request.use_full_position_size or (
+            liquidation_intent and action_request.quantity in {None, ""}
         )
-        if not liquidation_requested:
+        position_lookup_requested = full_position_requested or side == "SELL"
+        if not position_lookup_requested:
             return action_request
         if self.broker_read_service is None:
             return _local_order_error(
-                "I recognized this as a full-position liquidation request, but broker "
-                "position data is unavailable so I can't resolve the live share quantity.",
+                "I recognized this as a sell/liquidation request, but broker "
+                "position data is unavailable so I can't resolve the live holding details.",
                 code="missing_broker_read_service",
-                hint="Configure broker read access, then retry the liquidation request.",
+                hint="Configure broker read access, then retry the sell/liquidation request.",
             )
         try:
             snapshot = self.broker_read_service.get_portfolio_snapshot()
         except Exception as exc:
             return _local_order_error(
-                "I recognized this as a full-position liquidation request, but I "
+                "I recognized this as a sell/liquidation request, but I "
                 f"couldn't load the current broker positions. Reason: {exc}",
                 code="portfolio_snapshot_unavailable",
             )
@@ -408,30 +411,30 @@ class OrderAgent(BaseAgent):
         )
         if position is None:
             return _local_order_error(
-                "I recognized this as a full-position liquidation request, but I couldn't "
+                "I recognized this as a sell/liquidation request, but I couldn't "
                 "match the target holding in the live broker positions.",
                 code="position_match_not_found",
                 hint="Retry using the broker ticker symbol, for example GOOGL instead of Alphabet.",
-            )
-        available_quantity = position.quantity_available_for_trading or position.quantity
-        if available_quantity is None or available_quantity <= 0:
-            return _local_order_error(
-                "I matched the target holding, but there is no positive quantity available to trade.",
-                code="position_quantity_unavailable",
             )
         resolved_ticker = (
             str(position.instrument.ticker or "").strip()
             if position.instrument is not None
             else ""
         ) or str(action_request.ticker or "").strip()
-        return action_request.model_copy(
-            update={
-                "side": "SELL",
-                "ticker": resolved_ticker,
-                "quantity": str(available_quantity),
-                "use_full_position_size": True,
-            }
-        )
+        updates: dict[str, Any] = {
+            "side": "SELL" if side == "SELL" or liquidation_intent else action_request.side,
+            "ticker": resolved_ticker,
+        }
+        if full_position_requested:
+            available_quantity = position.quantity_available_for_trading or position.quantity
+            if available_quantity is None or available_quantity <= 0:
+                return _local_order_error(
+                    "I matched the target holding, but there is no positive quantity available to trade.",
+                    code="position_quantity_unavailable",
+                )
+            updates["quantity"] = str(available_quantity)
+            updates["use_full_position_size"] = True
+        return action_request.model_copy(update=updates)
 
     def _create_submit_order_proposal(
         self,

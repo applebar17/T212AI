@@ -225,6 +225,7 @@ def ensure_runtime_directories(settings: AppSettings) -> tuple[Path, ...]:
     directories = {
         Path("data"),
         Path(settings.guideline_memory_path).expanduser().parent,
+        Path(settings.app_log_file_path).expanduser().parent,
     }
     sqlite_path = _sqlite_local_path(settings.database_url)
     if sqlite_path is not None:

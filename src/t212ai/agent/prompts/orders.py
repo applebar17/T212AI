@@ -12,8 +12,9 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     - For buy/sell/trade requests, choose prepare_submit_order.
     - For cancellation requests, choose prepare_cancel_order.
     - Do not confirm or execute; only prepare an action.
-    - For liquidation / close-position requests, set side=SELL and use_full_position_size=true.
-    - For full-position liquidation, prefer the broker position size instead of inventing a quantity.
+    - For liquidation / close-position requests, set side=SELL.
+    - If the user wants to exit the full position and does not provide a quantity, set use_full_position_size=true.
+    - If the user gives an explicit share quantity for a sell/liquidation request, preserve that quantity.
     - For cancellation, use target_order_ref when explicit, otherwise use selector latest, oldest, or only when the user's request clearly implies one.
     - For order submission, include order_type, side, ticker, quantity, limit_price, stop_price, time_in_force, and extended_hours when known.
     - For order submission, also include a short thesis, concise risks list, and confidence between 0 and 1.

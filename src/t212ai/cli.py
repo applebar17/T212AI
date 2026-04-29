@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from .app.config import (
     load_env_file,
     parse_env_file,
 )
+from .app.logging import configure_logging
 from .app.runtime import build_runtime
 
 
@@ -183,6 +185,8 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Local persistence",
         (
+            "APP_LOG_LEVEL",
+            "APP_LOG_FILE_PATH",
             "GUIDELINE_MEMORY_PATH",
             "DATABASE_URL",
         ),
@@ -281,6 +285,8 @@ SEARCH_SECTION_KEYS = (
 )
 
 STORAGE_SECTION_KEYS = (
+    "APP_LOG_LEVEL",
+    "APP_LOG_FILE_PATH",
     "DATABASE_URL",
     "GUIDELINE_MEMORY_PATH",
 )
@@ -471,6 +477,7 @@ def command_configure(args: argparse.Namespace) -> int:
 
 def command_doctor(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
     assessment = assess_settings(settings)
     preflight = preflight_run_bot(assessment)
     smoke_results = run_provider_smoke_tests(settings, assessment) if args.smoke else None
@@ -480,6 +487,8 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 def command_run_bot(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    logger = logging.getLogger(__name__)
     assessment = assess_settings(settings)
     preflight = preflight_run_bot(assessment)
     if not preflight.ok:
@@ -490,6 +499,12 @@ def command_run_bot(args: argparse.Namespace) -> int:
         load_env_file(args.env_file, override=True)
     ensure_runtime_directories(settings)
     runtime = build_runtime(settings)
+    logger.info(
+        "Starting Telegram bot broker_provider=%s llm_provider=%s log_file=%s",
+        settings.broker_provider,
+        settings.llm_provider,
+        settings.app_log_file_path,
+    )
 
     try:
         from .telegram import TelegramBotService
@@ -503,6 +518,7 @@ def command_run_bot(args: argparse.Namespace) -> int:
 
 def command_run_reconcile_once(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
     assessment = assess_settings(settings)
     preflight = preflight_reconcile(assessment, settings)
     if not preflight.ok:
@@ -526,6 +542,7 @@ def command_run_reconcile_once(args: argparse.Namespace) -> int:
 
 def command_run_worker(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
     assessment = assess_settings(settings)
     preflight = preflight_reconcile(assessment, settings)
     if not preflight.ok:
@@ -756,6 +773,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "SEARXNG_BASE_URL": existing_raw.get(
             "SEARXNG_BASE_URL",
             settings.searxng_base_url or "",
+        ),
+        "APP_LOG_LEVEL": existing_raw.get(
+            "APP_LOG_LEVEL",
+            settings.app_log_level,
+        ),
+        "APP_LOG_FILE_PATH": existing_raw.get(
+            "APP_LOG_FILE_PATH",
+            settings.app_log_file_path,
         ),
     }
     for legacy_key in (
@@ -1123,6 +1148,14 @@ def apply_configuration_wizard(
             "Customize storage paths?",
             default=False,
         ):
+            updates["APP_LOG_LEVEL"] = io_runtime.prompt(
+                "APP_LOG_LEVEL",
+                default=updates["APP_LOG_LEVEL"],
+            )
+            updates["APP_LOG_FILE_PATH"] = io_runtime.prompt(
+                "APP_LOG_FILE_PATH",
+                default=updates["APP_LOG_FILE_PATH"],
+            )
             updates["DATABASE_URL"] = io_runtime.prompt(
                 "DATABASE_URL",
                 default=updates["DATABASE_URL"],

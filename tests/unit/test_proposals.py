@@ -177,6 +177,41 @@ class LiquidationProposalGenAIClient(ProposalGenAIClient):
         )
 
 
+class PartialSellProposalGenAIClient(ProposalGenAIClient):
+    def generate_structured(
+        self,
+        schema: type,
+        system_prompt: str,
+        chat_message: object,
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> object:
+        if schema is Trading212OrderActionRequest:
+            return Trading212OrderActionRequest(
+                action="prepare_submit_order",
+                order_type="MARKET",
+                side="SELL",
+                ticker="GOOGL",
+                quantity="2",
+                time_validity="DAY",
+                extended_hours=False,
+                thesis="Reduce Alphabet exposure.",
+                risks=["Market execution risk"],
+                confidence=0.75,
+                use_full_position_size=False,
+            )
+        return super().generate_structured(
+            schema,
+            system_prompt,
+            chat_message,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+
 class LiquidationTrading212Api(FakeTrading212Api):
     def list_positions(self, *, ticker: str | None = None) -> list[Position]:
         del ticker
@@ -357,3 +392,45 @@ def test_order_agent_liquidation_resolves_full_position_quantity(tmp_path) -> No
     assert pending_action.prepared_order_payload is not None
     assert pending_action.prepared_order_payload["ticker"] == "GOOGL_US_EQ"
     assert pending_action.prepared_order_payload["quantity"] == 3.0
+
+
+def test_order_agent_partial_sell_resolves_broker_ticker_without_overriding_quantity(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'partial-sell-proposals.db'}")
+    ensure_schema(engine)
+    session_factory = build_session_factory(engine)
+    broker_service = Trading212BrokerService(LiquidationTrading212Api())
+    proposal_service = ProposalService(session_factory)
+    pending_action_service = PendingActionService(
+        session_factory,
+        broker_service=broker_service,
+    )
+    reasoner = AgentReasoner(PartialSellProposalGenAIClient())  # type: ignore[arg-type]
+    agent = OrderAgent(
+        reasoner,
+        broker_service=broker_service,
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="Liquidate 2 shares of alphabet at mkt price",
+            chat_id="123",
+            metadata={"telegram_user_id": "456"},
+        ),
+        intent=AgentIntent(kind=IntentKind.PLACE_ORDER, entities={"action": "liquidate"}),
+    )
+
+    proposal_id = response.artifacts["proposal_id"]
+    detail = proposal_service.get_proposal(proposal_id)
+    assert detail is not None
+    pending_action = pending_action_service.get_action(detail.proposal.pending_action_id or "")
+
+    assert response.metadata["workflow_status"] == "ok"
+    assert pending_action is not None
+    assert pending_action.prepared_order_payload is not None
+    assert pending_action.prepared_order_payload["ticker"] == "GOOGL_US_EQ"
+    assert pending_action.prepared_order_payload["quantity"] == 2.0
+    assert pending_action.prepared_order_payload["signedQuantity"] == -2.0
+    assert pending_action.prepared_order_payload["requestPayload"]["ticker"] == "GOOGL_US_EQ"
+    assert pending_action.prepared_order_payload["requestPayload"]["quantity"] == -2.0
