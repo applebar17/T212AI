@@ -142,8 +142,6 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
             "",
             "alpaca-paper-key",
             "alpaca-paper-secret",
-            "alpaca-live-key",
-            "alpaca-live-secret",
             "n",
             "n",
             "n",
@@ -160,8 +158,8 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     assert updates["ALPACA_ENVIRONMENT"] == "paper"
     assert updates["ALPACA_PAPER_API_KEY"] == "alpaca-paper-key"
     assert updates["ALPACA_PAPER_API_SECRET"] == "alpaca-paper-secret"
-    assert updates["ALPACA_LIVE_API_KEY"] == "alpaca-live-key"
-    assert updates["ALPACA_LIVE_API_SECRET"] == "alpaca-live-secret"
+    assert updates["ALPACA_LIVE_API_KEY"] == ""
+    assert updates["ALPACA_LIVE_API_SECRET"] == ""
     assert updates["YAHOO_ENABLED"] == "false"
 
 
@@ -175,8 +173,6 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
             "",
             "alpaca-paper-key",
             "alpaca-paper-secret",
-            "alpaca-live-key",
-            "alpaca-live-secret",
             "n",
             "y",
             "n",
@@ -194,8 +190,8 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
     assert updates["ALPACA_ENVIRONMENT"] == "paper"
     assert updates["ALPACA_PAPER_API_KEY"] == "alpaca-paper-key"
     assert updates["ALPACA_PAPER_API_SECRET"] == "alpaca-paper-secret"
-    assert updates["ALPACA_LIVE_API_KEY"] == "alpaca-live-key"
-    assert updates["ALPACA_LIVE_API_SECRET"] == "alpaca-live-secret"
+    assert updates["ALPACA_LIVE_API_KEY"] == ""
+    assert updates["ALPACA_LIVE_API_SECRET"] == ""
     assert updates["YAHOO_ENABLED"] == "false"
 
 
@@ -207,8 +203,6 @@ def test_apply_configuration_wizard_supports_trading212_environment_specific_cre
             "n",
             "1",
             "2",
-            "t212-demo-key",
-            "t212-demo-secret",
             "t212-live-key",
             "t212-live-secret",
             "y",
@@ -226,8 +220,8 @@ def test_apply_configuration_wizard_supports_trading212_environment_specific_cre
 
     assert updates["BROKER_PROVIDER"] == "trading212"
     assert updates["T212_ENVIRONMENT"] == "live"
-    assert updates["T212_DEMO_API_KEY"] == "t212-demo-key"
-    assert updates["T212_DEMO_API_SECRET"] == "t212-demo-secret"
+    assert updates["T212_DEMO_API_KEY"] == ""
+    assert updates["T212_DEMO_API_SECRET"] == ""
     assert updates["T212_LIVE_API_KEY"] == "t212-live-key"
     assert updates["T212_LIVE_API_SECRET"] == "t212-live-secret"
     assert updates["T212_LIVE_TRADING_ENABLED"] == "true"
@@ -308,6 +302,73 @@ def test_update_env_file_preserves_unrelated_lines_and_updates_managed_keys(tmp_
     assert "FOO=bar" in content
     assert "OPENAI_API_KEY=newkey" in content
     assert "LLM_PROVIDER=openai" in content
+
+
+def test_update_env_file_groups_broker_provider_settings_together(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    cli.update_env_file(
+        env_file,
+        {
+            "T212_ENVIRONMENT": "demo",
+            "T212_DEMO_API_KEY": "demo-key",
+            "T212_DEMO_API_SECRET": "demo-secret",
+            "ALPACA_ENVIRONMENT": "paper",
+            "ALPACA_PAPER_API_KEY": "paper-key",
+            "ALPACA_PAPER_API_SECRET": "paper-secret",
+        },
+    )
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "# Broker providers" in content
+    assert "# Trading 212" not in content
+    assert "# Alpaca" not in content
+    assert content.index("T212_ENVIRONMENT=demo") < content.index("ALPACA_ENVIRONMENT=paper")
+
+
+def test_empty_inactive_broker_credentials_are_not_added_to_new_env_files() -> None:
+    updates = cli.build_managed_env_values({})
+    updates.update(
+        {
+            "BROKER_PROVIDER": "trading212",
+            "MARKET_DATA_PROVIDER": "alpaca",
+            "T212_ENVIRONMENT": "live",
+            "T212_LIVE_API_KEY": "live-key",
+            "T212_LIVE_API_SECRET": "live-secret",
+            "ALPACA_ENVIRONMENT": "paper",
+            "ALPACA_PAPER_API_KEY": "paper-key",
+            "ALPACA_PAPER_API_SECRET": "paper-secret",
+        }
+    )
+
+    cli._drop_new_empty_inactive_broker_credentials(updates, existing_raw={})
+
+    assert "T212_LIVE_API_KEY" in updates
+    assert "T212_DEMO_API_KEY" not in updates
+    assert "ALPACA_PAPER_API_KEY" in updates
+    assert "ALPACA_LIVE_API_KEY" not in updates
+
+
+def test_existing_inactive_broker_credentials_are_preserved_in_env_review() -> None:
+    existing = {
+        "T212_DEMO_API_KEY": "existing-demo-key",
+        "T212_DEMO_API_SECRET": "existing-demo-secret",
+    }
+    updates = cli.build_managed_env_values(existing)
+    updates.update(
+        {
+            "BROKER_PROVIDER": "trading212",
+            "T212_ENVIRONMENT": "live",
+            "T212_LIVE_API_KEY": "live-key",
+            "T212_LIVE_API_SECRET": "live-secret",
+        }
+    )
+
+    cli._drop_new_empty_inactive_broker_credentials(updates, existing_raw=existing)
+
+    assert updates["T212_DEMO_API_KEY"] == "existing-demo-key"
+    assert updates["T212_DEMO_API_SECRET"] == "existing-demo-secret"
 
 
 def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys) -> None:

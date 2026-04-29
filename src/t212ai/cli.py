@@ -119,7 +119,7 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
-        "Trading 212",
+        "Broker providers",
         (
             "T212_ENVIRONMENT",
             "T212_DEMO_BASE_URL",
@@ -131,11 +131,6 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "T212_API_KEY",
             "T212_API_SECRET",
             "T212_LIVE_TRADING_ENABLED",
-        ),
-    ),
-    (
-        "Alpaca",
-        (
             "ALPACA_ENVIRONMENT",
             "ALPACA_PAPER_API_KEY",
             "ALPACA_PAPER_API_SECRET",
@@ -450,6 +445,7 @@ def command_configure(args: argparse.Namespace) -> int:
 
     updates = build_managed_env_values(existing_raw)
     apply_configuration_wizard(io_runtime, updates, existing_raw=existing_raw)
+    _drop_new_empty_inactive_broker_credentials(updates, existing_raw=existing_raw)
 
     io_runtime.write("")
     io_runtime.write(render_configuration_review(updates))
@@ -893,7 +889,8 @@ def apply_configuration_wizard(
     _write_step_intro(
         io_runtime,
         "Observability",
-        "LangSmith tracing is optional. Enable it if you want execution traces, provider-level runs, and tool traces while testing or operating the app.",
+        "LangSmith tracing is optional. Enable it if you want execution traces, "
+        "provider-level runs, and tool traces while testing or operating the app.",
     )
     if _should_update_section(io_runtime, existing, OBSERVABILITY_SECTION_KEYS):
         tracing_enabled = io_runtime.confirm(
@@ -1026,7 +1023,8 @@ def apply_configuration_wizard(
     _write_step_intro(
         io_runtime,
         "Market intelligence",
-        "Optional active-movers and intelligence enrichment. Skip this if you only need the baseline market-data provider.",
+        "Optional active-movers and intelligence enrichment. Skip this if you only "
+        "need the baseline market-data provider.",
     )
     if _should_update_section(io_runtime, existing, ALPHA_VANTAGE_SECTION_KEYS):
         alpha_enabled = io_runtime.confirm(
@@ -1111,7 +1109,8 @@ def apply_configuration_wizard(
         io_runtime,
         "Search integration",
         "SearXNG is expected to be compose-managed, so this wizard does not prompt for it. "
-        "Keep the current search settings as they are, or edit SEARCH_PROVIDER and SEARXNG_BASE_URL later.",
+        "Keep the current search settings as they are, or edit SEARCH_PROVIDER and "
+        "SEARXNG_BASE_URL later.",
     )
 
     _write_step_intro(
@@ -1138,25 +1137,26 @@ def _prompt_trading212_credentials(
     io_runtime: TerminalIO,
     updates: dict[str, str],
 ) -> None:
+    environment = _safe_choice(updates["T212_ENVIRONMENT"], {"demo", "live"}, "demo")
+    if environment == "live":
+        key_name = "T212_LIVE_API_KEY"
+        secret_name = "T212_LIVE_API_SECRET"
+        label = "live"
+    else:
+        key_name = "T212_DEMO_API_KEY"
+        secret_name = "T212_DEMO_API_SECRET"
+        label = "demo"
     io_runtime.write(
-        "Store Trading 212 credentials per environment. "
-        "The active pair is selected from T212_ENVIRONMENT."
+        f"Configure Trading 212 {label} credentials. "
+        "Credentials for the other environment are kept unchanged if already present."
     )
-    updates["T212_DEMO_API_KEY"] = io_runtime.prompt(
-        "T212_DEMO_API_KEY",
-        default=updates["T212_DEMO_API_KEY"],
+    updates[key_name] = io_runtime.prompt(
+        key_name,
+        default=updates[key_name],
     )
-    updates["T212_DEMO_API_SECRET"] = io_runtime.prompt(
-        "T212_DEMO_API_SECRET",
-        default=updates["T212_DEMO_API_SECRET"],
-    )
-    updates["T212_LIVE_API_KEY"] = io_runtime.prompt(
-        "T212_LIVE_API_KEY",
-        default=updates["T212_LIVE_API_KEY"],
-    )
-    updates["T212_LIVE_API_SECRET"] = io_runtime.prompt(
-        "T212_LIVE_API_SECRET",
-        default=updates["T212_LIVE_API_SECRET"],
+    updates[secret_name] = io_runtime.prompt(
+        secret_name,
+        default=updates[secret_name],
     )
 
 
@@ -1164,26 +1164,77 @@ def _prompt_alpaca_credentials(
     io_runtime: TerminalIO,
     updates: dict[str, str],
 ) -> None:
+    environment = _safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper")
+    if environment == "live":
+        key_name = "ALPACA_LIVE_API_KEY"
+        secret_name = "ALPACA_LIVE_API_SECRET"
+        label = "live"
+    else:
+        key_name = "ALPACA_PAPER_API_KEY"
+        secret_name = "ALPACA_PAPER_API_SECRET"
+        label = "paper"
     io_runtime.write(
-        "Store Alpaca credentials per environment. "
-        "The active pair is selected from ALPACA_ENVIRONMENT."
+        f"Configure Alpaca {label} credentials. "
+        "Credentials for the other environment are kept unchanged if already present."
     )
-    updates["ALPACA_PAPER_API_KEY"] = io_runtime.prompt(
-        "ALPACA_PAPER_API_KEY",
-        default=updates["ALPACA_PAPER_API_KEY"],
+    updates[key_name] = io_runtime.prompt(
+        key_name,
+        default=updates[key_name],
     )
-    updates["ALPACA_PAPER_API_SECRET"] = io_runtime.prompt(
-        "ALPACA_PAPER_API_SECRET",
-        default=updates["ALPACA_PAPER_API_SECRET"],
+    updates[secret_name] = io_runtime.prompt(
+        secret_name,
+        default=updates[secret_name],
     )
-    updates["ALPACA_LIVE_API_KEY"] = io_runtime.prompt(
-        "ALPACA_LIVE_API_KEY",
-        default=updates["ALPACA_LIVE_API_KEY"],
-    )
-    updates["ALPACA_LIVE_API_SECRET"] = io_runtime.prompt(
-        "ALPACA_LIVE_API_SECRET",
-        default=updates["ALPACA_LIVE_API_SECRET"],
-    )
+
+
+def _drop_new_empty_inactive_broker_credentials(
+    updates: dict[str, str],
+    *,
+    existing_raw: Mapping[str, str],
+) -> None:
+    active_keys = set(_active_broker_credential_keys(updates))
+    for key in _BROKER_ENVIRONMENT_CREDENTIAL_KEYS:
+        if key in active_keys:
+            continue
+        if str(existing_raw.get(key, "")).strip():
+            continue
+        if not str(updates.get(key, "")).strip():
+            updates.pop(key, None)
+
+
+def _active_broker_credential_keys(updates: Mapping[str, str]) -> tuple[str, ...]:
+    keys: list[str] = []
+    broker_provider = str(updates.get("BROKER_PROVIDER", "")).strip().lower()
+    market_data_provider = str(updates.get("MARKET_DATA_PROVIDER", "")).strip().lower()
+    if broker_provider == "trading212":
+        if (
+            _safe_choice(updates.get("T212_ENVIRONMENT", "demo"), {"demo", "live"}, "demo")
+            == "live"
+        ):
+            keys.extend(("T212_LIVE_API_KEY", "T212_LIVE_API_SECRET"))
+        else:
+            keys.extend(("T212_DEMO_API_KEY", "T212_DEMO_API_SECRET"))
+    if broker_provider == "alpaca" or market_data_provider == "alpaca":
+        if (
+            _safe_choice(updates.get("ALPACA_ENVIRONMENT", "paper"), {"paper", "live"}, "paper")
+            == "live"
+        ):
+            keys.extend(("ALPACA_LIVE_API_KEY", "ALPACA_LIVE_API_SECRET"))
+        else:
+            keys.extend(("ALPACA_PAPER_API_KEY", "ALPACA_PAPER_API_SECRET"))
+    return tuple(keys)
+
+
+_BROKER_ENVIRONMENT_CREDENTIAL_KEYS = (
+    "T212_DEMO_API_KEY",
+    "T212_DEMO_API_SECRET",
+    "T212_LIVE_API_KEY",
+    "T212_LIVE_API_SECRET",
+    "ALPACA_PAPER_API_KEY",
+    "ALPACA_PAPER_API_SECRET",
+    "ALPACA_LIVE_API_KEY",
+    "ALPACA_LIVE_API_SECRET",
+)
 
 
 def _write_step_intro(
