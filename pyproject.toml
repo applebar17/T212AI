@@ -47,6 +47,9 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
+markers = [
+    "integration: opt-in live integration checks that may call external providers",
+]
 
 [tool.ruff]
 line-length = 100

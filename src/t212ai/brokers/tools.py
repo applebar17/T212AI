@@ -371,7 +371,15 @@ def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
-    snapshot = runtime.broker_read_service.get_portfolio_snapshot()
+    try:
+        snapshot = runtime.broker_read_service.get_portfolio_snapshot()
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="get_portfolio_snapshot",
+            message="Unable to retrieve the broker portfolio snapshot.",
+        )
     return ToolResult(
         status="ok",
         output=_format_portfolio_snapshot_output(snapshot, provider=runtime.broker_provider),
@@ -395,7 +403,15 @@ def broker_list_pending_orders(*, runtime: BrokerToolRuntime) -> ToolResult:
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
-    orders = runtime.broker_read_service.list_pending_orders()
+    try:
+        orders = runtime.broker_read_service.list_pending_orders()
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="list_pending_orders",
+            message="Unable to retrieve broker pending orders.",
+        )
     return ToolResult(
         status="ok",
         output=f"Retrieved {len(orders)} pending { _display_broker_name(runtime.broker_provider) } orders.",
@@ -419,7 +435,15 @@ def broker_get_order(*, order_ref: str, runtime: BrokerToolRuntime) -> ToolResul
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
-    order = runtime.broker_read_service.get_order(str(order_ref))
+    try:
+        order = runtime.broker_read_service.get_order(str(order_ref))
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="get_order",
+            message=f"Unable to retrieve broker order {order_ref}.",
+        )
     return ToolResult(
         status="ok",
         output=f"Retrieved { _display_broker_name(runtime.broker_provider) } order {order_ref}.",
@@ -449,11 +473,19 @@ def broker_list_historical_orders(
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
-    page = runtime.broker_read_service.list_historical_orders(
-        cursor=cursor,
-        ticker=ticker,
-        limit=limit,
-    )
+    try:
+        page = runtime.broker_read_service.list_historical_orders(
+            cursor=cursor,
+            ticker=ticker,
+            limit=limit,
+        )
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="list_historical_orders",
+            message="Unable to retrieve broker historical orders.",
+        )
     return ToolResult(
         status="ok",
         output=(
@@ -817,6 +849,62 @@ def _tool_error(
     )
 
 
+def _tool_exception(
+    exc: Exception,
+    *,
+    runtime: BrokerToolRuntime,
+    operation: str,
+    message: str,
+) -> ToolResult:
+    details: dict[str, Any] = {
+        "operation": operation,
+        "provider": runtime.broker_provider,
+        "error_type": exc.__class__.__name__,
+        "error": str(exc),
+    }
+    for attr in ("status_code", "body", "code"):
+        value = getattr(exc, attr, None)
+        if value is not None and str(value).strip():
+            details[attr] = _truncate(str(value), 600)
+    rate_limit = getattr(exc, "rate_limit", None)
+    if rate_limit is not None and hasattr(rate_limit, "__dict__"):
+        details["rate_limit"] = {
+            key: value
+            for key, value in rate_limit.__dict__.items()
+            if value is not None
+        }
+
+    return ToolResult(
+        status="error",
+        error=ToolError(
+            message=f"{message} Reason: {exc}",
+            code="broker_provider_request_failed",
+            type=exc.__class__.__name__,
+            hint=_broker_provider_failure_hint(runtime.broker_provider),
+            retryable=True,
+            details=details,
+        ),
+    )
+
+
+def _broker_provider_failure_hint(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "trading212":
+        return (
+            "Check BROKER_PROVIDER=trading212, T212_ENVIRONMENT, Trading 212 API key/secret, "
+            "API scopes for account/portfolio/orders/history, IP restrictions, and rate limits."
+        )
+    if normalized == "alpaca":
+        return (
+            "Check BROKER_PROVIDER=alpaca, ALPACA_ENVIRONMENT, Alpaca API key/secret, "
+            "paper/live account selection, account status, and rate limits."
+        )
+    return (
+        "Check the selected broker provider credentials, account permissions, "
+        "network access, and rate limits."
+    )
+
+
 def _approval_payload(action) -> dict[str, Any]:
     return {
         "actionId": action.action_id,
@@ -981,6 +1069,12 @@ def _format_value(value: Any) -> str:
         return value.isoformat()
     raw_value = getattr(value, "value", value)
     return str(raw_value)
+
+
+def _truncate(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3] + "..."
 
 
 # Compatibility-only static snapshots. Live runtime code should prefer the
