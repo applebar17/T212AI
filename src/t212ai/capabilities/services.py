@@ -17,7 +17,7 @@ from t212ai.data_sources.yahoo import (
 )
 from t212ai.data_sources.yahoo.analytics import PriceSeriesAnalytics
 from t212ai.genai.models import ToolResult
-from t212ai.genai.tools.scrape_article import scrape_article
+from t212ai.genai.tools.scrape_article import scrape_article, scrape_page
 from t212ai.genai.tools.search_registry import SearchResultRegistry
 from t212ai.genai.tools.searxng import searxng_search
 
@@ -441,6 +441,11 @@ class SearxngSearchService:
         language: str = "en",
         time_range: str | None = None,
         max_results: int = 8,
+        scrape_results: bool = False,
+        scrape_top_n: int = 3,
+        scrape_timeout_seconds: float = 8.0,
+        include_scraped_text: bool = False,
+        include_scraped_images: bool = False,
         runtime: SearchResultRegistry | None = None,
         timeout_seconds: float = 20.0,
     ) -> ToolResult:
@@ -450,9 +455,33 @@ class SearxngSearchService:
             language=language,
             time_range=time_range,
             max_results=max_results,
+            scrape_results=scrape_results,
+            scrape_top_n=scrape_top_n,
+            scrape_timeout_seconds=scrape_timeout_seconds,
+            include_scraped_text=include_scraped_text,
+            include_scraped_images=include_scraped_images,
             base_url=self.base_url,
             runtime=runtime,
             timeout_seconds=timeout_seconds,
+        )
+
+    def scrape_page(
+        self,
+        *,
+        url: str | None = None,
+        url_id: str | None = None,
+        include_images: bool = True,
+        max_images: int = 5,
+        timeout_seconds: float = 20.0,
+        runtime: SearchResultRegistry | None = None,
+    ) -> ToolResult:
+        return scrape_page(
+            url=url,
+            url_id=url_id,
+            include_images=include_images,
+            max_images=max_images,
+            timeout_seconds=timeout_seconds,
+            runtime=runtime,
         )
 
     def scrape_article(

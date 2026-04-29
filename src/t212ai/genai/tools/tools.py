@@ -18,7 +18,7 @@ from .market_data import (
     MARKET_GET_VOLUME_MONITOR_TOOL,
     build_market_data_tool_mapping,
 )
-from .scrape_article import SCRAPE_ARTICLE_TOOL, scrape_article
+from .scrape_article import SCRAPE_ARTICLE_TOOL, SCRAPE_PAGE_TOOL, scrape_article, scrape_page
 from .search_registry import SearchResultRegistry
 from .searxng import SEARXNG_SEARCH_TOOL, searxng_search
 from t212ai.data_sources.alpha_vantage import (
@@ -143,7 +143,7 @@ def build_chat_toolbox(
         _selected_provider(resolved_settings.search_provider) == "searxng"
         and _provider_ready(resolved_assessment, "searxng")
     ):
-        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
     return ToolBox(name="chat", tools=tools, tools_by_name=build_tool_index(tools))
 
 
@@ -158,7 +158,7 @@ def build_research_toolbox(
         _selected_provider(resolved_settings.search_provider) == "searxng"
         and _provider_ready(resolved_assessment, "searxng")
     ):
-        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
     if (
         _market_data_provider_ready(resolved_settings, resolved_assessment)
     ):
@@ -233,7 +233,7 @@ def build_market_analyst_toolbox(
         _selected_provider(resolved_settings.search_provider) == "searxng"
         and _provider_ready(resolved_assessment, "searxng")
     ):
-        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_ARTICLE_TOOL])
+        tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
     return ToolBox(
         name="market_analyst",
         tools=tools,
@@ -307,6 +307,7 @@ def build_tool_mapping(
             runtime=search_registry,
         ),
         "scrape_article": partial(scrape_article, runtime=search_registry),
+        "scrape_page": partial(scrape_page, runtime=search_registry),
         "edgar_recent_ownership_activity": partial(
             edgar_recent_ownership_activity,
             runtime=edgar_runtime,

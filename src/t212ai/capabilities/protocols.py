@@ -234,8 +234,24 @@ class SearchService(Protocol):
         language: str = "en",
         time_range: str | None = None,
         max_results: int = 8,
+        scrape_results: bool = False,
+        scrape_top_n: int = 3,
+        scrape_timeout_seconds: float = 8.0,
+        include_scraped_text: bool = False,
+        include_scraped_images: bool = False,
         runtime: SearchResultRegistry | None = None,
         timeout_seconds: float = 20.0,
+    ) -> ToolResult: ...
+
+    def scrape_page(
+        self,
+        *,
+        url: str | None = None,
+        url_id: str | None = None,
+        include_images: bool = True,
+        max_images: int = 5,
+        timeout_seconds: float = 20.0,
+        runtime: SearchResultRegistry | None = None,
     ) -> ToolResult: ...
 
     def scrape_article(

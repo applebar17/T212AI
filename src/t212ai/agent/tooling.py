@@ -84,8 +84,8 @@ def _market_summary(toolbox: ToolBox) -> str:
         segments.append("active-movers intelligence")
     if "edgar_company_disclosure_snapshot" in names:
         segments.append("official disclosure activity")
-    if "searxng_search" in names or "scrape_article" in names:
-        segments.append("web search and article scraping for expansion")
+    if "searxng_search" in names or "scrape_page" in names or "scrape_article" in names:
+        segments.append("web search and page scraping for expansion")
     if not segments:
         return (
             "No market-data or research providers are currently configured for this agent."
@@ -109,7 +109,7 @@ def _company_summary(
     if assessment.capabilities["disclosure"].available:
         facts.append("official disclosure context")
     if research_toolbox and research_toolbox.tools:
-        facts.append("research via search and article scraping")
+        facts.append("research via search and page scraping")
     if not facts:
         return (
             "Company analysis currently has no configured external market or research providers."

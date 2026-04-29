@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import html
 from html.parser import HTMLParser
 import re
@@ -26,7 +27,56 @@ except Exception:  # pragma: no cover
 
 DEFAULT_MAX_IMAGES = 5
 DEFAULT_SCRAPE_TIMEOUT_SECONDS = 20.0
-DEFAULT_USER_AGENT = "t212ai-article-scraper/1.0"
+DEFAULT_USER_AGENT = "t212ai-page-scraper/1.0"
+
+
+SCRAPE_PAGE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scrape_page",
+        "description": (
+            "Fetch a web page URL and extract readable page text, metadata, and optional "
+            "image URLs. Prefer url_id from searxng_search when available."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional full page URL to fetch and extract.",
+                },
+                "url_id": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "Optional id returned by searxng_search (for example url-1)."
+                    ),
+                },
+                "include_images": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether to include related image URLs.",
+                },
+                "max_images": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": DEFAULT_MAX_IMAGES,
+                    "description": "Maximum number of image URLs to return.",
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "minimum": 1,
+                    "default": DEFAULT_SCRAPE_TIMEOUT_SECONDS,
+                    "description": "Network timeout for fetching the URL.",
+                },
+            },
+            "required": ["url", "url_id", "include_images", "max_images", "timeout_seconds"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 SCRAPE_ARTICLE_TOOL: ToolSpec = {
@@ -34,8 +84,8 @@ SCRAPE_ARTICLE_TOOL: ToolSpec = {
     "function": {
         "name": "scrape_article",
         "description": (
-            "Fetch a web page URL and extract the main article text plus optional "
-            "image URLs. Prefer url_id from searxng_search when available."
+            "Compatibility alias for scrape_page that returns the extracted payload under "
+            "article. Prefer scrape_page for new calls."
         ),
         "strict": True,
         "parameters": {
@@ -105,6 +155,58 @@ class _HTMLTextExtractor(HTMLParser):
         return _clean_text(raw)
 
 
+@dataclass(slots=True)
+class PageScraper:
+    """Small reusable page scraper used by search enrichment and explicit tools."""
+
+    user_agent: str = DEFAULT_USER_AGENT
+
+    def scrape(
+        self,
+        url: str,
+        *,
+        include_images: bool = True,
+        max_images: int = DEFAULT_MAX_IMAGES,
+        timeout_seconds: float = DEFAULT_SCRAPE_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
+        html_text = _fetch_html(
+            url,
+            timeout_seconds=timeout_seconds,
+            user_agent=self.user_agent,
+        )
+        return _extract_page(
+            url,
+            html_text,
+            include_images=include_images,
+            max_images=max_images,
+        )
+
+
+@traceable(name="scrape_page", run_type="tool")
+def scrape_page(
+    *,
+    url: str | None = None,
+    url_id: str | None = None,
+    include_images: bool = True,
+    max_images: int = DEFAULT_MAX_IMAGES,
+    timeout_seconds: float = DEFAULT_SCRAPE_TIMEOUT_SECONDS,
+    runtime: SearchResultRegistry | None = None,
+    **kwargs: Any,
+) -> ToolResult:
+    return _scrape_page(
+        tool_name="scrape_page",
+        payload_key="page",
+        discovered_via="scrape_page",
+        url=url,
+        url_id=url_id,
+        include_images=include_images,
+        max_images=max_images,
+        timeout_seconds=timeout_seconds,
+        runtime=runtime,
+        kwargs=kwargs,
+    )
+
+
 @traceable(name="scrape_article", run_type="tool")
 def scrape_article(
     *,
@@ -116,11 +218,38 @@ def scrape_article(
     runtime: SearchResultRegistry | None = None,
     **kwargs: Any,
 ) -> ToolResult:
+    return _scrape_page(
+        tool_name="scrape_article",
+        payload_key="article",
+        discovered_via="scrape_article",
+        url=url,
+        url_id=url_id,
+        include_images=include_images,
+        max_images=max_images,
+        timeout_seconds=timeout_seconds,
+        runtime=runtime,
+        kwargs=kwargs,
+    )
+
+
+def _scrape_page(
+    *,
+    tool_name: str,
+    payload_key: str,
+    discovered_via: str,
+    url: str | None,
+    url_id: str | None,
+    include_images: bool,
+    max_images: int,
+    timeout_seconds: float,
+    runtime: SearchResultRegistry | None,
+    kwargs: dict[str, Any],
+) -> ToolResult:
     if kwargs:
         return ToolResult(
             status="error",
             error=ToolError(
-                message="Unexpected parameters received by scrape_article.",
+                message=f"Unexpected parameters received by {tool_name}.",
                 code="unexpected_params",
                 hint="Remove unsupported fields and retry with the documented schema.",
                 retryable=False,
@@ -138,7 +267,10 @@ def scrape_article(
                 error=ToolError(
                     message="url_id cannot be resolved in this runtime.",
                     code="url_id_unavailable",
-                    hint="Call scrape_article with a direct url or after searxng_search in the same tool session.",
+                    hint=(
+                        f"Call {tool_name} with a direct url or after searxng_search "
+                        "in the same tool session."
+                    ),
                     retryable=False,
                     details={"url_id": requested_url_id},
                 ),
@@ -148,7 +280,7 @@ def scrape_article(
             return ToolResult(
                 status="error",
                 error=ToolError(
-                    message="Unknown url_id for scrape_article.",
+                    message=f"Unknown url_id for {tool_name}.",
                     code="unknown_url_id",
                     hint="Use a url_id returned by searxng_search in this same tool session.",
                     retryable=False,
@@ -213,18 +345,17 @@ def scrape_article(
         )
 
     try:
-        html_text = _fetch_html(target_url, timeout_seconds=resolved_timeout)
-        article = _extract_article(
+        page = PageScraper().scrape(
             target_url,
-            html_text,
             include_images=bool(include_images),
             max_images=resolved_max_images,
+            timeout_seconds=resolved_timeout,
         )
     except urllib.error.HTTPError as exc:
         return ToolResult(
             status="error",
             error=ToolError(
-                message=f"HTTP error while scraping article: {exc.code}",
+                message=f"HTTP error while scraping page: {exc.code}",
                 code="http_error",
                 type=exc.__class__.__name__,
                 hint="Retry later or use another source.",
@@ -236,7 +367,7 @@ def scrape_article(
         return ToolResult(
             status="error",
             error=ToolError(
-                message=f"Network error while scraping article: {exc.reason}",
+                message=f"Network error while scraping page: {exc.reason}",
                 code="request_failed",
                 type=exc.__class__.__name__,
                 hint="Check connectivity and retry.",
@@ -248,7 +379,7 @@ def scrape_article(
         return ToolResult(
             status="error",
             error=ToolError(
-                message=f"scrape_article failed unexpectedly: {exc}",
+                message=f"{tool_name} failed unexpectedly: {exc}",
                 code="scrape_failed",
                 type=exc.__class__.__name__,
                 hint="Retry the call or inspect logs for more detail.",
@@ -257,7 +388,7 @@ def scrape_article(
         )
 
     payload = {
-        "article": article,
+        payload_key: page,
         "request": {
             "url": target_url,
             "include_images": bool(include_images),
@@ -271,29 +402,34 @@ def scrape_article(
         resolved_url_id = runtime.register(
             url=target_url,
             payload=payload,
-            discovered_via="scrape_article",
+            discovered_via=discovered_via,
             source_name=urllib.parse.urlparse(target_url).netloc,
-            title=article.get("title"),
-            image_url=(article.get("images") or [None])[0],
-            published_at=article.get("published_at"),
+            title=page.get("title"),
+            image_url=(page.get("images") or [None])[0],
+            published_at=page.get("published_at"),
         )
         payload["url_id"] = resolved_url_id
 
-    output = f"Extracted {article.get('text_length', 0)} characters from the requested page."
+    output = f"Extracted {page.get('text_length', 0)} characters from the requested page."
     if resolved_url_id:
         output = f"{output} Resolved via {resolved_url_id}."
 
     return ToolResult(status="ok", output=output, data=payload)
 
 
-def _fetch_html(url: str, *, timeout_seconds: float) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
+def _fetch_html(
+    url: str,
+    *,
+    timeout_seconds: float,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent})
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
 
 
-def _extract_article(
+def _extract_page(
     url: str,
     html_text: str,
     *,
@@ -317,6 +453,21 @@ def _extract_article(
     }
 
 
+def _extract_article(
+    url: str,
+    html_text: str,
+    *,
+    include_images: bool,
+    max_images: int,
+) -> dict[str, Any]:
+    return _extract_page(
+        url,
+        html_text,
+        include_images=include_images,
+        max_images=max_images,
+    )
+
+
 def _extract_text(html_text: str) -> tuple[str, str]:
     if trafilatura is not None:  # pragma: no branch
         try:
@@ -337,7 +488,8 @@ def _extract_text(html_text: str) -> tuple[str, str]:
     if BeautifulSoup is not None:  # pragma: no branch
         try:
             soup = BeautifulSoup(html_text, "html.parser")
-            for tag in soup(["script", "style", "noscript", "svg", "footer", "nav", "aside", "form"]):
+            noisy_tags = ["script", "style", "noscript", "svg", "footer", "nav", "aside", "form"]
+            for tag in soup(noisy_tags):
                 tag.decompose()
             root = soup.find("article") or soup.find("main") or soup.body or soup
             chunks: list[str] = []
