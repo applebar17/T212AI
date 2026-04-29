@@ -147,6 +147,37 @@ Current baseline:
 - specialist outputs are returned to the orchestrator, which then decides whether to answer the user directly or continue with further tool calls
 - specialist planning remains structured and auditable even when the top-level orchestration path is tool-driven
 
+## Telegram Error Diagnostics
+
+Scope:
+- agents
+- telegram
+- tools
+- docs
+
+Rules:
+- Telegram-visible failures must be developer-useful, not just end-user-friendly
+- when a request fails inside an agent or tool path, prefer returning a structured explanation with:
+  - the human summary
+  - the machine error code when available
+  - a short hint for the next correction step
+  - compact diagnostic details such as provider, operation, status code, or error type when those help debugging
+- keep Telegram diagnostics compact enough to read in chat, but rich enough that a developer can understand where the failure happened without opening logs immediately
+- never include secrets, auth headers, raw API keys, or full unredacted provider payloads in Telegram-visible error text
+- for deterministic approval and broker flows, prefer errors that explain:
+  - whether the failure happened during extraction, validation, position resolution, approval, or provider execution
+  - which broker/provider was involved
+  - what the user can retry with more explicitly
+
+Implementation guidance:
+- prefer rendering `ToolError` into multi-line Telegram-safe plain text instead of dropping to a single sentence
+- preserve `code`, `hint`, and selected `details` fields when they materially improve diagnosis
+- include the exception type in Telegram bridge safety-net errors
+- for liquidation / close-position requests, error messages should explicitly say whether the runtime failed to:
+  - identify the target position
+  - resolve the live tradable quantity
+  - load the broker portfolio snapshot
+
 ### Tool Rules
 
 Every public LLM tool should be decorated.
