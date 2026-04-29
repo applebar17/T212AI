@@ -660,15 +660,43 @@ class GenAIClient:
             return self._tool_mapping
 
     def _message_to_dict(self, message: Any) -> dict[str, Any]:
-        if hasattr(message, "model_dump"):
-            return message.model_dump(exclude_none=True)
         if isinstance(message, dict):
             return message
+        if hasattr(message, "model_dump"):
+            try:
+                payload = message.model_dump(exclude_none=True)
+            except Exception:
+                payload = None
+            if isinstance(payload, dict):
+                return payload
         return {
             "role": getattr(message, "role", "assistant"),
             "content": getattr(message, "content", None),
-            "tool_calls": getattr(message, "tool_calls", None),
+            "tool_calls": self._tool_calls_to_dict(
+                getattr(message, "tool_calls", None)
+            ),
         }
+
+    def _tool_calls_to_dict(self, tool_calls: Any) -> Any:
+        if not isinstance(tool_calls, list):
+            return tool_calls
+        serialized: list[dict[str, Any]] = []
+        for call in tool_calls:
+            if isinstance(call, dict):
+                serialized.append(call)
+                continue
+            function = getattr(call, "function", None)
+            serialized.append(
+                {
+                    "id": getattr(call, "id", None),
+                    "type": getattr(call, "type", "function"),
+                    "function": {
+                        "name": getattr(function, "name", None),
+                        "arguments": getattr(function, "arguments", None),
+                    },
+                }
+            )
+        return serialized
 
     @traceable(name="LLM Call", run_type="llm")
     def _call_with_retries(self, params: dict[str, Any]):
