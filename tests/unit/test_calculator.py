@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from t212ai.agent import AgentReasoner
 from t212ai.agent.intents import AgentIntent, IntentKind
-from t212ai.agent.planner import AgentPlan
+from t212ai.agent.planner import AgentPlan, StructuredAgentPlan
 from t212ai.agent.schemas import AgentRequest
 from t212ai.agent.specialists import CalculatorAgent
 from t212ai.calculator import CalculatorRequest, CalculatorService
@@ -29,9 +29,9 @@ class FakeCalculatorGenAIClient:
         max_tokens: int | None = None,
     ) -> object:
         del system_prompt, chat_message, model, temperature, max_tokens
-        if schema is AgentPlan:
-            return AgentPlan(
-                intent=AgentIntent(kind=IntentKind.CALCULATE),
+        if schema in {AgentPlan, StructuredAgentPlan}:
+            return StructuredAgentPlan(
+                intent={"kind": IntentKind.CALCULATE, "entities": [], "confidence": 0.0},
                 summary="Run a deterministic calculator tool.",
                 required_context=["calculator request"],
                 assumptions=["The user wants an exact arithmetic answer."],

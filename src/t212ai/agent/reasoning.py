@@ -16,7 +16,7 @@ from t212ai.genai.tracing import (
 
 from .history import ChatHistoryWindow
 from .intents import AgentIntent, IntentKind
-from .planner import AgentPlan, TaskComplexity
+from .planner import AgentPlan, StructuredAgentPlan, TaskComplexity
 from .prompts import (
     build_critique_system_prompt,
     build_critique_user_prompt,
@@ -72,13 +72,14 @@ class AgentReasoner:
         )
         model = self._model_for(task_complexity)
         result = self.genai.generate_structured(
-            AgentPlan,
+            StructuredAgentPlan,
             system_prompt,
             messages,
             model=model,
             temperature=0.1,
         )
-        plan = AgentPlan.model_validate(result)
+        structured_plan = StructuredAgentPlan.model_validate(result)
+        plan = structured_plan.to_agent_plan()
         if plan.task_complexity != task_complexity:
             plan = plan.model_copy(update={"task_complexity": task_complexity})
         return plan

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from t212ai.agent import AgentReasoner, OrderAgent
 from t212ai.agent.intents import AgentIntent, IntentKind
-from t212ai.agent.planner import AgentPlan
+from t212ai.agent.planner import AgentPlan, StructuredAgentPlan
 from t212ai.agent.schemas import AgentRequest
 from t212ai.brokers.trading212.models import (
     AccountSummary,
@@ -99,9 +99,13 @@ class ProposalGenAIClient:
         max_tokens: int | None = None,
     ) -> object:
         del system_prompt, chat_message, model, temperature, max_tokens
-        if schema is AgentPlan:
-            return AgentPlan(
-                intent=AgentIntent(kind=IntentKind.PROPOSE_TRADE),
+        if schema in {AgentPlan, StructuredAgentPlan}:
+            return StructuredAgentPlan(
+                intent={
+                    "kind": IntentKind.PROPOSE_TRADE,
+                    "entities": [],
+                    "confidence": 0.0,
+                },
                 summary="Prepare a submit-order proposal.",
                 required_context=["broker validation"],
                 assumptions=["The user wants a direct submit-order proposal."],

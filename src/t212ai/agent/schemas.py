@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .history import ChatHistoryWindow
 from .planner import AgentPlan
@@ -39,6 +39,8 @@ class AgentRequest(BaseModel):
 
 
 class AgentCritique(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     passed: bool
     summary: str
     missing_context: list[str] = Field(default_factory=list)
