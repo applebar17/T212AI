@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 from t212ai.agent import (
     AgentJudge,
@@ -17,7 +18,9 @@ from t212ai.agent import (
 from t212ai.agent.history import ChatHistoryWindow
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan, StructuredAgentPlan
-from t212ai.agent.schemas import AgentCritique
+from t212ai.agent.schemas import (
+    AgentCritique,
+)
 from t212ai.app.bootstrap import assess_settings
 from t212ai.app.config import get_app_settings
 from t212ai.brokers.trading212.models import (
@@ -58,7 +61,7 @@ class FakeGenAIClient:
         model: str | None = None,
         temperature: float = 0.2,
         max_tokens: int | None = None,
-    ) -> object:
+        ) -> object:
         self.calls.append(
             {
                 "schema": schema.__name__,
@@ -82,6 +85,96 @@ class FakeGenAIClient:
             assumptions=["assumption"],
             risks=["risk"],
         )
+
+    def handle_params(
+        self,
+        system_prompt: str,
+        chat_messages: object,
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+        toolbox=None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "kind": "handle_params",
+                "system_prompt": system_prompt,
+                "chat_message": chat_messages,
+                "model": model,
+                "temperature": temperature,
+                "toolbox": getattr(toolbox, "name", None),
+                **kwargs,
+            }
+        )
+        return {
+            "messages": chat_messages,
+            "model": model,
+            "temperature": temperature,
+            "toolbox": toolbox,
+        }
+
+    def call_openai(
+        self,
+        params: dict[str, object],
+        tools_mapping: dict[str, object] | None = None,
+        toolbox=None,
+        include_tool_meta: bool = False,
+    ):
+        del toolbox, include_tool_meta
+        messages = params.get("messages") or []
+        text = str(messages[-1]["content"]).lower() if messages else ""
+        if tools_mapping is not None:
+            if "show my portfolio" in text:
+                tools_mapping["delegate_to_portfolio_analyst"](
+                    task_brief="Review the user's current portfolio.",
+                    expected_output="Return a concise portfolio summary.",
+                    intent_kind=IntentKind.PORTFOLIO_SUMMARY.value,
+                    entities=[],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+            if "cancel my oldest order" in text:
+                tools_mapping["delegate_to_order_agent"](
+                    task_brief="Figure out how to cancel the oldest pending order safely.",
+                    expected_output="Return the broker action package or the next safe step.",
+                    intent_kind=IntentKind.CANCEL_ORDER.value,
+                    entities=[],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+            if "what happened in the market today" in text:
+                tools_mapping["delegate_to_market_analyst"](
+                    task_brief="Review today's market context.",
+                    expected_output="Summarize the main market drivers.",
+                    intent_kind=IntentKind.UNKNOWN.value,
+                    entities=[{"key": "domain", "value": "market"}],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+            if "analyze apple earnings" in text:
+                tools_mapping["delegate_to_company_analyst"](
+                    task_brief="Analyze Apple earnings.",
+                    expected_output="Return a company-focused analysis for the user.",
+                    intent_kind=IntentKind.ANALYZE_INSTRUMENT.value,
+                    entities=[{"key": "ticker", "value": "AAPL"}],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+            if "calculate 2 + 2" in text:
+                tools_mapping["delegate_to_calculator_agent"](
+                    task_brief="Compute the requested arithmetic.",
+                    expected_output="Return the deterministic calculation result.",
+                    intent_kind=IntentKind.CALCULATE.value,
+                    entities=[{"key": "expression", "value": "2 + 2"}],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+        return _fake_chat_response(
+            "I can chat naturally, explain what I do, and delegate portfolio, "
+            "order, market, company, guideline-memory, or calculation work when needed."
+        )
+
+
+def _fake_chat_response(text: str):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text, tool_calls=None))]
+    )
 
 
 def _reasoner() -> AgentReasoner:
@@ -288,13 +381,17 @@ def test_orchestrator_routes_representative_requests() -> None:
         "cancel my oldest order": "order_agent",
         "what happened in the market today": "market_analyst",
         "analyze Apple earnings": "company_analyst",
-        "calculate 2 + 2": "main_orchestrator",
-        "hello": "main_orchestrator",
-        "/help": "main_orchestrator",
+        "calculate 2 + 2": "calculator_agent",
+        "hello": "direct",
+        "/help": "direct",
     }
-    for message, expected_agent in cases.items():
+    for message, expected_route in cases.items():
         response = orchestrator.handle(AgentRequest(user_message=message, chat_id="chat"))
-        assert response.selected_agent == expected_agent
+        assert response.selected_agent == "main_orchestrator"
+        if expected_route == "direct":
+            assert response.metadata["route"] == "direct"
+        else:
+            assert response.metadata["route"] == expected_route
 
 
 def test_agent_judge_uses_standardized_critique() -> None:
@@ -333,14 +430,19 @@ def test_telegram_agent_handler_records_user_and_assistant_history() -> None:
     window = history.get_context_window(123)
 
     assert isinstance(response, TelegramOutboundMessage)
-    assert "portfolio_analyst prepared a plan" in response.text
+    assert response.text == "Friendly orchestrator answer."
     assert window.retained_count == 2
     assert [message.role for message in window.messages] == ["user", "assistant"]
 
 
 def test_telegram_agent_handler_falls_back_when_genai_is_not_configured(monkeypatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("AZURE_OPENAI_ENABLED", "false")
+    import t212ai.telegram.bridge as bridge_module
+
+    monkeypatch.setattr(
+        bridge_module,
+        "build_runtime",
+        lambda: SimpleNamespace(main_orchestrator=None, proposal_service=None),
+    )
 
     handler = build_agent_message_handler_if_configured()
     response = handler(

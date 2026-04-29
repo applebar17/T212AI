@@ -113,6 +113,7 @@ class GuidelineMemoryAgent(BaseAgent):
                 "content": build_guideline_mutation_user_prompt(
                     operation=operation,
                     user_request=request.user_message,
+                    orchestrator_guidance=request.orchestrator_guidance,
                 ),
             }
         )

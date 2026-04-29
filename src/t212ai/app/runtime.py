@@ -434,6 +434,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
         specialists = build_specialist_agents(
             runtime.agent_reasoner,
             guideline_service=runtime.guideline_memory_service,
+            calculator_agent=runtime.calculator_agent,
             portfolio_summary_workflow=runtime.portfolio_summary_workflow,
             pending_orders_review_workflow=runtime.pending_orders_review_workflow,
             broker_read_service=runtime.broker_read_service,

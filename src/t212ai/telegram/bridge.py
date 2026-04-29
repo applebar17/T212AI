@@ -382,7 +382,7 @@ def build_default_message_handler(
         def _agent_handle(
             message: TelegramInboundMessage,
         ) -> TelegramApprovalRequest | TelegramOutboundMessage:
-            if message.text.strip().lower() in {"/help", "help"}:
+            if message.text.strip().lower() == "/help":
                 resolved_history.record_user_message(message.chat_id, message.text)
                 response = TelegramOutboundMessage(text=render_help_text())
                 resolved_history.record_assistant_message(message.chat_id, response.text)
@@ -413,16 +413,19 @@ def build_default_message_handler(
             )
             resolved_history.record_user_message(message.chat_id, message.text)
             agent_response = main_agent.handle(request)
+            approval_payload = agent_response.artifacts.get("telegram_approval_request")
+            outbound_text = agent_response.final_answer
+            if isinstance(approval_payload, dict) and approval_payload.get("text"):
+                outbound_text = str(approval_payload["text"])
             resolved_history.record_assistant_message(
                 message.chat_id,
-                agent_response.final_answer,
+                outbound_text,
                 metadata={"selected_agent": agent_response.selected_agent},
             )
-            approval_payload = agent_response.artifacts.get("telegram_approval_request")
             if isinstance(approval_payload, dict):
                 return TelegramApprovalRequest(
                     chat_id=message.chat_id,
-                    text=str(approval_payload.get("text", agent_response.final_answer)),
+                    text=outbound_text,
                     action_id=_optional_str(approval_payload.get("actionId")),
                     approve_callback_data=str(approval_payload.get("approveCallbackData", "")),
                     reject_callback_data=str(approval_payload.get("rejectCallbackData", "")),

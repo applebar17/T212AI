@@ -20,9 +20,16 @@ CALCULATOR_REQUEST_SYSTEM_PROMPT = dedent(
 ).strip()
 
 
-def build_calculator_request_user_prompt(*, user_request: str) -> str:
-    return dedent(
+def build_calculator_request_user_prompt(
+    *,
+    user_request: str,
+    orchestrator_guidance: str | None = None,
+) -> str:
+    prompt = dedent(
         f"""\
         User request: {user_request}
         """
     ).strip()
+    if orchestrator_guidance:
+        prompt = f"{prompt}\nOrchestrator guidance: {orchestrator_guidance}"
+    return prompt

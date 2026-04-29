@@ -8,6 +8,10 @@ from .guideline_memory import (
     GUIDELINE_MUTATION_SYSTEM_PROMPT,
     build_guideline_mutation_user_prompt,
 )
+from .orchestrator import (
+    build_orchestrator_manager_system_prompt,
+    build_orchestrator_manager_user_prompt,
+)
 from .orders import (
     ORDER_ACTION_REQUEST_SYSTEM_PROMPT,
     build_order_action_user_prompt,
@@ -27,6 +31,8 @@ __all__ = [
     "build_critique_system_prompt",
     "build_critique_user_prompt",
     "build_guideline_mutation_user_prompt",
+    "build_orchestrator_manager_system_prompt",
+    "build_orchestrator_manager_user_prompt",
     "build_order_action_user_prompt",
     "build_plan_system_prompt",
     "build_plan_user_prompt",

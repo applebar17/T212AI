@@ -309,6 +309,7 @@ class OrderAgent(BaseAgent):
                 "content": build_order_action_user_prompt(
                     intent_kind=intent.kind.value,
                     user_request=request.user_message,
+                    orchestrator_guidance=request.orchestrator_guidance,
                 ),
             }
         )
@@ -544,6 +545,7 @@ class CalculatorAgent(BaseAgent):
                 "role": "user",
                 "content": build_calculator_request_user_prompt(
                     user_request=request.user_message,
+                    orchestrator_guidance=request.orchestrator_guidance,
                 ),
             }
         )

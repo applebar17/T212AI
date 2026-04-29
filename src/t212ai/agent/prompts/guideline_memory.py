@@ -24,10 +24,14 @@ def build_guideline_mutation_user_prompt(
     *,
     operation: str | None,
     user_request: str,
+    orchestrator_guidance: str | None = None,
 ) -> str:
-    return dedent(
+    prompt = dedent(
         f"""\
         Intent operation hint: {operation or 'unknown'}
         User request: {user_request}
         """
     ).strip()
+    if orchestrator_guidance:
+        prompt = f"{prompt}\nOrchestrator guidance: {orchestrator_guidance}"
+    return prompt

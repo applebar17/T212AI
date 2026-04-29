@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from t212ai.genai.tracing import (
     _trace_agent_critique_outputs,
@@ -20,6 +20,8 @@ from .planner import AgentPlan, StructuredAgentPlan, TaskComplexity
 from .prompts import (
     build_critique_system_prompt,
     build_critique_user_prompt,
+    build_orchestrator_manager_system_prompt,
+    build_orchestrator_manager_user_prompt,
     build_plan_system_prompt,
     build_plan_user_prompt,
 )
@@ -27,6 +29,7 @@ from .schemas import AgentCritique
 
 if TYPE_CHECKING:
     from t212ai.genai.client import GenAIClient
+    from t212ai.genai.tools.base import ToolBox
 
 
 class AgentReasoner:
@@ -50,6 +53,7 @@ class AgentReasoner:
         user_request: str,
         chat_history: ChatHistoryWindow | None = None,
         intent: AgentIntent | None = None,
+        orchestrator_guidance: str | None = None,
         persistent_guidance: str | None = None,
     ) -> AgentPlan:
         set_trace_name(f"{agent_name}.build_plan")
@@ -69,6 +73,7 @@ class AgentReasoner:
             user_request=user_request,
             chat_history=chat_history,
             intent=intent,
+            orchestrator_guidance=orchestrator_guidance,
         )
         model = self._model_for(task_complexity)
         result = self.genai.generate_structured(
@@ -137,6 +142,52 @@ class AgentReasoner:
         )
         return AgentCritique.model_validate(result)
 
+    def orchestrate_with_tools(
+        self,
+        *,
+        agent_name: str,
+        purpose: str,
+        guidelines: str,
+        toolbox_summary: str,
+        user_request: str,
+        toolbox: "ToolBox",
+        tools_mapping: dict[str, Callable[..., Any]],
+        chat_history: ChatHistoryWindow | None = None,
+        persistent_guidance: str | None = None,
+    ) -> str:
+        system_prompt = build_orchestrator_manager_system_prompt(
+            agent_name=agent_name,
+            purpose=purpose,
+            guidelines=guidelines,
+            toolbox_summary=toolbox_summary,
+            persistent_guidance=persistent_guidance,
+        )
+        messages: list[dict[str, str]] = []
+        if chat_history:
+            messages.extend(chat_history.to_llm_messages())
+        messages.append(
+            {
+                "role": "user",
+                "content": build_orchestrator_manager_user_prompt(
+                    user_request=user_request
+                ),
+            }
+        )
+        params = self.genai.handle_params(
+            system_prompt,
+            messages,
+            model=self.genai.chat_model_for("smart"),
+            temperature=0.1,
+            toolbox=toolbox,
+            parallel_tool_calls=False,
+        )
+        response = self.genai.call_openai(
+            params,
+            tools_mapping=tools_mapping,
+            toolbox=toolbox,
+        )
+        return self._assistant_text(response)
+
     def _model_for(self, task_complexity: TaskComplexity) -> str | None:
         if task_complexity == TaskComplexity.REASONING:
             return self.genai.chat_model_for("reasoning")
@@ -150,6 +201,7 @@ class AgentReasoner:
         user_request: str,
         chat_history: ChatHistoryWindow | None,
         intent: AgentIntent | None,
+        orchestrator_guidance: str | None = None,
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
         if chat_history:
@@ -165,10 +217,38 @@ class AgentReasoner:
                 "content": build_plan_user_prompt(
                     user_request=user_request,
                     intent_payload=intent_payload,
+                    orchestrator_guidance=orchestrator_guidance,
                 ),
             }
         )
         return messages
+
+    def _assistant_text(self, response: Any) -> str:
+        try:
+            message = response.choices[0].message
+        except Exception:
+            return ""
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            chunks: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    chunks.append(item)
+                    continue
+                if isinstance(item, dict):
+                    text = item.get("text") or item.get("content")
+                    if isinstance(text, str) and text.strip():
+                        chunks.append(text.strip())
+                    continue
+                text = getattr(item, "text", None)
+                if isinstance(text, str) and text.strip():
+                    chunks.append(text.strip())
+            return "\n".join(chunks).strip()
+        if content is None:
+            return ""
+        return str(content).strip()
 
     def _build_plan_prompt(
         self,

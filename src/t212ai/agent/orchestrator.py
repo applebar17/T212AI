@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
+from pydantic import ValidationError
 from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadService
 from t212ai.guidelines.service import GuidelineMemoryService
+from t212ai.genai.models import ToolError, ToolResult, ToolSpec
+from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
@@ -22,17 +25,15 @@ from .guideline_memory import GuidelineMemoryAgent
 from .intents import AgentIntent, IntentKind
 from .planner import TaskComplexity
 from .reasoning import AgentReasoner
-from .schemas import AgentRequest, AgentResponse
+from .schemas import AgentRequest, AgentResponse, OrchestratorDelegationRequest
 from .specialists import (
+    CalculatorAgent,
     CompanyAnalystAgent,
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
 )
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
-
-if TYPE_CHECKING:
-    from t212ai.genai.tools.base import ToolBox
 
 
 @dataclass(slots=True)
@@ -42,6 +43,7 @@ class SpecialistAgents:
     market: MarketAnalystAgent
     company: CompanyAnalystAgent
     guideline_memory: GuidelineMemoryAgent
+    calculator: CalculatorAgent
 
     def by_key(self) -> dict[str, BaseAgent]:
         return {
@@ -50,7 +52,61 @@ class SpecialistAgents:
             "market": self.market,
             "company": self.company,
             "guideline_memory": self.guideline_memory,
+            "calculator": self.calculator,
         }
+
+
+@dataclass(slots=True)
+class SpecialistToolRun:
+    tool_name: str
+    specialist_key: str
+    task_brief: str
+    expected_output: str
+    intent: AgentIntent
+    response: AgentResponse
+
+
+_SPECIALIST_TOOL_CONFIGS: tuple[tuple[str, str, tuple[IntentKind, ...]], ...] = (
+    (
+        "delegate_to_portfolio_analyst",
+        "portfolio",
+        (
+            IntentKind.PORTFOLIO_SUMMARY,
+            IntentKind.PORTFOLIO_ATTENTION_SCAN,
+            IntentKind.REBALANCE,
+        ),
+    ),
+    (
+        "delegate_to_order_agent",
+        "order",
+        (
+            IntentKind.PLACE_ORDER,
+            IntentKind.CANCEL_ORDER,
+            IntentKind.REVIEW_PENDING_ORDERS,
+            IntentKind.PROPOSE_TRADE,
+        ),
+    ),
+    (
+        "delegate_to_market_analyst",
+        "market",
+        (IntentKind.UNKNOWN,),
+    ),
+    (
+        "delegate_to_company_analyst",
+        "company",
+        (IntentKind.ANALYZE_INSTRUMENT,),
+    ),
+    (
+        "delegate_to_guideline_memory_agent",
+        "guideline_memory",
+        (IntentKind.MANAGE_GUIDELINES,),
+    ),
+    (
+        "delegate_to_calculator_agent",
+        "calculator",
+        (IntentKind.CALCULATE,),
+    ),
+)
 
 
 class MainOrchestratorAgent(BaseAgent):
@@ -65,15 +121,20 @@ class MainOrchestratorAgent(BaseAgent):
             reasoner,
             AgentProfile(
                 name="main_orchestrator",
-                purpose="Route Telegram requests to the right specialist agent.",
+                purpose=(
+                    "Hold the user-facing conversation, decide whether to answer directly, "
+                    "ask for clarification, or delegate to the right specialist."
+                ),
                 guidelines=(
-                    "Prefer deterministic routing when the user's requested task is clear. "
-                    "Ask for clarification when the target task or ticker/order is ambiguous."
+                    "Be warm, concise, and human-friendly. Answer capability questions, help "
+                    "questions, and ordinary conversation directly. Delegate when specialist "
+                    "reasoning, tools, workflows, or deterministic execution are needed. "
+                    "Preserve safety boundaries for orders, approvals, and broker actions."
                 ),
                 toolbox_summary=(
                     "Delegation tools: portfolio_analyst, order_agent, market_analyst, "
-                    "company_analyst, guideline_memory_agent. The orchestrator delegates; "
-                    "specialists plan actions."
+                    "company_analyst, guideline_memory_agent, calculator_agent. The "
+                    "orchestrator may also answer directly or ask clarifying questions."
                 ),
                 task_complexity=TaskComplexity.EASY,
                 guideline_scopes=("global", "orchestrator"),
@@ -85,6 +146,9 @@ class MainOrchestratorAgent(BaseAgent):
             reasoner,
             guideline_service=guideline_service,
         )
+        self.orchestrator_toolbox = self._build_orchestrator_toolbox()
+        self.profile.toolbox = self.orchestrator_toolbox
+        self.profile.toolbox_summary = self._render_orchestrator_toolbox_summary()
 
     @traceable(
         name="Main Orchestrator Handle",
@@ -99,84 +163,340 @@ class MainOrchestratorAgent(BaseAgent):
         intent: AgentIntent | None = None,
         task_complexity: TaskComplexity | None = None,
     ) -> AgentResponse:
-        resolved_intent = intent or classify_message(request.user_message)
+        del intent
         set_trace_name(f"{self.__class__.__name__}.handle")
         set_trace_metadata(
             agent_name=self.name,
             agent_kind="orchestrator",
-            intent_kind=resolved_intent.kind.value,
             task_complexity=(task_complexity or TaskComplexity.EASY).value,
         )
-        if resolved_intent.kind == IntentKind.HELP:
-            return AgentResponse(
-                final_answer=(
-                    "I can route requests to portfolio, order, market, company "
-                    "analysis, and guideline-memory management. Ask a natural-language "
-                    "question or use /help."
+        tool_runs: list[SpecialistToolRun] = []
+        final_answer = self.reasoner.orchestrate_with_tools(
+            agent_name=self.profile.name,
+            purpose=self.profile.purpose,
+            guidelines=self.profile.guidelines,
+            toolbox_summary=self.profile.toolbox_summary,
+            user_request=request.user_message,
+            toolbox=self.orchestrator_toolbox,
+            tools_mapping=self._build_tool_mapping(request, tool_runs),
+            chat_history=self._history_for_prompt(request.history),
+            persistent_guidance=self._persistent_guidance(),
+        )
+        approval_payload = self._approval_payload(tool_runs)
+        if isinstance(approval_payload, dict) and approval_payload.get("text"):
+            final_answer = str(approval_payload["text"])
+        elif not final_answer.strip() and tool_runs:
+            final_answer = tool_runs[-1].response.final_answer
+
+        metadata, artifacts, plan, critique = self._build_response_package(tool_runs)
+        return AgentResponse(
+            final_answer=final_answer,
+            selected_agent=self.name,
+            plan=plan,
+            critique=critique,
+            metadata=metadata,
+            artifacts=artifacts,
+        )
+
+    def _build_orchestrator_toolbox(self) -> ToolBox:
+        specialists = self.specialists.by_key()
+        tools = [
+            self._delegation_tool(
+                name=tool_name,
+                specialist=specialists[specialist_key],
+                allowed_intents=allowed_intents,
+            )
+            for tool_name, specialist_key, allowed_intents in _SPECIALIST_TOOL_CONFIGS
+        ]
+        return ToolBox(
+            name="orchestrator_routing",
+            tools=tools,
+            tools_by_name=build_tool_index(tools),
+        )
+
+    def _render_orchestrator_toolbox_summary(self) -> str:
+        lines: list[str] = []
+        for tool in self.orchestrator_toolbox.tools:
+            function = tool.get("function", {})
+            description = str(function.get("description") or "").strip()
+            lines.append(f"- {function.get('name')}: {description}")
+        return "\n".join(lines)
+
+    def _delegation_tool(
+        self,
+        *,
+        name: str,
+        specialist: BaseAgent,
+        allowed_intents: tuple[IntentKind, ...],
+    ) -> ToolSpec:
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": self._tool_description(
+                    specialist=specialist,
+                    allowed_intents=allowed_intents,
                 ),
-                selected_agent=self.name,
-                metadata={"intent": resolved_intent.kind.value},
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "task_brief": {
+                            "type": "string",
+                            "description": (
+                                "What the specialist should focus on for this turn."
+                            ),
+                        },
+                        "expected_output": {
+                            "type": "string",
+                            "description": (
+                                "What kind of result you want back from the specialist."
+                            ),
+                        },
+                        "intent_kind": {
+                            "type": "string",
+                            "enum": [intent.value for intent in allowed_intents],
+                        },
+                        "entities": {
+                            "type": "array",
+                            "description": (
+                                "Structured hints extracted from the request, such as "
+                                "ticker, order_ref, domain, or operation."
+                            ),
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "key": {"type": "string"},
+                                    "value": {"type": "string"},
+                                },
+                                "required": ["key", "value"],
+                            },
+                        },
+                    },
+                    "required": [
+                        "task_brief",
+                        "expected_output",
+                        "intent_kind",
+                        "entities",
+                    ],
+                },
+                "strict": True,
+            },
+        }
+
+    def _tool_description(
+        self,
+        *,
+        specialist: BaseAgent,
+        allowed_intents: tuple[IntentKind, ...],
+    ) -> str:
+        intents = ", ".join(intent.value for intent in allowed_intents)
+        return (
+            f"Delegate work to {specialist.name}. Purpose: {specialist.profile.purpose} "
+            f"Capabilities: {specialist.profile.toolbox_summary} "
+            f"Allowed intents: {intents}."
+        )
+
+    def _build_tool_mapping(
+        self,
+        request: AgentRequest,
+        tool_runs: list[SpecialistToolRun],
+    ) -> dict[str, Any]:
+        specialists = self.specialists.by_key()
+        mapping: dict[str, Any] = {}
+        for tool_name, specialist_key, allowed_intents in _SPECIALIST_TOOL_CONFIGS:
+            specialist = specialists[specialist_key]
+            mapping[tool_name] = self._build_specialist_tool(
+                request=request,
+                tool_runs=tool_runs,
+                tool_name=tool_name,
+                specialist_key=specialist_key,
+                specialist=specialist,
+                allowed_intents=allowed_intents,
+            )
+        return mapping
+
+    def _build_specialist_tool(
+        self,
+        *,
+        request: AgentRequest,
+        tool_runs: list[SpecialistToolRun],
+        tool_name: str,
+        specialist_key: str,
+        specialist: BaseAgent,
+        allowed_intents: tuple[IntentKind, ...],
+    ):
+        def _delegate(
+            *,
+            task_brief: str,
+            expected_output: str,
+            intent_kind: str,
+            entities: list[dict[str, str]] | None = None,
+        ) -> ToolResult:
+            try:
+                delegation = OrchestratorDelegationRequest.model_validate(
+                    {
+                        "task_brief": task_brief,
+                        "expected_output": expected_output,
+                        "intent_kind": intent_kind,
+                        "entities": entities or [],
+                    }
+                )
+            except ValidationError as exc:
+                return ToolResult(
+                    status="error",
+                    error=ToolError(
+                        message="Invalid routing payload for specialist delegation.",
+                        code="invalid_delegation_payload",
+                        hint="Provide task_brief, expected_output, intent_kind, and entities.",
+                        retryable=False,
+                        details={"errors": exc.errors()},
+                    ),
+                )
+            if delegation.intent_kind not in allowed_intents:
+                return ToolResult(
+                    status="error",
+                    error=ToolError(
+                        message=(
+                            f"Intent '{delegation.intent_kind.value}' is not valid for "
+                            f"{tool_name}."
+                        ),
+                        code="invalid_specialist_intent",
+                        hint=(
+                            "Choose one of: "
+                            + ", ".join(intent.value for intent in allowed_intents)
+                        ),
+                        retryable=False,
+                    ),
+                )
+            resolved_intent = delegation.to_agent_intent()
+            delegated_request = request.model_copy(
+                update={
+                    "orchestrator_guidance": self._delegation_guidance(
+                        task_brief=delegation.task_brief,
+                        expected_output=delegation.expected_output,
+                        existing=request.orchestrator_guidance,
+                    )
+                }
+            )
+            response = specialist.handle(delegated_request, intent=resolved_intent)
+            tool_runs.append(
+                SpecialistToolRun(
+                    tool_name=tool_name,
+                    specialist_key=specialist_key,
+                    task_brief=delegation.task_brief,
+                    expected_output=delegation.expected_output,
+                    intent=resolved_intent,
+                    response=response,
+                )
+            )
+            return ToolResult(
+                status="ok",
+                output=response.final_answer,
+                data={
+                    "specialist": specialist.name,
+                    "task_brief": delegation.task_brief,
+                    "expected_output": delegation.expected_output,
+                    "intent": resolved_intent.model_dump(mode="json"),
+                    "final_answer": response.final_answer,
+                    "plan": (
+                        response.plan.model_dump(mode="json")
+                        if response.plan is not None
+                        else None
+                    ),
+                    "metadata": response.metadata,
+                    "artifacts": response.artifacts,
+                },
             )
 
-        selected = self._select_specialist(resolved_intent, request.user_message)
-        if selected is None:
-            plan = self.plan(
-                request,
-                intent=resolved_intent,
-                task_complexity=task_complexity or TaskComplexity.EASY,
-            )
-            return AgentResponse(
-                final_answer=(
-                    "I could not confidently route this request yet. "
-                    "Please specify whether it is about portfolio, orders, market, "
-                    "or a company/ticker."
-                ),
-                selected_agent=self.name,
-                plan=plan,
-                metadata={"intent": resolved_intent.kind.value, "route": "unknown"},
-            )
+        return _delegate
 
-        set_trace_metadata(route=selected.name)
-        response = selected.handle(request, intent=resolved_intent)
-        response.metadata.update(
+    def _delegation_guidance(
+        self,
+        *,
+        task_brief: str,
+        expected_output: str,
+        existing: str | None,
+    ) -> str:
+        guidance = (
+            f"Task brief: {task_brief}\n"
+            f"Expected output: {expected_output}"
+        )
+        if existing and existing.strip():
+            return f"{existing}\n\n{guidance}"
+        return guidance
+
+    def _build_response_package(
+        self,
+        tool_runs: list[SpecialistToolRun],
+    ) -> tuple[dict[str, str], dict[str, Any], Any, Any]:
+        if not tool_runs:
+            return (
+                {"route": "direct", "orchestrator": self.name},
+                {},
+                None,
+                None,
+            )
+        last = tool_runs[-1]
+        route_sequence = [run.response.selected_agent for run in tool_runs]
+        metadata = dict(last.response.metadata)
+        metadata.update(
             {
                 "orchestrator": self.name,
-                "intent": resolved_intent.kind.value,
-                "route": selected.name,
+                "intent": last.intent.kind.value,
+                "route": last.response.selected_agent,
             }
         )
-        return response
+        if len(route_sequence) > 1:
+            metadata["route_sequence"] = " -> ".join(route_sequence)
+        set_trace_metadata(route=last.response.selected_agent, route_sequence=route_sequence)
+        artifacts: dict[str, Any] = {
+            "route_sequence": route_sequence,
+            "orchestrator_tool_runs": [
+                {
+                    "tool_name": run.tool_name,
+                    "specialist": run.response.selected_agent,
+                    "task_brief": run.task_brief,
+                    "expected_output": run.expected_output,
+                    "intent": run.intent.model_dump(mode="json"),
+                    "metadata": run.response.metadata,
+                    "plan": (
+                        run.response.plan.model_dump(mode="json")
+                        if run.response.plan is not None
+                        else None
+                    ),
+                }
+                for run in tool_runs
+            ],
+        }
+        if len(tool_runs) == 1:
+            artifacts.update(dict(last.response.artifacts))
+        else:
+            specialist_artifacts = {
+                run.response.selected_agent: dict(run.response.artifacts)
+                for run in tool_runs
+                if run.response.artifacts
+            }
+            if specialist_artifacts:
+                artifacts["specialist_artifacts"] = specialist_artifacts
+            if last.response.artifacts:
+                for key, value in last.response.artifacts.items():
+                    artifacts.setdefault(key, value)
+        approval_payload = self._approval_payload(tool_runs)
+        if isinstance(approval_payload, dict):
+            artifacts["telegram_approval_request"] = approval_payload
+        return metadata, artifacts, last.response.plan, last.response.critique
 
-    def _select_specialist(
+    def _approval_payload(
         self,
-        intent: AgentIntent,
-        message: str,
-    ) -> BaseAgent | None:
-        del message
-        if intent.kind in {
-            IntentKind.PLACE_ORDER,
-            IntentKind.CANCEL_ORDER,
-            IntentKind.REVIEW_PENDING_ORDERS,
-            IntentKind.PROPOSE_TRADE,
-        }:
-            return self.specialists.order
-        if intent.kind in {
-            IntentKind.PORTFOLIO_SUMMARY,
-            IntentKind.PORTFOLIO_ATTENTION_SCAN,
-            IntentKind.REBALANCE,
-        }:
-            return self.specialists.portfolio
-        if intent.kind == IntentKind.ANALYZE_INSTRUMENT:
-            return self.specialists.company
-        if intent.kind == IntentKind.MANAGE_GUIDELINES:
-            return self.specialists.guideline_memory
-        if intent.kind == IntentKind.CALCULATE:
-            return None
-        if intent.kind == IntentKind.UNKNOWN and intent.entities.get("domain") == "market":
-            return self.specialists.market
-        if intent.kind == IntentKind.UNKNOWN:
-            return None
-        return self.specialists.market
+        tool_runs: list[SpecialistToolRun],
+    ) -> dict[str, Any] | None:
+        for run in reversed(tool_runs):
+            approval = run.response.artifacts.get("telegram_approval_request")
+            if isinstance(approval, dict):
+                return approval
+        return None
 
 
 class AgentOrchestrator:
@@ -190,6 +510,7 @@ def build_specialist_agents(
     reasoner: AgentReasoner,
     *,
     guideline_service: GuidelineMemoryService | None = None,
+    calculator_agent: CalculatorAgent | None = None,
     portfolio_summary_workflow: PortfolioSummaryWorkflow | None = None,
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None,
     broker_read_service: BrokerReadService | None = None,
@@ -237,6 +558,10 @@ def build_specialist_agents(
             toolbox_summary=company_toolbox_summary,
         ),
         guideline_memory=GuidelineMemoryAgent(reasoner, guideline_service),
+        calculator=calculator_agent or CalculatorAgent(
+            reasoner,
+            guideline_service=guideline_service,
+        ),
     )
 
 

@@ -20,10 +20,18 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
 ).strip()
 
 
-def build_order_action_user_prompt(*, intent_kind: str, user_request: str) -> str:
-    return dedent(
+def build_order_action_user_prompt(
+    *,
+    intent_kind: str,
+    user_request: str,
+    orchestrator_guidance: str | None = None,
+) -> str:
+    prompt = dedent(
         f"""\
         Intent hint: {intent_kind}
         User request: {user_request}
         """
     ).strip()
+    if orchestrator_guidance:
+        prompt = f"{prompt}\nOrchestrator guidance: {orchestrator_guidance}"
+    return prompt

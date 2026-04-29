@@ -39,14 +39,18 @@ def build_plan_user_prompt(
     *,
     user_request: str,
     intent_payload: dict[str, Any],
+    orchestrator_guidance: str | None = None,
 ) -> str:
-    return dedent(
+    prompt = dedent(
         f"""\
         Create a structured action plan.
         Intent: {intent_payload}
         User request: {user_request}
         """
     ).strip()
+    if orchestrator_guidance:
+        prompt = f"{prompt}\nOrchestrator guidance: {orchestrator_guidance}"
+    return prompt
 
 
 def build_critique_system_prompt(

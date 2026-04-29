@@ -129,6 +129,7 @@ class BaseAgent:
             user_request=request.user_message,
             chat_history=self._history_for_prompt(request.history),
             intent=intent,
+            orchestrator_guidance=request.orchestrator_guidance,
             persistent_guidance=self._persistent_guidance(),
         )
 
