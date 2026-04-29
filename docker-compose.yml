@@ -28,3 +28,4 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./docker/searxng/limiter.toml:/etc/searxng/limiter.toml:ro

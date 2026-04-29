@@ -1,0 +1,3 @@
+# Limiter is disabled in settings.yml for this local/private deployment.
+# This file exists only to suppress the container startup warning about a
+# missing /etc/searxng/limiter.toml.
