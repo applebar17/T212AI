@@ -88,7 +88,10 @@ class TelegramUpdateRouter:
         except Exception as exc:  # pragma: no cover - safety net
             await messenger.send_error(
                 inbound.chat_id,
-                f"Telegram bridge failed while processing the message: {exc}",
+                (
+                    "Telegram bridge failed while processing the message: "
+                    f"{exc.__class__.__name__}: {exc}"
+                ),
                 hint="Retry the request. If it keeps failing, inspect application logs.",
             )
             return

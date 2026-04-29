@@ -251,3 +251,12 @@ class BrokerOrderActionRequest(BrokerModel):
     thesis: str | None = None
     risks: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    use_full_position_size: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "use_full_position_size",
+            "useFullPositionSize",
+            "liquidate_position",
+            "liquidatePosition",
+        ),
+    )

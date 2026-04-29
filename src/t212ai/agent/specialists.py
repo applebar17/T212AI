@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from t212ai.brokers.models import (
@@ -17,7 +18,7 @@ from t212ai.calculator import (
     build_calculator_tool_mapping,
 )
 from t212ai.genai.tools.base import ToolBox
-from t212ai.genai.models import ToolResult
+from t212ai.genai.models import ToolError, ToolResult
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
     PendingActionService,
@@ -259,16 +260,29 @@ class OrderAgent(BaseAgent):
                 metadata={"workflow": "order_action", "workflow_status": "error"},
             )
 
+        resolved_action_request = self._resolve_position_backed_submit_request(
+            request,
+            action_request=action_request,
+            intent=intent,
+        )
+        if isinstance(resolved_action_request, ToolResult):
+            return self._response_from_tool_result(
+                plan=plan,
+                action_request=action_request,
+                result=resolved_action_request,
+                proposal_id=None,
+            )
+
         proposal = None
         if (
-            action_request.action == BrokerOrderAction.PREPARE_SUBMIT_ORDER
+            resolved_action_request.action == BrokerOrderAction.PREPARE_SUBMIT_ORDER
             and self.proposal_service is not None
         ):
             try:
                 proposal = self._create_submit_order_proposal(
                     request,
                     intent=intent,
-                    action_request=action_request,
+                    action_request=resolved_action_request,
                 )
             except Exception as exc:
                 return AgentResponse(
@@ -285,10 +299,10 @@ class OrderAgent(BaseAgent):
                     },
                 )
 
-        result = self._execute_action_request(request, action_request)
+        result = self._execute_action_request(request, resolved_action_request)
         return self._response_from_tool_result(
             plan=plan,
-            action_request=action_request,
+            action_request=resolved_action_request,
             result=result,
             proposal_id=proposal.proposal_id if proposal is not None else None,
         )
@@ -356,6 +370,67 @@ class OrderAgent(BaseAgent):
             stop_price=action_request.stop_price,
             time_in_force=action_request.time_in_force,
             extended_hours=action_request.extended_hours,
+        )
+
+    def _resolve_position_backed_submit_request(
+        self,
+        request: AgentRequest,
+        *,
+        action_request: BrokerOrderActionRequest,
+        intent: AgentIntent,
+    ) -> BrokerOrderActionRequest | ToolResult:
+        if action_request.action != BrokerOrderAction.PREPARE_SUBMIT_ORDER:
+            return action_request
+        liquidation_requested = action_request.use_full_position_size or (
+            str(intent.entities.get("action", "")).strip().lower() == "liquidate"
+        )
+        if not liquidation_requested:
+            return action_request
+        if self.broker_read_service is None:
+            return _local_order_error(
+                "I recognized this as a full-position liquidation request, but broker "
+                "position data is unavailable so I can't resolve the live share quantity.",
+                code="missing_broker_read_service",
+                hint="Configure broker read access, then retry the liquidation request.",
+            )
+        try:
+            snapshot = self.broker_read_service.get_portfolio_snapshot()
+        except Exception as exc:
+            return _local_order_error(
+                "I recognized this as a full-position liquidation request, but I "
+                f"couldn't load the current broker positions. Reason: {exc}",
+                code="portfolio_snapshot_unavailable",
+            )
+        position = _match_position_for_liquidation(
+            snapshot.positions,
+            ticker_hint=action_request.ticker,
+            user_message=request.user_message,
+        )
+        if position is None:
+            return _local_order_error(
+                "I recognized this as a full-position liquidation request, but I couldn't "
+                "match the target holding in the live broker positions.",
+                code="position_match_not_found",
+                hint="Retry using the broker ticker symbol, for example GOOGL instead of Alphabet.",
+            )
+        available_quantity = position.quantity_available_for_trading or position.quantity
+        if available_quantity is None or available_quantity <= 0:
+            return _local_order_error(
+                "I matched the target holding, but there is no positive quantity available to trade.",
+                code="position_quantity_unavailable",
+            )
+        resolved_ticker = (
+            str(position.instrument.ticker or "").strip()
+            if position.instrument is not None
+            else ""
+        ) or str(action_request.ticker or "").strip()
+        return action_request.model_copy(
+            update={
+                "side": "SELL",
+                "ticker": resolved_ticker,
+                "quantity": str(available_quantity),
+                "use_full_position_size": True,
+            }
         )
 
     def _create_submit_order_proposal(
@@ -433,10 +508,15 @@ class OrderAgent(BaseAgent):
             )
 
         error = result.error
-        message = error.message if error is not None else "Order action failed."
-        if error is not None and error.hint:
-            message = f"{message} Hint: {error.hint}"
+        message = (
+            _render_tool_error_message(error)
+            if error is not None
+            else (result.output or "Order action failed.")
+        )
+        if error is not None:
             metadata["error_code"] = error.code or "tool_error"
+        elif result.meta:
+            metadata["error_code"] = str(result.meta.get("error_code") or "tool_error")
         if proposal_id and self.proposal_service is not None:
             self.proposal_service.mark_preparation_failed(proposal_id, error=message)
             metadata["proposal_id"] = proposal_id
@@ -714,7 +794,105 @@ def _order_intent_payload(action_request: BrokerOrderActionRequest) -> dict[str,
         "stop_price": action_request.stop_price,
         "time_in_force": action_request.time_in_force,
         "extended_hours": action_request.extended_hours,
+        "use_full_position_size": action_request.use_full_position_size,
     }
+
+
+def _local_order_error(
+    message: str,
+    *,
+    code: str,
+    hint: str | None = None,
+) -> ToolResult:
+    return ToolResult(
+        status="error",
+        error=ToolError(
+            message=message,
+            code=code,
+            hint=hint,
+            retryable=False,
+        ),
+    )
+
+
+def _render_tool_error_message(error: ToolError) -> str:
+    message = str(error.message or "Tool execution failed.").strip()
+    if error.code:
+        message = f"{message}\nCode: {error.code}"
+    if error.hint:
+        message = f"{message}\nHint: {error.hint}"
+    details = _compact_tool_error_details(error.details)
+    if details:
+        message = f"{message}\nDetails: {details}"
+    return message
+
+
+def _compact_tool_error_details(details: dict[str, Any] | None) -> str | None:
+    if not details:
+        return None
+    parts: list[str] = []
+    for key in ("operation", "provider", "status_code", "error_type", "error", "expected_fingerprint"):
+        value = details.get(key)
+        if value is None:
+            continue
+        raw = str(value).strip()
+        if raw:
+            parts.append(f"{key}={raw}")
+    return "; ".join(parts) if parts else None
+
+
+def _match_position_for_liquidation(
+    positions: list[Any],
+    *,
+    ticker_hint: str | None,
+    user_message: str,
+):
+    hint = _normalize_position_text(ticker_hint)
+    message = _normalize_position_text(user_message)
+    candidates: list[tuple[int, Any]] = []
+    for position in positions:
+        best_score = 0
+        for name in _position_match_texts(position):
+            normalized = _normalize_position_text(name)
+            if not normalized:
+                continue
+            if hint and (hint == normalized or hint in normalized or normalized in hint):
+                best_score = max(best_score, 4)
+            if normalized and re.search(rf"\b{re.escape(normalized)}\b", message):
+                best_score = max(best_score, 3)
+            if _has_meaningful_token_overlap(normalized, message):
+                best_score = max(best_score, 2)
+            if hint and any(token == normalized for token in hint.split()):
+                best_score = max(best_score, 2)
+        if best_score > 0:
+            candidates.append((best_score, position))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _position_match_texts(position: Any) -> list[str]:
+    instrument = getattr(position, "instrument", None)
+    values = [
+        getattr(position, "ticker", None),
+        getattr(instrument, "ticker", None) if instrument is not None else None,
+        getattr(instrument, "name", None) if instrument is not None else None,
+    ]
+    return [str(value).strip() for value in values if str(value or "").strip()]
+
+
+def _normalize_position_text(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", raw).strip()
+
+
+def _has_meaningful_token_overlap(candidate: str, message: str) -> bool:
+    candidate_tokens = {token for token in candidate.split() if len(token) >= 3}
+    message_tokens = {token for token in message.split() if len(token) >= 3}
+    return bool(candidate_tokens & message_tokens)
 
 
 def _approval_with_proposal_reference(

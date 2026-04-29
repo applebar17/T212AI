@@ -10,6 +10,7 @@ from t212ai.agent.schemas import AgentRequest
 from t212ai.brokers.trading212.models import (
     AccountSummary,
     Cash,
+    Instrument,
     Investments,
     LimitRequest,
     MarketRequest,
@@ -141,6 +142,53 @@ class ProposalGenAIClient:
         raise AssertionError(f"Unexpected schema: {schema}")
 
 
+class LiquidationProposalGenAIClient(ProposalGenAIClient):
+    def generate_structured(
+        self,
+        schema: type,
+        system_prompt: str,
+        chat_message: object,
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> object:
+        if schema is Trading212OrderActionRequest:
+            return Trading212OrderActionRequest(
+                action="prepare_submit_order",
+                order_type="MARKET",
+                side="SELL",
+                ticker="Alphabet",
+                quantity=None,
+                time_validity="DAY",
+                extended_hours=False,
+                thesis="Exit the full Alphabet position at market.",
+                risks=["Market execution risk"],
+                confidence=0.8,
+                use_full_position_size=True,
+            )
+        return super().generate_structured(
+            schema,
+            system_prompt,
+            chat_message,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+
+class LiquidationTrading212Api(FakeTrading212Api):
+    def list_positions(self, *, ticker: str | None = None) -> list[Position]:
+        del ticker
+        return [
+            Position(
+                instrument=Instrument(name="Alphabet", ticker="GOOGL_US_EQ"),
+                quantity=Decimal("3"),
+                quantity_available_for_trading=Decimal("3"),
+            )
+        ]
+
+
 def _services(tmp_path):
     engine = build_engine(f"sqlite:///{tmp_path / 'proposals.db'}")
     ensure_schema(engine)
@@ -258,6 +306,7 @@ def test_order_agent_marks_preparation_failed_when_order_validation_fails(tmp_pa
     detail = proposal_service.get_proposal(proposal_id)
 
     assert response.metadata["workflow_status"] == "error"
+    assert "Code: invalid_order_request" in response.final_answer
     assert detail is not None
     assert detail.proposal.status == ProposalStatus.PREPARATION_FAILED
     assert detail.proposal.pending_action_id is None
@@ -268,3 +317,43 @@ def test_broker_order_action_request_schema_forbids_additional_properties() -> N
 
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
+
+
+def test_order_agent_liquidation_resolves_full_position_quantity(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'liquidation-proposals.db'}")
+    ensure_schema(engine)
+    session_factory = build_session_factory(engine)
+    broker_service = Trading212BrokerService(LiquidationTrading212Api())
+    proposal_service = ProposalService(session_factory)
+    pending_action_service = PendingActionService(
+        session_factory,
+        broker_service=broker_service,
+    )
+    reasoner = AgentReasoner(LiquidationProposalGenAIClient())  # type: ignore[arg-type]
+    agent = OrderAgent(
+        reasoner,
+        broker_service=broker_service,
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="Hey can you liquidate alphabet position at mkt price?",
+            chat_id="123",
+            metadata={"telegram_user_id": "456"},
+        ),
+        intent=AgentIntent(kind=IntentKind.PLACE_ORDER, entities={"action": "liquidate"}),
+    )
+
+    proposal_id = response.artifacts["proposal_id"]
+    detail = proposal_service.get_proposal(proposal_id)
+    assert detail is not None
+    assert detail.proposal.pending_action_id is not None
+    pending_action = pending_action_service.get_action(detail.proposal.pending_action_id)
+
+    assert response.metadata["workflow_status"] == "ok"
+    assert pending_action is not None
+    assert pending_action.prepared_order_payload is not None
+    assert pending_action.prepared_order_payload["ticker"] == "GOOGL_US_EQ"
+    assert pending_action.prepared_order_payload["quantity"] == 3.0
