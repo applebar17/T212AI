@@ -1,5 +1,6 @@
 """Broker integrations and generic broker-facing domain models."""
 
+from .exceptions import BrokerInstrumentResolutionError
 from .models import (
     BrokerAccountSummary,
     BrokerCancelTargetSelector,
@@ -9,6 +10,9 @@ from .models import (
     BrokerHistoricalOrder,
     BrokerHistoricalOrdersPage,
     BrokerInstrument,
+    BrokerInstrumentCandidate,
+    BrokerInstrumentResolution,
+    BrokerInstrumentResolutionStatus,
     BrokerInvestments,
     BrokerOrder,
     BrokerOrderAction,
@@ -24,6 +28,7 @@ from .models import (
     BrokerTimeInForce,
     PreparedBrokerOrder,
 )
+
 __all__ = [
     "BrokerAccountSummary",
     "BrokerCancelTargetSelector",
@@ -33,6 +38,10 @@ __all__ = [
     "BrokerHistoricalOrder",
     "BrokerHistoricalOrdersPage",
     "BrokerInstrument",
+    "BrokerInstrumentCandidate",
+    "BrokerInstrumentResolution",
+    "BrokerInstrumentResolutionError",
+    "BrokerInstrumentResolutionStatus",
     "BrokerInvestments",
     "BrokerOrder",
     "BrokerOrderAction",

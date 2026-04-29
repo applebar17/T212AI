@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
+from t212ai.brokers.models import (
+    BrokerOrderSide,
+    BrokerOrderType,
+    BrokerTimeInForce,
+    PreparedBrokerOrder,
+)
 from t212ai.brokers.trading212.client import Trading212Client
 from t212ai.brokers.trading212.models import (
     AccountSummary,
@@ -17,6 +25,7 @@ from t212ai.brokers.trading212.models import (
     Position,
     PositionWalletImpact,
     TimeValidity,
+    TradableInstrument,
 )
 from t212ai.brokers.trading212.service import Trading212BrokerService
 from t212ai.brokers.trading212.tools import (
@@ -36,6 +45,7 @@ class FakeTrading212Api:
         self.placed_market_orders: list[MarketRequest] = []
         self.placed_limit_orders: list[LimitRequest] = []
         self.cancelled_order_ids: list[int] = []
+        self.list_instruments_calls = 0
 
     def get_account_summary(self) -> AccountSummary:
         return AccountSummary(
@@ -61,6 +71,25 @@ class FakeTrading212Api:
         if ticker and ticker != position.instrument.ticker:
             return []
         return [position]
+
+    def list_instruments(self) -> list[TradableInstrument]:
+        self.list_instruments_calls += 1
+        return [
+            TradableInstrument(
+                ticker="AAPL_US_EQ",
+                name="Apple Inc.",
+                short_name="Apple",
+                isin="US0378331005",
+                currency_code="USD",
+            ),
+            TradableInstrument(
+                ticker="GOOGLE_ES_EQ",
+                name="Alphabet Inc Class A",
+                short_name="Google",
+                isin="US02079K3059",
+                currency_code="EUR",
+            ),
+        ]
 
     def list_pending_orders(self) -> list[Order]:
         return [
@@ -195,6 +224,86 @@ def test_prepare_sell_limit_order_builds_signed_payload_and_fingerprint() -> Non
     assert prepared.request_payload["quantity"] == -2.5
     assert prepared.request_payload["limitPrice"] == 150.25
     assert len(prepared.order_fingerprint) == 16
+
+
+def test_prepare_order_resolves_public_symbol_to_trading212_instrument() -> None:
+    api = FakeTrading212Api()
+    service = Trading212BrokerService(api)
+
+    prepared = service.prepare_order(
+        order_type="MARKET",
+        side="BUY",
+        ticker="googl",
+        quantity="1",
+    )
+
+    assert prepared.ticker == "GOOGLE_ES_EQ"
+    assert prepared.requested_ticker == "GOOGL"
+    assert prepared.instrument is not None
+    assert prepared.instrument.ticker == "GOOGLE_ES_EQ"
+    assert prepared.instrument_resolution is not None
+    assert prepared.instrument_resolution.resolved_ticker == "GOOGLE_ES_EQ"
+    assert "GOOGL -> GOOGLE_ES_EQ" in prepared.warnings[0]
+    assert prepared.request_payload["ticker"] == "GOOGLE_ES_EQ"
+    assert api.list_instruments_calls == 1
+
+
+def test_prepare_order_reports_ambiguous_trading212_instrument_candidates() -> None:
+    class AmbiguousInstrumentApi(FakeTrading212Api):
+        def list_instruments(self) -> list[TradableInstrument]:
+            self.list_instruments_calls += 1
+            return [
+                TradableInstrument(
+                    ticker="GOOGLE_ES_EQ",
+                    name="Alphabet Inc Class A",
+                    short_name="Google",
+                    currency_code="EUR",
+                ),
+                TradableInstrument(
+                    ticker="GOOGLE_US_EQ",
+                    name="Alphabet Inc Class A",
+                    short_name="Google",
+                    currency_code="USD",
+                ),
+            ]
+
+    service = Trading212BrokerService(AmbiguousInstrumentApi())
+
+    with pytest.raises(ValueError) as exc_info:
+        service.prepare_order(
+            order_type="MARKET",
+            side="BUY",
+            ticker="googl",
+            quantity="1",
+        )
+
+    message = str(exc_info.value)
+    assert "ambiguous" in message
+    assert "GOOGLE_ES_EQ" in message
+    assert "GOOGLE_US_EQ" in message
+
+
+def test_submit_prepared_order_rejects_unresolved_trading212_ticker_before_api_call() -> None:
+    api = FakeTrading212Api()
+    service = Trading212BrokerService(api)
+    prepared = PreparedBrokerOrder(
+        broker_provider="trading212",
+        order_type=BrokerOrderType.MARKET,
+        side=BrokerOrderSide.BUY,
+        ticker="GOOGL",
+        quantity=Decimal("1"),
+        signed_quantity=Decimal("1"),
+        time_in_force=BrokerTimeInForce.DAY,
+        request_payload={"ticker": "GOOGL", "quantity": 1, "extendedHours": False},
+        order_fingerprint="legacybad",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        service.submit_prepared_order(prepared)
+
+    assert "unconfirmed ticker" in str(exc_info.value)
+    assert "GOOGLE_ES_EQ" in str(exc_info.value)
+    assert api.placed_market_orders == []
 
 
 def test_execution_tool_requires_state_change_runtime_and_matching_fingerprint() -> None:

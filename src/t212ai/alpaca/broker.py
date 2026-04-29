@@ -13,6 +13,9 @@ from t212ai.brokers.models import (
     BrokerHistoricalOrder,
     BrokerHistoricalOrdersPage,
     BrokerInstrument,
+    BrokerInstrumentCandidate,
+    BrokerInstrumentResolution,
+    BrokerInstrumentResolutionStatus,
     BrokerInvestments,
     BrokerOrder,
     BrokerOrderActionResult,
@@ -153,6 +156,28 @@ class AlpacaBrokerService:
             next_page_path=None,
         )
 
+    def resolve_instrument(
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+    ) -> BrokerInstrumentResolution:
+        del limit
+        symbol = _normalize_symbol(query)
+        return BrokerInstrumentResolution(
+            query=str(query or "").strip(),
+            status=BrokerInstrumentResolutionStatus.RESOLVED,
+            resolved_ticker=symbol,
+            candidates=[
+                BrokerInstrumentCandidate(
+                    ticker=symbol,
+                    score=100.0,
+                    match_reason="alpaca_symbol_normalized",
+                )
+            ],
+            hint="Alpaca order payloads use the normalized asset symbol as the ticker.",
+        )
+
     def prepare_order(
         self,
         *,
@@ -168,7 +193,8 @@ class AlpacaBrokerService:
         resolved_type = _coerce_enum(BrokerOrderType, order_type, "order_type")
         resolved_side = _coerce_enum(BrokerOrderSide, side, "side")
         resolved_time_in_force = _coerce_enum(BrokerTimeInForce, time_in_force, "time_in_force")
-        resolved_ticker = _normalize_symbol(ticker)
+        instrument_resolution = self.resolve_instrument(ticker, limit=1)
+        resolved_ticker = instrument_resolution.resolved_ticker or _normalize_symbol(ticker)
         resolved_quantity = _positive_decimal(quantity, "quantity")
         signed_quantity = (
             resolved_quantity
@@ -206,12 +232,17 @@ class AlpacaBrokerService:
             order_type=resolved_type,
             side=resolved_side,
             ticker=resolved_ticker,
+            requested_ticker=(
+                str(ticker).strip() if str(ticker).strip().upper() != resolved_ticker else None
+            ),
             quantity=resolved_quantity,
             signed_quantity=signed_quantity,
             limit_price=_optional_decimal(limit_price),
             stop_price=_optional_decimal(stop_price),
             time_in_force=resolved_time_in_force,
             extended_hours=bool(extended_hours),
+            instrument=BrokerInstrument(ticker=resolved_ticker),
+            instrument_resolution=instrument_resolution,
             request_payload=payload,
             order_fingerprint=fingerprint,
             warnings=[],

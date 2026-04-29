@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Callable
 
+from t212ai.brokers.exceptions import BrokerInstrumentResolutionError
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tracing import (
     _trace_tool_function_inputs,
@@ -389,6 +390,8 @@ def t212_prepare_order(
             time_in_force=time_validity,
             extended_hours=extended_hours,
         )
+    except BrokerInstrumentResolutionError as exc:
+        return _instrument_resolution_tool_error(exc)
     except ValueError as exc:
         return _tool_error(str(exc), code="invalid_order_request")
 
@@ -443,6 +446,8 @@ def t212_prepare_order_action(
             time_in_force=time_validity,
             extended_hours=extended_hours,
         )
+    except BrokerInstrumentResolutionError as exc:
+        return _instrument_resolution_tool_error(exc)
     except ValueError as exc:
         return _tool_error(str(exc), code="invalid_order_request")
 
@@ -574,6 +579,8 @@ def t212_place_order(
             time_in_force=time_validity,
             extended_hours=extended_hours,
         )
+    except BrokerInstrumentResolutionError as exc:
+        return _instrument_resolution_tool_error(exc)
     except ValueError as exc:
         return _tool_error(str(exc), code="invalid_order_request")
 
@@ -628,6 +635,18 @@ def t212_cancel_order(
         status="ok",
         output=result.message or f"Cancellation requested for order {order_id}.",
         data=result.model_dump(by_alias=True, exclude_none=True, mode="json"),
+    )
+
+
+def _instrument_resolution_tool_error(exc: BrokerInstrumentResolutionError) -> ToolResult:
+    return _tool_error(
+        str(exc),
+        code="invalid_order_request",
+        hint=(
+            "Use one of error.details.resolution.candidates[].ticker values "
+            "and prepare the order again."
+        ),
+        details=exc.details(),
     )
 
 

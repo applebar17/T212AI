@@ -6,8 +6,10 @@ import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 import logging
+import re
 from typing import Any
 
+from t212ai.brokers.exceptions import BrokerInstrumentResolutionError
 from t212ai.brokers.models import (
     BrokerAccountSummary,
     BrokerCash,
@@ -16,6 +18,8 @@ from t212ai.brokers.models import (
     BrokerHistoricalOrder,
     BrokerHistoricalOrdersPage,
     BrokerInstrument,
+    BrokerInstrumentResolution,
+    BrokerInstrumentResolutionStatus,
     BrokerInvestments,
     BrokerOrder,
     BrokerOrderActionResult,
@@ -37,7 +41,9 @@ from .models import (
     StopLimitRequest,
     StopRequest,
     TimeValidity,
+    TradableInstrument,
 )
+from .instruments import broker_instrument_from_candidate, resolve_trading212_instrument
 from .protocols import Trading212ApiProtocol
 
 LOGGER = logging.getLogger(__name__)
@@ -50,6 +56,7 @@ class Trading212BrokerService:
 
     def __init__(self, api: Trading212ApiProtocol) -> None:
         self.api = api
+        self._instrument_cache: list[TradableInstrument] | None = None
 
     def get_portfolio_snapshot(self) -> BrokerPortfolioSnapshot:
         return BrokerPortfolioSnapshot(
@@ -87,6 +94,18 @@ class Trading212BrokerService:
             next_page_path=page.next_page_path,
         )
 
+    def resolve_instrument(
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+    ) -> BrokerInstrumentResolution:
+        return resolve_trading212_instrument(
+            query,
+            self._list_instruments_cached(),
+            limit=limit,
+        )
+
     def prepare_order(
         self,
         *,
@@ -102,7 +121,13 @@ class Trading212BrokerService:
         resolved_type = _coerce_enum(BrokerOrderType, order_type, "order_type")
         resolved_side = _coerce_enum(BrokerOrderSide, side, "side")
         resolved_time_in_force = _coerce_enum(BrokerTimeInForce, time_in_force, "time_in_force")
-        resolved_ticker = _normalize_ticker(ticker)
+        requested_ticker = _normalize_ticker(ticker)
+        instrument_resolution = self._resolve_order_instrument(requested_ticker)
+        resolved_ticker = (
+            instrument_resolution.resolved_ticker
+            if instrument_resolution is not None
+            else requested_ticker
+        )
         unsigned_quantity = _positive_decimal(quantity, "quantity")
         signed_quantity = (
             unsigned_quantity if resolved_side == BrokerOrderSide.BUY else -unsigned_quantity
@@ -111,6 +136,12 @@ class Trading212BrokerService:
 
         if extended_hours and resolved_type != BrokerOrderType.MARKET:
             warnings.append("extended_hours is only supported for Trading 212 market orders.")
+        if instrument_resolution is not None and requested_ticker != resolved_ticker:
+            warnings.append(
+                "Resolved Trading 212 instrument "
+                f"{requested_ticker} -> {resolved_ticker}. "
+                "Orders use broker-native Trading 212 tickers."
+            )
 
         request_payload = self._build_order_payload(
             order_type=resolved_type,
@@ -134,12 +165,21 @@ class Trading212BrokerService:
             order_type=resolved_type,
             side=resolved_side,
             ticker=resolved_ticker,
+            requested_ticker=(
+                requested_ticker if requested_ticker != resolved_ticker else None
+            ),
             quantity=unsigned_quantity,
             signed_quantity=signed_quantity,
             limit_price=_optional_decimal(limit_price),
             stop_price=_optional_decimal(stop_price),
             time_in_force=resolved_time_in_force,
             extended_hours=bool(extended_hours),
+            instrument=(
+                broker_instrument_from_candidate(instrument_resolution.candidates[0])
+                if instrument_resolution is not None and instrument_resolution.candidates
+                else None
+            ),
+            instrument_resolution=instrument_resolution,
             request_payload=request_payload,
             order_fingerprint=fingerprint,
             warnings=warnings,
@@ -156,6 +196,7 @@ class Trading212BrokerService:
             prepared_order.signed_quantity,
             prepared_order.order_fingerprint,
         )
+        self._validate_prepared_order_ticker(prepared_order)
         order_type = prepared_order.order_type
         payload = prepared_order.request_payload
         if order_type == BrokerOrderType.MARKET:
@@ -261,6 +302,57 @@ class Trading212BrokerService:
             ).to_api_dict()
         raise ValueError(f"Unsupported order type: {order_type}")
 
+    def _list_instruments_cached(self) -> list[TradableInstrument]:
+        if self._instrument_cache is None:
+            self._instrument_cache = self.api.list_instruments()
+        return self._instrument_cache
+
+    def _supports_instrument_metadata(self) -> bool:
+        return callable(getattr(self.api, "list_instruments", None))
+
+    def _resolve_order_instrument(
+        self,
+        requested_ticker: str,
+    ) -> BrokerInstrumentResolution | None:
+        if (
+            not self._supports_instrument_metadata()
+            and _looks_like_trading212_ticker(requested_ticker)
+        ):
+            return _metadata_unchecked_resolution(requested_ticker)
+        resolution = self.resolve_instrument(requested_ticker)
+        if (
+            resolution.status == BrokerInstrumentResolutionStatus.RESOLVED
+            and resolution.resolved_ticker
+        ):
+            return resolution
+        raise BrokerInstrumentResolutionError(
+            _instrument_resolution_error_message(resolution),
+            provider=self.provider_name,
+            resolution=resolution,
+        )
+
+    def _validate_prepared_order_ticker(self, prepared_order: PreparedBrokerOrder) -> None:
+        if _prepared_order_has_confirmed_instrument(prepared_order):
+            return
+        if (
+            not self._supports_instrument_metadata()
+            and _looks_like_trading212_ticker(prepared_order.ticker)
+        ):
+            return
+        resolution = self.resolve_instrument(prepared_order.ticker, limit=5)
+        if (
+            resolution.status == BrokerInstrumentResolutionStatus.RESOLVED
+            and str(resolution.resolved_ticker or "").upper() == prepared_order.ticker.upper()
+        ):
+            return
+        raise BrokerInstrumentResolutionError(
+            "Prepared Trading 212 order uses an unconfirmed ticker "
+            f"{prepared_order.ticker!r}. {_instrument_resolution_error_message(resolution)} "
+            "Prepare the order again before approval.",
+            provider=self.provider_name,
+            resolution=resolution,
+        )
+
 
 def _coerce_enum(enum_type: type[Any], value: Any, field_name: str) -> Any:
     raw = str(value or "").strip().upper()
@@ -278,6 +370,82 @@ def _normalize_ticker(value: str) -> str:
     if not ticker:
         raise ValueError("ticker is required.")
     return ticker
+
+
+def _looks_like_trading212_ticker(value: str) -> bool:
+    raw = str(value or "").strip().upper()
+    return bool(re.match(r"^[A-Z0-9.]+(?:_[A-Z0-9]+)+$", raw))
+
+
+def _prepared_order_has_confirmed_instrument(prepared_order: PreparedBrokerOrder) -> bool:
+    resolution = prepared_order.instrument_resolution
+    if resolution is None:
+        return False
+    return (
+        resolution.status == BrokerInstrumentResolutionStatus.RESOLVED
+        and str(resolution.resolved_ticker or "").upper() == prepared_order.ticker.upper()
+        and _looks_like_trading212_ticker(prepared_order.ticker)
+    )
+
+
+def _metadata_unchecked_resolution(ticker: str) -> BrokerInstrumentResolution:
+    return BrokerInstrumentResolution(
+        query=ticker,
+        status=BrokerInstrumentResolutionStatus.RESOLVED,
+        resolved_ticker=ticker,
+        candidates=[],
+        hint=(
+            "Instrument metadata lookup is unavailable on this Trading 212 API "
+            "adapter; the broker-native-looking ticker was left unchanged."
+        ),
+    )
+
+
+def _instrument_resolution_error_message(
+    resolution: BrokerInstrumentResolution,
+) -> str:
+    if resolution.status == BrokerInstrumentResolutionStatus.NOT_FOUND:
+        message = (
+            f"Trading 212 instrument {resolution.query!r} was not found. "
+            "Trading 212 orders require the broker-native instrument ticker from "
+            "/equity/metadata/instruments."
+        )
+    elif resolution.status == BrokerInstrumentResolutionStatus.RESOLVED:
+        message = (
+            f"Trading 212 instrument {resolution.query!r} resolves to "
+            f"{resolution.resolved_ticker}, not the saved order ticker. "
+            "Trading 212 orders require the exact broker-native instrument ticker "
+            "approved by the user."
+        )
+    else:
+        message = (
+            f"Trading 212 instrument {resolution.query!r} is ambiguous. "
+            "Use the exact broker-native ticker from one of the candidates."
+        )
+    candidates = _format_resolution_candidates(resolution)
+    if candidates:
+        message = f"{message} Candidates: {candidates}."
+    if resolution.hint:
+        message = f"{message} Hint: {resolution.hint}"
+    return message
+
+
+def _format_resolution_candidates(
+    resolution: BrokerInstrumentResolution,
+    *,
+    limit: int = 5,
+) -> str:
+    rendered: list[str] = []
+    for candidate in resolution.candidates[: max(0, int(limit))]:
+        parts = [candidate.ticker]
+        if candidate.name:
+            parts.append(candidate.name)
+        if candidate.currency:
+            parts.append(candidate.currency)
+        if candidate.isin:
+            parts.append(candidate.isin)
+        rendered.append(" / ".join(parts))
+    return "; ".join(rendered)
 
 
 def _to_decimal(value: str | int | float | Decimal | None, field_name: str) -> Decimal:

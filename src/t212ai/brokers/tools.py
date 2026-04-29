@@ -18,6 +18,7 @@ from t212ai.genai.tracing import (
 )
 from t212ai.pending_actions import PendingActionKind, PendingActionService, approval_expiry
 
+from .exceptions import BrokerInstrumentResolutionError
 from .models import BrokerOrder, PreparedBrokerOrder
 
 
@@ -117,6 +118,38 @@ BROKER_LIST_HISTORICAL_ORDERS_TOOL: ToolSpec = {
     },
 }
 
+BROKER_RESOLVE_INSTRUMENT_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "broker_resolve_instrument",
+        "description": (
+            "Resolve a user-facing ticker, public symbol, ISIN, or instrument name "
+            "into broker-native tradable instrument candidates. Use this before "
+            "preparing orders when the broker may require its own instrument id "
+            "(for example Trading 212 tickers from /metadata/instruments)."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Ticker, broker ticker, ISIN, or instrument/company name.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 8,
+                    "description": "Maximum number of candidates to return.",
+                },
+            },
+            "required": ["query", "limit"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 _BROKER_ORDER_ARGUMENTS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -132,7 +165,10 @@ _BROKER_ORDER_ARGUMENTS_SCHEMA: dict[str, Any] = {
         },
         "ticker": {
             "type": "string",
-            "description": "Broker instrument ticker or symbol.",
+            "description": (
+                "Broker-native instrument ticker or symbol. For Trading 212, resolve "
+                "public symbols with broker_resolve_instrument first when needed."
+            ),
         },
         "quantity": {
             "type": ["number", "string"],
@@ -288,6 +324,7 @@ def build_broker_read_toolbox() -> ToolBox:
         BROKER_LIST_PENDING_ORDERS_TOOL,
         BROKER_GET_ORDER_TOOL,
         BROKER_LIST_HISTORICAL_ORDERS_TOOL,
+        BROKER_RESOLVE_INSTRUMENT_TOOL,
     ]
     return ToolBox(
         name="broker_read",
@@ -341,6 +378,10 @@ def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[
         "broker_list_pending_orders": lambda: broker_list_pending_orders(runtime=runtime),
         "broker_get_order": lambda order_ref: broker_get_order(order_ref=order_ref, runtime=runtime),
         "broker_list_historical_orders": lambda **kwargs: broker_list_historical_orders(
+            runtime=runtime,
+            **kwargs,
+        ),
+        "broker_resolve_instrument": lambda **kwargs: broker_resolve_instrument(
             runtime=runtime,
             **kwargs,
         ),
@@ -495,6 +536,86 @@ def broker_list_historical_orders(
         data={
             "provider": runtime.broker_provider,
             "page": page.model_dump(by_alias=True, exclude_none=True, mode="json"),
+        },
+    )
+
+
+@traceable(
+    name="broker_resolve_instrument",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def broker_resolve_instrument(
+    *,
+    query: str,
+    limit: int = 8,
+    runtime: BrokerToolRuntime,
+) -> ToolResult:
+    set_trace_metadata(provider=runtime.broker_provider, tool_name="broker_resolve_instrument")
+    if runtime.broker_read_service is None:
+        return _tool_error(
+            "Broker read service is not configured.",
+            code="broker_not_configured",
+        )
+    resolver = getattr(runtime.broker_read_service, "resolve_instrument", None)
+    if not callable(resolver):
+        return _tool_error(
+            "The configured broker does not expose instrument resolution.",
+            code="instrument_resolution_unavailable",
+            hint=(
+                "Use the broker-native ticker expected by the provider, or configure a "
+                "broker adapter that supports instrument metadata lookup."
+            ),
+            details={"provider": runtime.broker_provider},
+        )
+    resolved_query = str(query or "").strip()
+    if not resolved_query:
+        return _tool_error(
+            "query is required and cannot be empty.",
+            code="missing_query",
+            hint="Provide a ticker, broker-native ticker, ISIN, or instrument name.",
+        )
+    try:
+        resolution = resolver(resolved_query, limit=max(1, int(limit)))
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="resolve_instrument",
+            message="Unable to resolve broker instrument metadata.",
+        )
+
+    candidates = getattr(resolution, "candidates", []) or []
+    resolved_ticker = getattr(resolution, "resolved_ticker", None)
+    status = str(getattr(resolution, "status", "unknown"))
+    if resolved_ticker:
+        output = (
+            f"Resolved {resolved_query!r} to broker-native ticker "
+            f"{resolved_ticker} for {_display_broker_name(runtime.broker_provider)}."
+        )
+    elif candidates:
+        output = (
+            f"{_display_broker_name(runtime.broker_provider)} returned "
+            f"{len(candidates)} candidate instrument(s) for {resolved_query!r}; "
+            "choose an exact broker-native ticker before preparing an order."
+        )
+    else:
+        output = (
+            f"No {_display_broker_name(runtime.broker_provider)} instruments matched "
+            f"{resolved_query!r}."
+        )
+    return ToolResult(
+        status="ok",
+        output=output,
+        data={
+            "provider": runtime.broker_provider,
+            "resolution": resolution.model_dump(
+                by_alias=True,
+                exclude_none=True,
+                mode="json",
+            ),
+            "status": status,
         },
     )
 
@@ -826,8 +947,32 @@ def _prepare_order_or_error(
             time_in_force=time_in_force,
             extended_hours=extended_hours,
         )
+    except BrokerInstrumentResolutionError as exc:
+        return _tool_error(
+            str(exc),
+            code="invalid_order_request",
+            hint=(
+                "Use one of error.details.resolution.candidates[].ticker values "
+                "with broker_prepare_order or broker_prepare_order_action."
+            ),
+            details=exc.details(),
+        )
     except ValueError as exc:
-        return _tool_error(str(exc), code="invalid_order_request")
+        return _tool_error(
+            str(exc),
+            code="invalid_order_request",
+            hint=(
+                "Resolve the instrument with broker_resolve_instrument and prepare "
+                "the order again using the broker-native ticker."
+            ),
+        )
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="prepare_order",
+            message="Unable to prepare broker order.",
+        )
 
 
 def _tool_error(

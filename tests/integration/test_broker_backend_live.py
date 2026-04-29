@@ -123,7 +123,12 @@ def test_configured_broker_can_prepare_order_without_submitting(
     _assert_tool_ok(result, tool_name="broker_prepare_order")
     prepared = result.data["preparedOrder"]
     assert prepared["brokerProvider"] == live_broker_runtime.settings.broker_provider
-    assert prepared["ticker"] == symbol.upper()
+    assert prepared["ticker"]
+    if (
+        live_broker_runtime.settings.broker_provider.strip().lower() != "trading212"
+        or "_" in symbol
+    ):
+        assert prepared["ticker"] == symbol.upper()
     assert prepared["orderFingerprint"]
 
 

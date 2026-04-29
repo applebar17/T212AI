@@ -6,6 +6,7 @@ from typing import Protocol
 
 from t212ai.brokers.models import (
     BrokerHistoricalOrdersPage,
+    BrokerInstrumentResolution,
     BrokerOrder,
     BrokerOrderActionResult,
     BrokerOrderSide,
@@ -139,6 +140,13 @@ class Trading212AgentBrokerProtocol(Protocol):
         ticker: str | None = None,
         limit: int | None = None,
     ) -> BrokerHistoricalOrdersPage: ...
+
+    def resolve_instrument(
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+    ) -> BrokerInstrumentResolution: ...
 
     def prepare_order(
         self,

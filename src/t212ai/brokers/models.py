@@ -115,6 +115,31 @@ class BrokerInstrument(BrokerModel):
     ticker: str | None = None
 
 
+class BrokerInstrumentResolutionStatus(StrEnum):
+    RESOLVED = "resolved"
+    AMBIGUOUS = "ambiguous"
+    NOT_FOUND = "not_found"
+
+
+class BrokerInstrumentCandidate(BrokerModel):
+    ticker: str
+    name: str | None = None
+    short_name: str | None = Field(default=None, alias="shortName")
+    isin: str | None = None
+    currency: str | None = None
+    type: str | None = None
+    score: float = 0.0
+    match_reason: str | None = Field(default=None, alias="matchReason")
+
+
+class BrokerInstrumentResolution(BrokerModel):
+    query: str
+    status: BrokerInstrumentResolutionStatus
+    resolved_ticker: str | None = Field(default=None, alias="resolvedTicker")
+    candidates: list[BrokerInstrumentCandidate] = Field(default_factory=list)
+    hint: str | None = None
+
+
 class BrokerTax(BrokerModel):
     charged_at: datetime | None = Field(default=None, alias="chargedAt")
     currency: str | None = None
@@ -206,12 +231,18 @@ class PreparedBrokerOrder(BrokerModel):
     order_type: BrokerOrderType = Field(alias="orderType")
     side: BrokerOrderSide
     ticker: str
+    requested_ticker: str | None = Field(default=None, alias="requestedTicker")
     quantity: Decimal = Field(alias="quantity")
     signed_quantity: Decimal = Field(alias="signedQuantity")
     limit_price: Decimal | None = Field(default=None, alias="limitPrice")
     stop_price: Decimal | None = Field(default=None, alias="stopPrice")
     time_in_force: BrokerTimeInForce = Field(alias="timeInForce")
     extended_hours: bool = Field(default=False, alias="extendedHours")
+    instrument: BrokerInstrument | None = None
+    instrument_resolution: BrokerInstrumentResolution | None = Field(
+        default=None,
+        alias="instrumentResolution",
+    )
     request_payload: dict[str, Any] = Field(alias="requestPayload")
     order_fingerprint: str = Field(alias="orderFingerprint")
     warnings: list[str] = Field(default_factory=list)

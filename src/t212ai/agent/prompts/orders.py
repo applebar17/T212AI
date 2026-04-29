@@ -13,11 +13,21 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     - For cancellation requests, choose prepare_cancel_order.
     - Do not confirm or execute; only prepare an action.
     - For liquidation / close-position requests, set side=SELL.
-    - If the user wants to exit the full position and does not provide a quantity, set use_full_position_size=true.
-    - If the user gives an explicit share quantity for a sell/liquidation request, preserve that quantity.
-    - For cancellation, use target_order_ref when explicit, otherwise use selector latest, oldest, or only when the user's request clearly implies one.
-    - For order submission, include order_type, side, ticker, quantity, limit_price, stop_price, time_in_force, and extended_hours when known.
-    - For order submission, also include a short thesis, concise risks list, and confidence between 0 and 1.
+    - If the user wants to exit the full position and does not provide a quantity,
+      set use_full_position_size=true.
+    - If the user gives an explicit share quantity for a sell/liquidation request,
+      preserve that quantity.
+    - For cancellation, use target_order_ref when explicit. Otherwise use selector
+      latest, oldest, or only when the user's request clearly implies one.
+    - For order submission, include order_type, side, ticker, quantity, limit_price,
+      stop_price, time_in_force, and extended_hours when known.
+    - Prefer broker-native asset identifiers when known. For Trading 212 this means
+      the instrument ticker from metadata, not necessarily the public exchange symbol.
+    - If only a public symbol or company name is known, put the best available
+      identifier in ticker; deterministic broker metadata resolution will validate it
+      before any approval is created.
+    - For order submission, also include a short thesis, concise risks list, and
+      confidence between 0 and 1.
     - Do not invent ambiguous order references or prices.
     """
 ).strip()
