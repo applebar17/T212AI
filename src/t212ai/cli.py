@@ -57,6 +57,7 @@ SECRET_KEYS = frozenset(
     {
         "OPENAI_API_KEY",
         "AZURE_OPENAI_API_KEY",
+        "LANGSMITH_API_KEY",
         "T212_API_KEY",
         "T212_API_SECRET",
         "ALPACA_API_KEY",
@@ -68,21 +69,21 @@ SECRET_KEYS = frozenset(
     }
 )
 MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Provider selection",
         (
-            "Provider selection",
-            (
-                "LLM_PROVIDER",
-                "BROKER_PROVIDER",
-                "MARKET_DATA_PROVIDER",
-                "MARKET_INTELLIGENCE_PROVIDER",
-                "DISCLOSURE_PROVIDER",
-                "COMMUNITY_PROVIDER",
-                "SEARCH_PROVIDER",
-                "YAHOO_ENABLED",
-                "ALPHA_VANTAGE_ENABLED",
-                "REDDIT_ENABLED",
-                "SEARXNG_ENABLED",
-            ),
+            "LLM_PROVIDER",
+            "BROKER_PROVIDER",
+            "MARKET_DATA_PROVIDER",
+            "MARKET_INTELLIGENCE_PROVIDER",
+            "DISCLOSURE_PROVIDER",
+            "COMMUNITY_PROVIDER",
+            "SEARCH_PROVIDER",
+            "YAHOO_ENABLED",
+            "ALPHA_VANTAGE_ENABLED",
+            "REDDIT_ENABLED",
+            "SEARXNG_ENABLED",
+        ),
     ),
     (
         "OpenAI / Azure OpenAI",
@@ -98,6 +99,15 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "AZURE_OPENAI_API_KEY",
             "AZURE_OPENAI_API_VERSION",
             "AZURE_OPENAI_EMBED_DEPLOYMENT",
+        ),
+    ),
+    (
+        "LangSmith observability",
+        (
+            "LANGSMITH_TRACING",
+            "LANGSMITH_ENDPOINT",
+            "LANGSMITH_API_KEY",
+            "LANGSMITH_PROJECT",
         ),
     ),
     (
@@ -170,6 +180,86 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Research/search tools",
         ("SEARXNG_BASE_URL",),
     ),
+)
+
+LLM_SECTION_KEYS = (
+    "LLM_PROVIDER",
+    "OPENAI_API_KEY",
+    "OPENAI_CHAT_MODEL_DEFAULT",
+    "OPENAI_CHAT_MODEL_SMART",
+    "OPENAI_CHAT_MODEL_REASONING",
+    "OPENAI_EMBED_MODEL",
+    "OPENAI_EMBED_DIMENSIONS",
+    "AZURE_OPENAI_ENABLED",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_API_VERSION",
+    "AZURE_OPENAI_EMBED_DEPLOYMENT",
+)
+
+OBSERVABILITY_SECTION_KEYS = (
+    "LANGSMITH_TRACING",
+    "LANGSMITH_ENDPOINT",
+    "LANGSMITH_API_KEY",
+    "LANGSMITH_PROJECT",
+)
+
+BROKER_SECTION_KEYS = (
+    "BROKER_PROVIDER",
+    "T212_ENVIRONMENT",
+    "T212_API_KEY",
+    "T212_API_SECRET",
+    "T212_LIVE_TRADING_ENABLED",
+    "ALPACA_ENVIRONMENT",
+    "ALPACA_API_KEY",
+    "ALPACA_API_SECRET",
+)
+
+TELEGRAM_SECTION_KEYS = (
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_ALLOWED_CHAT_ID",
+    "TELEGRAM_ALLOWED_USER_ID",
+)
+
+MARKET_DATA_SECTION_KEYS = (
+    "MARKET_DATA_PROVIDER",
+    "YAHOO_ENABLED",
+    "ALPACA_ENVIRONMENT",
+    "ALPACA_API_KEY",
+    "ALPACA_API_SECRET",
+)
+
+ALPHA_VANTAGE_SECTION_KEYS = (
+    "MARKET_INTELLIGENCE_PROVIDER",
+    "ALPHA_VANTAGE_ENABLED",
+    "ALPHA_VANTAGE_API_KEY",
+)
+
+DISCLOSURE_SECTION_KEYS = (
+    "DISCLOSURE_PROVIDER",
+    "SEC_EDGAR_USER_AGENT",
+)
+
+REDDIT_SECTION_KEYS = (
+    "COMMUNITY_PROVIDER",
+    "REDDIT_ENABLED",
+    "REDDIT_CLIENT_ID",
+    "REDDIT_CLIENT_SECRET",
+    "REDDIT_USERNAME",
+    "REDDIT_PASSWORD",
+    "REDDIT_REFRESH_TOKEN",
+    "REDDIT_USER_AGENT",
+)
+
+SEARCH_SECTION_KEYS = (
+    "SEARCH_PROVIDER",
+    "SEARXNG_ENABLED",
+    "SEARXNG_BASE_URL",
+)
+
+STORAGE_SECTION_KEYS = (
+    "DATABASE_URL",
+    "GUIDELINE_MEMORY_PATH",
 )
 
 
@@ -323,10 +413,15 @@ def command_configure(args: argparse.Namespace) -> int:
     io_runtime = TerminalIO()
     io_runtime.write("brokerai configuration wizard")
     io_runtime.write(f"Target env file: {env_path}")
+    if existing_raw:
+        io_runtime.write(
+            "Existing configuration detected. Sections with current values can be "
+            "skipped to keep them unchanged."
+        )
     io_runtime.write("")
 
     updates = build_managed_env_values(existing_raw)
-    apply_configuration_wizard(io_runtime, updates)
+    apply_configuration_wizard(io_runtime, updates, existing_raw=existing_raw)
 
     io_runtime.write("")
     io_runtime.write(render_configuration_review(updates))
@@ -494,6 +589,13 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "AZURE_OPENAI_EMBED_DEPLOYMENT",
             settings.azure_openai_embed_deployment or "",
         ),
+        "LANGSMITH_TRACING": existing_raw.get("LANGSMITH_TRACING", "false"),
+        "LANGSMITH_ENDPOINT": existing_raw.get(
+            "LANGSMITH_ENDPOINT",
+            "https://eu.api.smith.langchain.com",
+        ),
+        "LANGSMITH_API_KEY": existing_raw.get("LANGSMITH_API_KEY", ""),
+        "LANGSMITH_PROJECT": existing_raw.get("LANGSMITH_PROJECT", "T212AI"),
         "T212_ENVIRONMENT": existing_raw.get(
             "T212_ENVIRONMENT",
             settings.trading212_environment,
@@ -620,107 +722,250 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
     return values
 
 
-def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) -> None:
-    llm_provider = io_runtime.choose(
-        "LLM provider",
-        options=LLM_PROVIDER_OPTIONS,
-        default=_safe_choice(updates["LLM_PROVIDER"], {"openai", "azure_openai", "none"}, "none"),
-    )
-    updates["LLM_PROVIDER"] = llm_provider
-    if llm_provider == "openai":
-        updates["AZURE_OPENAI_ENABLED"] = "false"
-        updates["OPENAI_API_KEY"] = io_runtime.prompt(
-            "OPENAI_API_KEY",
-            default=updates["OPENAI_API_KEY"],
-        )
-    elif llm_provider == "azure_openai":
-        updates["AZURE_OPENAI_ENABLED"] = "true"
-        updates["AZURE_OPENAI_ENDPOINT"] = io_runtime.prompt(
-            "AZURE_OPENAI_ENDPOINT",
-            default=updates["AZURE_OPENAI_ENDPOINT"],
-        )
-        updates["AZURE_OPENAI_API_KEY"] = io_runtime.prompt(
-            "AZURE_OPENAI_API_KEY",
-            default=updates["AZURE_OPENAI_API_KEY"],
-        )
-        updates["AZURE_OPENAI_API_VERSION"] = io_runtime.prompt(
-            "AZURE_OPENAI_API_VERSION",
-            default=updates["AZURE_OPENAI_API_VERSION"],
-        )
-    else:
-        updates["AZURE_OPENAI_ENABLED"] = "false"
+def apply_configuration_wizard(
+    io_runtime: TerminalIO,
+    updates: dict[str, str],
+    *,
+    existing_raw: Mapping[str, str] | None = None,
+) -> None:
+    existing = existing_raw or {}
 
-    io_runtime.write("")
-    broker_provider = io_runtime.choose(
-        "Broker provider",
-        options=BROKER_PROVIDER_OPTIONS,
-        default=_safe_choice(updates["BROKER_PROVIDER"], {"trading212", "alpaca", "none"}, "none"),
+    _write_step_intro(
+        io_runtime,
+        "LLM configuration",
+        "Choose the main reasoning provider and its credentials. "
+        "If you use Azure OpenAI, the chat model fields below are deployment names.",
     )
-    updates["BROKER_PROVIDER"] = broker_provider
-    if broker_provider == "trading212":
-        updates["T212_ENVIRONMENT"] = io_runtime.choose(
-            "Trading 212 environment",
-            options=ENVIRONMENT_OPTIONS,
-            default=_safe_choice(updates["T212_ENVIRONMENT"], {"demo", "live"}, "demo"),
+    if _should_update_section(io_runtime, existing, LLM_SECTION_KEYS):
+        llm_provider = io_runtime.choose(
+            "LLM provider",
+            options=LLM_PROVIDER_OPTIONS,
+            default=_safe_choice(
+                updates["LLM_PROVIDER"],
+                {"openai", "azure_openai", "none"},
+                "none",
+            ),
         )
-        updates["T212_API_KEY"] = io_runtime.prompt(
-            "T212_API_KEY",
-            default=updates["T212_API_KEY"],
-        )
-        updates["T212_API_SECRET"] = io_runtime.prompt(
-            "T212_API_SECRET",
-            default=updates["T212_API_SECRET"],
-        )
-        if updates["T212_ENVIRONMENT"] == "live":
-            allow_live = io_runtime.confirm(
-                "Allow live order execution when running in live environment?",
-                default=_env_truthy(updates["T212_LIVE_TRADING_ENABLED"]),
+        updates["LLM_PROVIDER"] = llm_provider
+        if llm_provider == "openai":
+            updates["AZURE_OPENAI_ENABLED"] = "false"
+            updates["OPENAI_API_KEY"] = io_runtime.prompt(
+                "OPENAI_API_KEY",
+                default=updates["OPENAI_API_KEY"],
             )
-            updates["T212_LIVE_TRADING_ENABLED"] = _bool_to_env(allow_live)
+            updates["OPENAI_CHAT_MODEL_DEFAULT"] = _prompt_required(
+                io_runtime,
+                "OpenAI chat model for default/baseline tasks",
+                default=updates["OPENAI_CHAT_MODEL_DEFAULT"] or "gpt-4o-mini",
+            )
+            if io_runtime.confirm(
+                "Configure a dedicated smart model for delicate/critical tasks? Recommended.",
+                default=bool(updates["OPENAI_CHAT_MODEL_SMART"]),
+            ):
+                updates["OPENAI_CHAT_MODEL_SMART"] = io_runtime.prompt(
+                    "OpenAI chat model for smart/critical tasks",
+                    default=updates["OPENAI_CHAT_MODEL_SMART"] or "gpt-4.1",
+                )
+            else:
+                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_SMART")
+            if io_runtime.confirm(
+                "Configure a dedicated reasoning model for deeper reasoning tasks? Recommended.",
+                default=bool(updates["OPENAI_CHAT_MODEL_REASONING"]),
+            ):
+                updates["OPENAI_CHAT_MODEL_REASONING"] = io_runtime.prompt(
+                    "OpenAI chat model for reasoning tasks",
+                    default=updates["OPENAI_CHAT_MODEL_REASONING"] or "o4-mini",
+                )
+            else:
+                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_REASONING")
+            updates["OPENAI_EMBED_MODEL"] = io_runtime.prompt(
+                "OpenAI embedding model",
+                default=updates["OPENAI_EMBED_MODEL"],
+            )
+            updates["OPENAI_EMBED_DIMENSIONS"] = io_runtime.prompt(
+                "OPENAI_EMBED_DIMENSIONS (optional)",
+                default=updates["OPENAI_EMBED_DIMENSIONS"],
+            )
+        elif llm_provider == "azure_openai":
+            updates["AZURE_OPENAI_ENABLED"] = "true"
+            updates["AZURE_OPENAI_ENDPOINT"] = io_runtime.prompt(
+                "AZURE_OPENAI_ENDPOINT",
+                default=updates["AZURE_OPENAI_ENDPOINT"],
+            )
+            updates["AZURE_OPENAI_API_KEY"] = io_runtime.prompt(
+                "AZURE_OPENAI_API_KEY",
+                default=updates["AZURE_OPENAI_API_KEY"],
+            )
+            updates["AZURE_OPENAI_API_VERSION"] = io_runtime.prompt(
+                "AZURE_OPENAI_API_VERSION",
+                default=updates["AZURE_OPENAI_API_VERSION"],
+            )
+            azure_existing_models = (
+                str(existing.get("LLM_PROVIDER", "")).strip().lower() == "azure_openai"
+                or bool(str(existing.get("AZURE_OPENAI_ENDPOINT", "")).strip())
+                or bool(str(existing.get("AZURE_OPENAI_API_KEY", "")).strip())
+            )
+            updates["OPENAI_CHAT_MODEL_DEFAULT"] = _prompt_required(
+                io_runtime,
+                "Azure chat deployment for default/baseline tasks",
+                default=(
+                    updates["OPENAI_CHAT_MODEL_DEFAULT"] if azure_existing_models else ""
+                ),
+            )
+            if io_runtime.confirm(
+                "Configure a dedicated Azure deployment for smart/delicate tasks? Recommended.",
+                default=bool(updates["OPENAI_CHAT_MODEL_SMART"]) and azure_existing_models,
+            ):
+                updates["OPENAI_CHAT_MODEL_SMART"] = io_runtime.prompt(
+                    "Azure chat deployment for smart/critical tasks",
+                    default=updates["OPENAI_CHAT_MODEL_SMART"],
+                )
+            else:
+                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_SMART")
+            if io_runtime.confirm(
+                "Configure a dedicated Azure deployment for reasoning tasks? Recommended.",
+                default=bool(updates["OPENAI_CHAT_MODEL_REASONING"]) and azure_existing_models,
+            ):
+                updates["OPENAI_CHAT_MODEL_REASONING"] = io_runtime.prompt(
+                    "Azure chat deployment for reasoning tasks",
+                    default=updates["OPENAI_CHAT_MODEL_REASONING"],
+                )
+            else:
+                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_REASONING")
+            updates["AZURE_OPENAI_EMBED_DEPLOYMENT"] = io_runtime.prompt(
+                "Azure embedding deployment (optional)",
+                default=updates["AZURE_OPENAI_EMBED_DEPLOYMENT"],
+            )
         else:
-            updates["T212_LIVE_TRADING_ENABLED"] = "false"
-    elif broker_provider == "alpaca":
-        updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
-            "Alpaca environment",
-            options=ALPACA_ENVIRONMENT_OPTIONS,
-            default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
-        )
-        updates["ALPACA_API_KEY"] = io_runtime.prompt(
-            "ALPACA_API_KEY",
-            default=updates["ALPACA_API_KEY"],
-        )
-        updates["ALPACA_API_SECRET"] = io_runtime.prompt(
-            "ALPACA_API_SECRET",
-            default=updates["ALPACA_API_SECRET"],
-        )
+            updates["AZURE_OPENAI_ENABLED"] = "false"
 
-    io_runtime.write("")
-    if io_runtime.confirm(
-        "Configure Telegram bot now?",
-        default=bool(updates["TELEGRAM_BOT_TOKEN"] or updates["TELEGRAM_ALLOWED_CHAT_ID"]),
-    ):
-        updates["TELEGRAM_BOT_TOKEN"] = io_runtime.prompt(
-            "TELEGRAM_BOT_TOKEN",
-            default=updates["TELEGRAM_BOT_TOKEN"],
+    _write_step_intro(
+        io_runtime,
+        "Observability",
+        "LangSmith tracing is optional. Enable it if you want execution traces, provider-level runs, and tool traces while testing or operating the app.",
+    )
+    if _should_update_section(io_runtime, existing, OBSERVABILITY_SECTION_KEYS):
+        tracing_enabled = io_runtime.confirm(
+            "Enable LangSmith tracing?",
+            default=_env_truthy(updates["LANGSMITH_TRACING"]),
         )
-        updates["TELEGRAM_ALLOWED_CHAT_ID"] = io_runtime.prompt(
-            "TELEGRAM_ALLOWED_CHAT_ID",
-            default=updates["TELEGRAM_ALLOWED_CHAT_ID"],
-        )
-        updates["TELEGRAM_ALLOWED_USER_ID"] = io_runtime.prompt(
-            "TELEGRAM_ALLOWED_USER_ID (optional)",
-            default=updates["TELEGRAM_ALLOWED_USER_ID"],
-        )
+        updates["LANGSMITH_TRACING"] = _bool_to_env(tracing_enabled)
+        if tracing_enabled:
+            updates["LANGSMITH_ENDPOINT"] = io_runtime.prompt(
+                "LANGSMITH_ENDPOINT",
+                default=updates["LANGSMITH_ENDPOINT"],
+            )
+            updates["LANGSMITH_API_KEY"] = io_runtime.prompt(
+                "LANGSMITH_API_KEY",
+                default=updates["LANGSMITH_API_KEY"],
+            )
+            updates["LANGSMITH_PROJECT"] = io_runtime.prompt(
+                "LANGSMITH_PROJECT",
+                default=updates["LANGSMITH_PROJECT"],
+            )
 
-    io_runtime.write("")
-    market_data_provider: str
-    if broker_provider == "alpaca" and updates["MARKET_DATA_PROVIDER"] != "alpaca":
-        reuse_alpaca = io_runtime.confirm(
-            "Reuse Alpaca for market data too?",
-            default=True,
+    _write_step_intro(
+        io_runtime,
+        "Broker configuration",
+        "Pick the broker used for account-authoritative reads and order execution.",
+    )
+    if _should_update_section(io_runtime, existing, BROKER_SECTION_KEYS):
+        broker_provider = io_runtime.choose(
+            "Broker provider",
+            options=BROKER_PROVIDER_OPTIONS,
+            default=_safe_choice(
+                updates["BROKER_PROVIDER"],
+                {"trading212", "alpaca", "none"},
+                "none",
+            ),
         )
-        if reuse_alpaca:
-            market_data_provider = "alpaca"
+        updates["BROKER_PROVIDER"] = broker_provider
+        if broker_provider == "trading212":
+            updates["T212_ENVIRONMENT"] = io_runtime.choose(
+                "Trading 212 environment",
+                options=ENVIRONMENT_OPTIONS,
+                default=_safe_choice(updates["T212_ENVIRONMENT"], {"demo", "live"}, "demo"),
+            )
+            updates["T212_API_KEY"] = io_runtime.prompt(
+                "T212_API_KEY",
+                default=updates["T212_API_KEY"],
+            )
+            updates["T212_API_SECRET"] = io_runtime.prompt(
+                "T212_API_SECRET",
+                default=updates["T212_API_SECRET"],
+            )
+            if updates["T212_ENVIRONMENT"] == "live":
+                allow_live = io_runtime.confirm(
+                    "Allow live order execution when running in live environment?",
+                    default=_env_truthy(updates["T212_LIVE_TRADING_ENABLED"]),
+                )
+                updates["T212_LIVE_TRADING_ENABLED"] = _bool_to_env(allow_live)
+            else:
+                updates["T212_LIVE_TRADING_ENABLED"] = "false"
+        elif broker_provider == "alpaca":
+            updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
+                "Alpaca environment",
+                options=ALPACA_ENVIRONMENT_OPTIONS,
+                default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
+            )
+            updates["ALPACA_API_KEY"] = io_runtime.prompt(
+                "ALPACA_API_KEY",
+                default=updates["ALPACA_API_KEY"],
+            )
+            updates["ALPACA_API_SECRET"] = io_runtime.prompt(
+                "ALPACA_API_SECRET",
+                default=updates["ALPACA_API_SECRET"],
+            )
+
+    _write_step_intro(
+        io_runtime,
+        "Telegram configuration",
+        "Set the bot token and the allowed chat ids if you want Telegram access now.",
+    )
+    if _should_update_section(io_runtime, existing, TELEGRAM_SECTION_KEYS):
+        if io_runtime.confirm(
+            "Configure Telegram bot now?",
+            default=bool(updates["TELEGRAM_BOT_TOKEN"] or updates["TELEGRAM_ALLOWED_CHAT_ID"]),
+        ):
+            updates["TELEGRAM_BOT_TOKEN"] = io_runtime.prompt(
+                "TELEGRAM_BOT_TOKEN",
+                default=updates["TELEGRAM_BOT_TOKEN"],
+            )
+            updates["TELEGRAM_ALLOWED_CHAT_ID"] = io_runtime.prompt(
+                "TELEGRAM_ALLOWED_CHAT_ID",
+                default=updates["TELEGRAM_ALLOWED_CHAT_ID"],
+            )
+            updates["TELEGRAM_ALLOWED_USER_ID"] = io_runtime.prompt(
+                "TELEGRAM_ALLOWED_USER_ID (optional)",
+                default=updates["TELEGRAM_ALLOWED_USER_ID"],
+            )
+
+    broker_provider = updates["BROKER_PROVIDER"]
+    _write_step_intro(
+        io_runtime,
+        "Market data configuration",
+        "Choose the market-data source used for quotes, bars, and chart context. "
+        "Yahoo is the default baseline; Alpaca is optional if you prefer it.",
+    )
+    if _should_update_section(io_runtime, existing, MARKET_DATA_SECTION_KEYS):
+        market_data_provider: str
+        if broker_provider == "alpaca" and updates["MARKET_DATA_PROVIDER"] != "alpaca":
+            reuse_alpaca = io_runtime.confirm(
+                "Reuse Alpaca for market data too?",
+                default=True,
+            )
+            if reuse_alpaca:
+                market_data_provider = "alpaca"
+            else:
+                market_data_provider = io_runtime.choose(
+                    "Market data provider",
+                    options=MARKET_DATA_PROVIDER_OPTIONS,
+                    default=_safe_choice(
+                        updates["MARKET_DATA_PROVIDER"],
+                        {"yahoo", "alpaca", "none"},
+                        "yahoo",
+                    ),
+                )
         else:
             market_data_provider = io_runtime.choose(
                 "Market data provider",
@@ -731,122 +976,177 @@ def apply_configuration_wizard(io_runtime: TerminalIO, updates: dict[str, str]) 
                     "yahoo",
                 ),
             )
-    else:
-        market_data_provider = io_runtime.choose(
-            "Market data provider",
-            options=MARKET_DATA_PROVIDER_OPTIONS,
-            default=_safe_choice(
-                updates["MARKET_DATA_PROVIDER"],
-                {"yahoo", "alpaca", "none"},
-                "yahoo",
-            ),
-        )
-    updates["MARKET_DATA_PROVIDER"] = market_data_provider
-    updates["YAHOO_ENABLED"] = _bool_to_env(market_data_provider == "yahoo")
-    if market_data_provider == "alpaca" and broker_provider != "alpaca":
-        updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
-            "Alpaca environment",
-            options=ALPACA_ENVIRONMENT_OPTIONS,
-            default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
-        )
-        updates["ALPACA_API_KEY"] = io_runtime.prompt(
-            "ALPACA_API_KEY",
-            default=updates["ALPACA_API_KEY"],
-        )
-        updates["ALPACA_API_SECRET"] = io_runtime.prompt(
-            "ALPACA_API_SECRET",
-            default=updates["ALPACA_API_SECRET"],
-        )
-
-    alpha_enabled = io_runtime.confirm(
-        "Enable Alpha Vantage?",
-        default=_env_truthy(updates["ALPHA_VANTAGE_ENABLED"]),
-    )
-    updates["MARKET_INTELLIGENCE_PROVIDER"] = (
-        "alpha_vantage" if alpha_enabled else "none"
-    )
-    updates["ALPHA_VANTAGE_ENABLED"] = _bool_to_env(alpha_enabled)
-    if alpha_enabled:
-        updates["ALPHA_VANTAGE_API_KEY"] = io_runtime.prompt(
-            "ALPHA_VANTAGE_API_KEY",
-            default=updates["ALPHA_VANTAGE_API_KEY"],
-        )
-
-    disclosure_enabled = io_runtime.confirm(
-        "Enable SEC EDGAR filing intelligence?",
-        default=updates["DISCLOSURE_PROVIDER"].strip().lower() == "sec_edgar",
-    )
-    updates["DISCLOSURE_PROVIDER"] = "sec_edgar" if disclosure_enabled else "none"
-    if disclosure_enabled:
-        updates["SEC_EDGAR_USER_AGENT"] = io_runtime.prompt(
-            "SEC_EDGAR_USER_AGENT (optional)",
-            default=updates["SEC_EDGAR_USER_AGENT"],
-        )
-
-    reddit_enabled = io_runtime.confirm(
-        "Enable Reddit research integration?",
-        default=_env_truthy(updates["REDDIT_ENABLED"]),
-    )
-    updates["COMMUNITY_PROVIDER"] = "reddit" if reddit_enabled else "none"
-    updates["REDDIT_ENABLED"] = _bool_to_env(reddit_enabled)
-    if reddit_enabled:
-        updates["REDDIT_CLIENT_ID"] = io_runtime.prompt(
-            "REDDIT_CLIENT_ID",
-            default=updates["REDDIT_CLIENT_ID"],
-        )
-        updates["REDDIT_CLIENT_SECRET"] = io_runtime.prompt(
-            "REDDIT_CLIENT_SECRET",
-            default=updates["REDDIT_CLIENT_SECRET"],
-        )
-        updates["REDDIT_USER_AGENT"] = io_runtime.prompt(
-            "REDDIT_USER_AGENT",
-            default=updates["REDDIT_USER_AGENT"],
-        )
-        reddit_auth_mode = io_runtime.choose(
-            "Reddit auth mode",
-            options=REDDIT_AUTH_OPTIONS,
-            default="refresh_token" if updates["REDDIT_REFRESH_TOKEN"] else "username_password",
-        )
-        if reddit_auth_mode == "refresh_token":
-            updates["REDDIT_REFRESH_TOKEN"] = io_runtime.prompt(
-                "REDDIT_REFRESH_TOKEN",
-                default=updates["REDDIT_REFRESH_TOKEN"],
+        updates["MARKET_DATA_PROVIDER"] = market_data_provider
+        updates["YAHOO_ENABLED"] = _bool_to_env(market_data_provider == "yahoo")
+        if market_data_provider == "alpaca" and broker_provider != "alpaca":
+            updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
+                "Alpaca environment",
+                options=ALPACA_ENVIRONMENT_OPTIONS,
+                default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
             )
-        else:
-            updates["REDDIT_USERNAME"] = io_runtime.prompt(
-                "REDDIT_USERNAME",
-                default=updates["REDDIT_USERNAME"],
+            updates["ALPACA_API_KEY"] = io_runtime.prompt(
+                "ALPACA_API_KEY",
+                default=updates["ALPACA_API_KEY"],
             )
-            updates["REDDIT_PASSWORD"] = io_runtime.prompt(
-                "REDDIT_PASSWORD",
-                default=updates["REDDIT_PASSWORD"],
+            updates["ALPACA_API_SECRET"] = io_runtime.prompt(
+                "ALPACA_API_SECRET",
+                default=updates["ALPACA_API_SECRET"],
             )
 
-    searxng_enabled = io_runtime.confirm(
-        "Enable SearXNG web search?",
-        default=_env_truthy(updates["SEARXNG_ENABLED"]),
+    _write_step_intro(
+        io_runtime,
+        "Market intelligence",
+        "Optional active-movers and intelligence enrichment. Skip this if you only need the baseline market-data provider.",
     )
-    updates["SEARCH_PROVIDER"] = "searxng" if searxng_enabled else "none"
-    updates["SEARXNG_ENABLED"] = _bool_to_env(searxng_enabled)
-    if searxng_enabled:
-        updates["SEARXNG_BASE_URL"] = io_runtime.prompt(
-            "SEARXNG_BASE_URL",
-            default=updates["SEARXNG_BASE_URL"],
+    if _should_update_section(io_runtime, existing, ALPHA_VANTAGE_SECTION_KEYS):
+        alpha_enabled = io_runtime.confirm(
+            "Enable Alpha Vantage?",
+            default=_env_truthy(updates["ALPHA_VANTAGE_ENABLED"]),
         )
+        updates["MARKET_INTELLIGENCE_PROVIDER"] = (
+            "alpha_vantage" if alpha_enabled else "none"
+        )
+        updates["ALPHA_VANTAGE_ENABLED"] = _bool_to_env(alpha_enabled)
+        if alpha_enabled:
+            updates["ALPHA_VANTAGE_API_KEY"] = io_runtime.prompt(
+                "ALPHA_VANTAGE_API_KEY",
+                default=updates["ALPHA_VANTAGE_API_KEY"],
+            )
 
+    _write_step_intro(
+        io_runtime,
+        "Disclosure intelligence",
+        "Optional SEC EDGAR context for official filing, insider, and stake activity.",
+    )
+    if _should_update_section(io_runtime, existing, DISCLOSURE_SECTION_KEYS):
+        disclosure_enabled = io_runtime.confirm(
+            "Enable SEC EDGAR filing intelligence?",
+            default=updates["DISCLOSURE_PROVIDER"].strip().lower() == "sec_edgar",
+        )
+        updates["DISCLOSURE_PROVIDER"] = "sec_edgar" if disclosure_enabled else "none"
+        if disclosure_enabled:
+            updates["SEC_EDGAR_USER_AGENT"] = io_runtime.prompt(
+                "SEC_EDGAR_USER_AGENT (optional)",
+                default=updates["SEC_EDGAR_USER_AGENT"],
+            )
+
+    _write_step_intro(
+        io_runtime,
+        "Community research",
+        "Optional Reddit research context. You can skip it now and come back later.",
+    )
+    if _should_update_section(io_runtime, existing, REDDIT_SECTION_KEYS):
+        reddit_enabled = io_runtime.confirm(
+            "Enable Reddit research integration?",
+            default=_env_truthy(updates["REDDIT_ENABLED"]),
+        )
+        updates["COMMUNITY_PROVIDER"] = "reddit" if reddit_enabled else "none"
+        updates["REDDIT_ENABLED"] = _bool_to_env(reddit_enabled)
+        if reddit_enabled:
+            updates["REDDIT_CLIENT_ID"] = io_runtime.prompt(
+                "REDDIT_CLIENT_ID",
+                default=updates["REDDIT_CLIENT_ID"],
+            )
+            updates["REDDIT_CLIENT_SECRET"] = io_runtime.prompt(
+                "REDDIT_CLIENT_SECRET",
+                default=updates["REDDIT_CLIENT_SECRET"],
+            )
+            updates["REDDIT_USER_AGENT"] = io_runtime.prompt(
+                "REDDIT_USER_AGENT",
+                default=updates["REDDIT_USER_AGENT"],
+            )
+            reddit_auth_mode = io_runtime.choose(
+                "Reddit auth mode",
+                options=REDDIT_AUTH_OPTIONS,
+                default="refresh_token" if updates["REDDIT_REFRESH_TOKEN"] else "username_password",
+            )
+            if reddit_auth_mode == "refresh_token":
+                updates["REDDIT_REFRESH_TOKEN"] = io_runtime.prompt(
+                    "REDDIT_REFRESH_TOKEN",
+                    default=updates["REDDIT_REFRESH_TOKEN"],
+                )
+                _clear_env_keys(updates, "REDDIT_USERNAME", "REDDIT_PASSWORD")
+            else:
+                updates["REDDIT_USERNAME"] = io_runtime.prompt(
+                    "REDDIT_USERNAME",
+                    default=updates["REDDIT_USERNAME"],
+                )
+                updates["REDDIT_PASSWORD"] = io_runtime.prompt(
+                    "REDDIT_PASSWORD",
+                    default=updates["REDDIT_PASSWORD"],
+                )
+                _clear_env_keys(updates, "REDDIT_REFRESH_TOKEN")
+
+    _write_step_intro(
+        io_runtime,
+        "Search integration",
+        "SearXNG is expected to be compose-managed, so this wizard does not prompt for it. "
+        "Keep the current search settings as they are, or edit SEARCH_PROVIDER and SEARXNG_BASE_URL later.",
+    )
+
+    _write_step_intro(
+        io_runtime,
+        "Local storage",
+        "Optionally override the default SQLite database path and guideline memory file path.",
+    )
+    if _should_update_section(io_runtime, existing, STORAGE_SECTION_KEYS):
+        if io_runtime.confirm(
+            "Customize storage paths?",
+            default=False,
+        ):
+            updates["DATABASE_URL"] = io_runtime.prompt(
+                "DATABASE_URL",
+                default=updates["DATABASE_URL"],
+            )
+            updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
+                "GUIDELINE_MEMORY_PATH",
+                default=updates["GUIDELINE_MEMORY_PATH"],
+            )
+
+
+def _write_step_intro(
+    io_runtime: TerminalIO,
+    title: str,
+    description: str,
+) -> None:
     io_runtime.write("")
-    if io_runtime.confirm(
-        "Customize storage paths?",
-        default=False,
-    ):
-        updates["DATABASE_URL"] = io_runtime.prompt(
-            "DATABASE_URL",
-            default=updates["DATABASE_URL"],
-        )
-        updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
-            "GUIDELINE_MEMORY_PATH",
-            default=updates["GUIDELINE_MEMORY_PATH"],
-        )
+    io_runtime.write(title)
+    io_runtime.write(description)
+
+
+def _section_has_existing_values(
+    existing_raw: Mapping[str, str],
+    keys: tuple[str, ...],
+) -> bool:
+    return any(key in existing_raw for key in keys)
+
+
+def _should_update_section(
+    io_runtime: TerminalIO,
+    existing_raw: Mapping[str, str],
+    keys: tuple[str, ...],
+) -> bool:
+    if not _section_has_existing_values(existing_raw, keys):
+        return True
+    return io_runtime.confirm("Update this section now?", default=False)
+
+
+def _clear_env_keys(updates: dict[str, str], *keys: str) -> None:
+    for key in keys:
+        updates[key] = ""
+
+
+def _prompt_required(
+    io_runtime: TerminalIO,
+    label: str,
+    *,
+    default: str = "",
+) -> str:
+    while True:
+        value = io_runtime.prompt(label, default=default)
+        if str(value).strip():
+            return value.strip()
+        io_runtime.write("This value is required.")
 
 
 def render_configuration_review(updates: Mapping[str, str]) -> str:

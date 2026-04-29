@@ -5,8 +5,8 @@ from io import StringIO
 from pathlib import Path
 from types import ModuleType
 
-from t212ai import cli
 from t212ai import __main__ as package_main
+from t212ai import cli
 
 
 def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
@@ -25,6 +25,12 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
         [
             "1",
             "openai-key",
+            "",
+            "n",
+            "n",
+            "",
+            "",
+            "n",
             "3",
             "y",
             "telegram-token",
@@ -33,11 +39,8 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "1",
             "y",
             "alpha-key",
-            "",
-            "",
             "n",
-            "y",
-            "https://search.example",
+            "n",
             "n",
         ]
     )
@@ -47,12 +50,15 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
 
     assert updates["LLM_PROVIDER"] == "openai"
     assert updates["OPENAI_API_KEY"] == "openai-key"
+    assert updates["OPENAI_CHAT_MODEL_DEFAULT"] == "gpt-4o-mini"
+    assert updates["OPENAI_CHAT_MODEL_SMART"] == ""
+    assert updates["OPENAI_CHAT_MODEL_REASONING"] == ""
     assert updates["BROKER_PROVIDER"] == "none"
     assert updates["MARKET_DATA_PROVIDER"] == "yahoo"
     assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "alpha_vantage"
-    assert updates["DISCLOSURE_PROVIDER"] == "sec_edgar"
+    assert updates["DISCLOSURE_PROVIDER"] == "none"
     assert updates["COMMUNITY_PROVIDER"] == "none"
-    assert updates["SEARCH_PROVIDER"] == "searxng"
+    assert updates["SEARCH_PROVIDER"] == "none"
     assert updates["TELEGRAM_BOT_TOKEN"] == "telegram-token"
     assert updates["TELEGRAM_ALLOWED_CHAT_ID"] == "12345"
     assert updates["TELEGRAM_ALLOWED_USER_ID"] == ""
@@ -60,24 +66,33 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["ALPHA_VANTAGE_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_API_KEY"] == "alpha-key"
     assert updates["REDDIT_ENABLED"] == "false"
-    assert updates["SEARXNG_ENABLED"] == "true"
-    assert updates["SEARXNG_BASE_URL"] == "https://search.example"
+    assert updates["SEARXNG_ENABLED"] == "false"
+    assert updates["LANGSMITH_TRACING"] == "false"
 
 
 def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() -> None:
-    updates = cli.build_managed_env_values({})
+    updates = cli.build_managed_env_values({"REDDIT_REFRESH_TOKEN": "legacy-refresh-token"})
     responses = iter(
         [
             "2",
             "https://azure.example",
             "azure-key",
             "",
+            "azure-baseline",
+            "y",
+            "azure-smart",
+            "y",
+            "azure-reasoning",
+            "azure-embed",
+            "y",
+            "",
+            "smith-key",
+            "",
             "3",
             "n",
             "3",
             "n",
-            "",
-            "",
+            "n",
             "y",
             "reddit-id",
             "reddit-secret",
@@ -85,7 +100,6 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "2",
             "reddit-user",
             "reddit-password",
-            "n",
             "n",
         ]
     )
@@ -97,14 +111,23 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["AZURE_OPENAI_ENABLED"] == "true"
     assert updates["AZURE_OPENAI_ENDPOINT"] == "https://azure.example"
     assert updates["AZURE_OPENAI_API_KEY"] == "azure-key"
+    assert updates["OPENAI_CHAT_MODEL_DEFAULT"] == "azure-baseline"
+    assert updates["OPENAI_CHAT_MODEL_SMART"] == "azure-smart"
+    assert updates["OPENAI_CHAT_MODEL_REASONING"] == "azure-reasoning"
+    assert updates["AZURE_OPENAI_EMBED_DEPLOYMENT"] == "azure-embed"
+    assert updates["LANGSMITH_TRACING"] == "true"
+    assert updates["LANGSMITH_ENDPOINT"] == "https://eu.api.smith.langchain.com"
+    assert updates["LANGSMITH_API_KEY"] == "smith-key"
+    assert updates["LANGSMITH_PROJECT"] == "T212AI"
     assert updates["MARKET_DATA_PROVIDER"] == "none"
     assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "none"
-    assert updates["DISCLOSURE_PROVIDER"] == "sec_edgar"
+    assert updates["DISCLOSURE_PROVIDER"] == "none"
     assert updates["COMMUNITY_PROVIDER"] == "reddit"
     assert updates["SEARCH_PROVIDER"] == "none"
     assert updates["REDDIT_ENABLED"] == "true"
     assert updates["REDDIT_USERNAME"] == "reddit-user"
     assert updates["REDDIT_PASSWORD"] == "reddit-password"
+    assert updates["REDDIT_REFRESH_TOKEN"] == ""
 
 
 def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
@@ -112,15 +135,14 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     responses = iter(
         [
             "3",
+            "n",
             "3",
             "n",
             "2",
-            "1",
+            "",
             "alpaca-key",
             "alpaca-secret",
             "n",
-            "",
-            "",
             "n",
             "n",
             "n",
@@ -144,15 +166,14 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
     responses = iter(
         [
             "3",
+            "n",
             "2",
-            "1",
+            "",
             "alpaca-broker-key",
             "alpaca-broker-secret",
             "n",
             "y",
             "n",
-            "",
-            "",
             "n",
             "n",
             "n",
@@ -168,6 +189,38 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
     assert updates["ALPACA_API_KEY"] == "alpaca-broker-key"
     assert updates["ALPACA_API_SECRET"] == "alpaca-broker-secret"
     assert updates["YAHOO_ENABLED"] == "false"
+
+
+def test_apply_configuration_wizard_can_skip_existing_sections_and_explains_searxng() -> None:
+    existing = {
+        "LLM_PROVIDER": "openai",
+        "OPENAI_API_KEY": "persisted-openai-key",
+        "TELEGRAM_BOT_TOKEN": "persisted-telegram-token",
+        "TELEGRAM_ALLOWED_CHAT_ID": "999",
+    }
+    updates = cli.build_managed_env_values(existing)
+    output = StringIO()
+    responses = iter(
+        [
+            "n",
+            "n",
+            "3",
+            "n",
+            "1",
+            "n",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=output)
+
+    cli.apply_configuration_wizard(io_runtime, updates, existing_raw=existing)
+
+    assert updates["OPENAI_API_KEY"] == "persisted-openai-key"
+    assert updates["TELEGRAM_BOT_TOKEN"] == "persisted-telegram-token"
+    assert updates["TELEGRAM_ALLOWED_CHAT_ID"] == "999"
+    assert "compose-managed" in output.getvalue()
 
 
 def test_update_env_file_preserves_unrelated_lines_and_updates_managed_keys(tmp_path) -> None:

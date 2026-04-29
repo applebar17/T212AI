@@ -317,15 +317,16 @@ class GenAIClient:
                 tool_calls_executed += 1
 
     def _default_chat_model(self) -> str:
-        return self.settings.chat_model_default
+        return self.settings.chat_model_default or "gpt-4o-mini"
 
     def chat_model_for(self, purpose: str | None = None) -> str:
         key = (purpose or "default").strip().lower()
+        default_model = self._default_chat_model()
         if key in {"strategic", "strategy", "critical", "smart"}:
-            return self.settings.chat_model_smart
+            return self.settings.chat_model_smart or default_model
         if key in {"reasoning", "reason"}:
-            return self.settings.chat_model_reasoning
-        return self.settings.chat_model_default
+            return self.settings.chat_model_reasoning or default_model
+        return default_model
 
     def _default_embed_model(self) -> str:
         if self.settings.is_azure:

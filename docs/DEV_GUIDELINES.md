@@ -33,10 +33,11 @@ Tracing is opt-in at runtime.
 
 Required environment variables:
 - `LANGSMITH_TRACING=true`
+- `LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com`
 - `LANGSMITH_API_KEY=...`
 
 Recommended:
-- `LANGSMITH_PROJECT=t212ai-dev`
+- `LANGSMITH_PROJECT=T212AI`
 
 By design, our local tracing wrapper fails open. If LangSmith is not installed or tracing is disabled, the application still runs.
 
