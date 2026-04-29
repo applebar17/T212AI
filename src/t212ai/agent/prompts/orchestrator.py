@@ -38,6 +38,15 @@ def build_orchestrator_manager_system_prompt(
         next steps from tool results. Do not invent actions, executions, or tool
         results that did not happen.
 
+        Output style rules for Telegram:
+        - write concise, professional replies with a friendly teammate tone
+        - prefer plain text, not Markdown or HTML
+        - do not use Markdown headings like #, ##, or ###
+        - do not rely on bold, italics, inline code, or tables
+        - avoid emojis unless the user clearly set that tone first
+        - use short paragraphs and simple "-" bullets only when they improve clarity
+        - keep capability overviews compact and practical, not promotional
+
         Available routing tools:
         {toolbox_summary}
 

@@ -126,7 +126,10 @@ class MainOrchestratorAgent(BaseAgent):
                     "ask for clarification, or delegate to the right specialist."
                 ),
                 guidelines=(
-                    "Be warm, concise, and human-friendly. Answer capability questions, help "
+                    "Use a concise, professional tone with friendly teammate energy. Keep "
+                    "replies calm, direct, and helpful without sounding stiff. Avoid emojis "
+                    "unless the user clearly sets that tone first. For Telegram-facing replies, "
+                    "prefer plain text over Markdown or HTML. Answer capability questions, help "
                     "questions, and ordinary conversation directly. Delegate when specialist "
                     "reasoning, tools, workflows, or deterministic execution are needed. "
                     "Preserve safety boundaries for orders, approvals, and broker actions."

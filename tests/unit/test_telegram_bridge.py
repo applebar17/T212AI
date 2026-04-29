@@ -30,6 +30,7 @@ from t212ai.telegram import (
     build_default_message_handler,
 )
 from t212ai.agent.history import ChatHistoryManager
+from t212ai.telegram.formatting import normalize_telegram_text
 
 
 @dataclass(slots=True)
@@ -205,6 +206,42 @@ def test_router_sends_response_for_authorized_chat() -> None:
     assert bot.sent_messages[0]["chat_id"] == 123
     assert bot.sent_messages[0]["text"] == "bridge response"
     assert bot.sent_messages[0]["reply_to_message_id"] == 99
+
+
+def test_normalize_telegram_text_removes_common_markdown() -> None:
+    text = """### General Help
+
+- **Portfolio analysis**
+- _Market context_
+- `Calculations`
+"""
+
+    assert normalize_telegram_text(text) == (
+        "General Help\n\n"
+        "- Portfolio analysis\n"
+        "- Market context\n"
+        "- Calculations"
+    )
+
+
+def test_router_normalizes_markdownish_response_before_sending() -> None:
+    async def message_handler(_message: object) -> str:
+        return "### General Help\n\n- **Portfolio analysis**"
+
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=message_handler,  # type: ignore[arg-type]
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("hello"),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+
+    assert bot.sent_messages[0]["text"] == "General Help\n\n- Portfolio analysis"
 
 
 def test_router_ignores_unauthorized_chat_by_default() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .formatting import normalize_telegram_text
 from .models import TelegramApprovalRequest, TelegramOutboundMessage
 
 
@@ -26,7 +27,7 @@ class TelegramMessenger:
         )
         return await self.bot.send_message(
             chat_id=chat_id,
-            text=outbound.text,
+            text=normalize_telegram_text(outbound.text),
             parse_mode=outbound.parse_mode,
             reply_to_message_id=outbound.reply_to_message_id,
             disable_web_page_preview=outbound.disable_web_page_preview,
@@ -68,7 +69,7 @@ class TelegramMessenger:
         )
         return await self.bot.send_message(
             chat_id=request.chat_id,
-            text=request.text,
+            text=normalize_telegram_text(request.text),
             parse_mode=request.parse_mode,
             reply_markup=reply_markup,
             reply_to_message_id=request.reply_to_message_id,
@@ -86,7 +87,7 @@ class TelegramMessenger:
         return await self.bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=text,
+            text=normalize_telegram_text(text),
             parse_mode=parse_mode,
             disable_web_page_preview=True,
             reply_markup=None,
