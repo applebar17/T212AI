@@ -53,10 +53,16 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
             [
                 "LLM_PROVIDER=openai",
                 "BROKER_PROVIDER=trading212",
+                "MARKET_DATA_PROVIDER=yahoo",
+                "MARKET_INTELLIGENCE_PROVIDER=alpha_vantage",
+                "COMMUNITY_PROVIDER=reddit",
+                "SEARCH_PROVIDER=searxng",
                 "T212_ENVIRONMENT=live",
                 "T212_LIVE_BASE_URL=https://live.example/api/v0",
-                "T212_API_KEY=file-key",
-                "T212_API_SECRET=file-secret",
+                "T212_LIVE_API_KEY=file-live-key",
+                "T212_LIVE_API_SECRET=file-live-secret",
+                "T212_DEMO_API_KEY=file-demo-key",
+                "T212_DEMO_API_SECRET=file-demo-secret",
                 "TELEGRAM_ALLOWED_CHAT_ID=123",
                 "TELEGRAM_ALLOWED_USER_ID=999",
                 "YAHOO_ENABLED=true",
@@ -77,10 +83,16 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     for key in [
         "LLM_PROVIDER",
         "BROKER_PROVIDER",
+        "MARKET_DATA_PROVIDER",
+        "MARKET_INTELLIGENCE_PROVIDER",
+        "COMMUNITY_PROVIDER",
+        "SEARCH_PROVIDER",
         "T212_ENVIRONMENT",
         "T212_LIVE_BASE_URL",
-        "T212_API_KEY",
-        "T212_API_SECRET",
+        "T212_LIVE_API_KEY",
+        "T212_LIVE_API_SECRET",
+        "T212_DEMO_API_KEY",
+        "T212_DEMO_API_SECRET",
         "TELEGRAM_ALLOWED_CHAT_ID",
         "TELEGRAM_ALLOWED_USER_ID",
         "YAHOO_ENABLED",
@@ -94,6 +106,13 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "SEARXNG_BASE_URL",
         "GUIDELINE_MEMORY_PATH",
         "T212_LIVE_TRADING_ENABLED",
+        "ALPACA_ENVIRONMENT",
+        "ALPACA_API_KEY",
+        "ALPACA_API_SECRET",
+        "ALPACA_PAPER_API_KEY",
+        "ALPACA_PAPER_API_SECRET",
+        "ALPACA_LIVE_API_KEY",
+        "ALPACA_LIVE_API_SECRET",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -103,8 +122,12 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.broker_provider == "trading212"
     assert settings.trading212_environment == "live"
     assert settings.trading212_base_url == "https://live.example/api/v0"
-    assert settings.trading212_api_key == "file-key"
-    assert settings.trading212_api_secret == "file-secret"
+    assert settings.trading212_api_key == "file-live-key"
+    assert settings.trading212_api_secret == "file-live-secret"
+    assert settings.trading212_live_api_key == "file-live-key"
+    assert settings.trading212_live_api_secret == "file-live-secret"
+    assert settings.trading212_demo_api_key == "file-demo-key"
+    assert settings.trading212_demo_api_secret == "file-demo-secret"
     assert settings.telegram_allowed_chat_id == "123"
     assert settings.telegram_allowed_user_id == "999"
     assert settings.yahoo_enabled
@@ -150,7 +173,7 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
     settings = get_app_settings(
         env={
             "OPENAI_API_KEY": "openai-key",
-            "T212_API_SECRET": "secret",
+            "T212_LIVE_API_SECRET": "secret",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
             "REDDIT_CLIENT_ID": "reddit-id",
             "SEARXNG_BASE_URL": "https://search.example",
@@ -173,16 +196,16 @@ def test_get_app_settings_supports_explicit_alpaca_market_data_provider() -> Non
     settings = get_app_settings(
         env={
             "MARKET_DATA_PROVIDER": "alpaca",
-            "ALPACA_API_KEY": "alpaca-key",
-            "ALPACA_API_SECRET": "alpaca-secret",
+            "ALPACA_LIVE_API_KEY": "alpaca-live-key",
+            "ALPACA_LIVE_API_SECRET": "alpaca-live-secret",
             "ALPACA_ENVIRONMENT": "live",
             "ALPACA_DATA_FEED": "sip",
         }
     )
 
     assert settings.market_data_provider == "alpaca"
-    assert settings.alpaca_api_key == "alpaca-key"
-    assert settings.alpaca_api_secret == "alpaca-secret"
+    assert settings.alpaca_api_key == "alpaca-live-key"
+    assert settings.alpaca_api_secret == "alpaca-live-secret"
     assert settings.alpaca_environment == "live"
     assert settings.alpaca_data_feed == "sip"
     assert not settings.yahoo_enabled
@@ -204,17 +227,40 @@ def test_get_app_settings_supports_explicit_alpaca_broker_provider() -> None:
     settings = get_app_settings(
         env={
             "BROKER_PROVIDER": "alpaca",
-            "ALPACA_API_KEY": "alpaca-key",
-            "ALPACA_API_SECRET": "alpaca-secret",
+            "ALPACA_LIVE_API_KEY": "alpaca-live-key",
+            "ALPACA_LIVE_API_SECRET": "alpaca-live-secret",
             "ALPACA_ENVIRONMENT": "live",
         }
     )
 
     assert settings.broker_provider == "alpaca"
-    assert settings.alpaca_api_key == "alpaca-key"
-    assert settings.alpaca_api_secret == "alpaca-secret"
+    assert settings.alpaca_api_key == "alpaca-live-key"
+    assert settings.alpaca_api_secret == "alpaca-live-secret"
     assert settings.alpaca_environment == "live"
     assert settings.market_data_provider == "yahoo"
+
+
+def test_get_app_settings_prefers_environment_specific_broker_credentials() -> None:
+    settings = get_app_settings(
+        env={
+            "BROKER_PROVIDER": "trading212",
+            "T212_ENVIRONMENT": "demo",
+            "T212_DEMO_API_KEY": "demo-key",
+            "T212_DEMO_API_SECRET": "demo-secret",
+            "T212_LIVE_API_KEY": "live-key",
+            "T212_LIVE_API_SECRET": "live-secret",
+            "ALPACA_ENVIRONMENT": "paper",
+            "ALPACA_PAPER_API_KEY": "paper-key",
+            "ALPACA_PAPER_API_SECRET": "paper-secret",
+            "ALPACA_LIVE_API_KEY": "alpaca-live-key",
+            "ALPACA_LIVE_API_SECRET": "alpaca-live-secret",
+        }
+    )
+
+    assert settings.trading212_api_key == "demo-key"
+    assert settings.trading212_api_secret == "demo-secret"
+    assert settings.alpaca_api_key == "paper-key"
+    assert settings.alpaca_api_secret == "paper-secret"
 
 
 def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() -> None:

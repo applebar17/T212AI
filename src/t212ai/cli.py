@@ -58,8 +58,16 @@ SECRET_KEYS = frozenset(
         "OPENAI_API_KEY",
         "AZURE_OPENAI_API_KEY",
         "LANGSMITH_API_KEY",
+        "T212_DEMO_API_KEY",
+        "T212_DEMO_API_SECRET",
+        "T212_LIVE_API_KEY",
+        "T212_LIVE_API_SECRET",
         "T212_API_KEY",
         "T212_API_SECRET",
+        "ALPACA_PAPER_API_KEY",
+        "ALPACA_PAPER_API_SECRET",
+        "ALPACA_LIVE_API_KEY",
+        "ALPACA_LIVE_API_SECRET",
         "ALPACA_API_KEY",
         "ALPACA_API_SECRET",
         "TELEGRAM_BOT_TOKEN",
@@ -116,6 +124,10 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "T212_ENVIRONMENT",
             "T212_DEMO_BASE_URL",
             "T212_LIVE_BASE_URL",
+            "T212_DEMO_API_KEY",
+            "T212_DEMO_API_SECRET",
+            "T212_LIVE_API_KEY",
+            "T212_LIVE_API_SECRET",
             "T212_API_KEY",
             "T212_API_SECRET",
             "T212_LIVE_TRADING_ENABLED",
@@ -125,6 +137,10 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Alpaca",
         (
             "ALPACA_ENVIRONMENT",
+            "ALPACA_PAPER_API_KEY",
+            "ALPACA_PAPER_API_SECRET",
+            "ALPACA_LIVE_API_KEY",
+            "ALPACA_LIVE_API_SECRET",
             "ALPACA_API_KEY",
             "ALPACA_API_SECRET",
             "ALPACA_MARKET_DATA_BASE_URL",
@@ -207,10 +223,18 @@ OBSERVABILITY_SECTION_KEYS = (
 BROKER_SECTION_KEYS = (
     "BROKER_PROVIDER",
     "T212_ENVIRONMENT",
+    "T212_DEMO_API_KEY",
+    "T212_DEMO_API_SECRET",
+    "T212_LIVE_API_KEY",
+    "T212_LIVE_API_SECRET",
     "T212_API_KEY",
     "T212_API_SECRET",
     "T212_LIVE_TRADING_ENABLED",
     "ALPACA_ENVIRONMENT",
+    "ALPACA_PAPER_API_KEY",
+    "ALPACA_PAPER_API_SECRET",
+    "ALPACA_LIVE_API_KEY",
+    "ALPACA_LIVE_API_SECRET",
     "ALPACA_API_KEY",
     "ALPACA_API_SECRET",
 )
@@ -225,6 +249,10 @@ MARKET_DATA_SECTION_KEYS = (
     "MARKET_DATA_PROVIDER",
     "YAHOO_ENABLED",
     "ALPACA_ENVIRONMENT",
+    "ALPACA_PAPER_API_KEY",
+    "ALPACA_PAPER_API_SECRET",
+    "ALPACA_LIVE_API_KEY",
+    "ALPACA_LIVE_API_SECRET",
     "ALPACA_API_KEY",
     "ALPACA_API_SECRET",
 )
@@ -539,6 +567,8 @@ def load_settings_from_cli(*, env_file: str | None) -> AppSettings:
 
 def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
     settings = get_app_settings(env=existing_raw)
+    t212_environment = _safe_choice(settings.trading212_environment, {"demo", "live"}, "demo")
+    alpaca_environment = _safe_choice(settings.alpaca_environment, {"paper", "live"}, "paper")
     values = {
         "LLM_PROVIDER": settings.llm_provider,
         "BROKER_PROVIDER": settings.broker_provider,
@@ -596,10 +626,7 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         ),
         "LANGSMITH_API_KEY": existing_raw.get("LANGSMITH_API_KEY", ""),
         "LANGSMITH_PROJECT": existing_raw.get("LANGSMITH_PROJECT", "T212AI"),
-        "T212_ENVIRONMENT": existing_raw.get(
-            "T212_ENVIRONMENT",
-            settings.trading212_environment,
-        ),
+        "T212_ENVIRONMENT": existing_raw.get("T212_ENVIRONMENT", t212_environment),
         "T212_DEMO_BASE_URL": existing_raw.get(
             "T212_DEMO_BASE_URL",
             settings.trading212_demo_base_url,
@@ -608,10 +635,21 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "T212_LIVE_BASE_URL",
             settings.trading212_live_base_url,
         ),
-        "T212_API_KEY": existing_raw.get("T212_API_KEY", settings.trading212_api_key or ""),
-        "T212_API_SECRET": existing_raw.get(
-            "T212_API_SECRET",
-            settings.trading212_api_secret or "",
+        "T212_DEMO_API_KEY": existing_raw.get(
+            "T212_DEMO_API_KEY",
+            existing_raw.get("T212_API_KEY", "") if t212_environment == "demo" else "",
+        ),
+        "T212_DEMO_API_SECRET": existing_raw.get(
+            "T212_DEMO_API_SECRET",
+            existing_raw.get("T212_API_SECRET", "") if t212_environment == "demo" else "",
+        ),
+        "T212_LIVE_API_KEY": existing_raw.get(
+            "T212_LIVE_API_KEY",
+            existing_raw.get("T212_API_KEY", "") if t212_environment == "live" else "",
+        ),
+        "T212_LIVE_API_SECRET": existing_raw.get(
+            "T212_LIVE_API_SECRET",
+            existing_raw.get("T212_API_SECRET", "") if t212_environment == "live" else "",
         ),
         "T212_LIVE_TRADING_ENABLED": existing_raw.get(
             "T212_LIVE_TRADING_ENABLED",
@@ -637,17 +675,22 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "ALPHA_VANTAGE_BASE_URL",
             settings.alpha_vantage_base_url,
         ),
-        "ALPACA_ENVIRONMENT": existing_raw.get(
-            "ALPACA_ENVIRONMENT",
-            settings.alpaca_environment,
+        "ALPACA_ENVIRONMENT": existing_raw.get("ALPACA_ENVIRONMENT", alpaca_environment),
+        "ALPACA_PAPER_API_KEY": existing_raw.get(
+            "ALPACA_PAPER_API_KEY",
+            existing_raw.get("ALPACA_API_KEY", "") if alpaca_environment == "paper" else "",
         ),
-        "ALPACA_API_KEY": existing_raw.get(
-            "ALPACA_API_KEY",
-            settings.alpaca_api_key or "",
+        "ALPACA_PAPER_API_SECRET": existing_raw.get(
+            "ALPACA_PAPER_API_SECRET",
+            existing_raw.get("ALPACA_API_SECRET", "") if alpaca_environment == "paper" else "",
         ),
-        "ALPACA_API_SECRET": existing_raw.get(
-            "ALPACA_API_SECRET",
-            settings.alpaca_api_secret or "",
+        "ALPACA_LIVE_API_KEY": existing_raw.get(
+            "ALPACA_LIVE_API_KEY",
+            existing_raw.get("ALPACA_API_KEY", "") if alpaca_environment == "live" else "",
+        ),
+        "ALPACA_LIVE_API_SECRET": existing_raw.get(
+            "ALPACA_LIVE_API_SECRET",
+            existing_raw.get("ALPACA_API_SECRET", "") if alpaca_environment == "live" else "",
         ),
         "ALPACA_MARKET_DATA_BASE_URL": existing_raw.get(
             "ALPACA_MARKET_DATA_BASE_URL",
@@ -719,6 +762,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             settings.searxng_base_url or "",
         ),
     }
+    for legacy_key in (
+        "T212_API_KEY",
+        "T212_API_SECRET",
+        "ALPACA_API_KEY",
+        "ALPACA_API_SECRET",
+    ):
+        if legacy_key in existing_raw:
+            values[legacy_key] = existing_raw.get(legacy_key, "")
     return values
 
 
@@ -886,14 +937,7 @@ def apply_configuration_wizard(
                 options=ENVIRONMENT_OPTIONS,
                 default=_safe_choice(updates["T212_ENVIRONMENT"], {"demo", "live"}, "demo"),
             )
-            updates["T212_API_KEY"] = io_runtime.prompt(
-                "T212_API_KEY",
-                default=updates["T212_API_KEY"],
-            )
-            updates["T212_API_SECRET"] = io_runtime.prompt(
-                "T212_API_SECRET",
-                default=updates["T212_API_SECRET"],
-            )
+            _prompt_trading212_credentials(io_runtime, updates)
             if updates["T212_ENVIRONMENT"] == "live":
                 allow_live = io_runtime.confirm(
                     "Allow live order execution when running in live environment?",
@@ -908,14 +952,7 @@ def apply_configuration_wizard(
                 options=ALPACA_ENVIRONMENT_OPTIONS,
                 default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
             )
-            updates["ALPACA_API_KEY"] = io_runtime.prompt(
-                "ALPACA_API_KEY",
-                default=updates["ALPACA_API_KEY"],
-            )
-            updates["ALPACA_API_SECRET"] = io_runtime.prompt(
-                "ALPACA_API_SECRET",
-                default=updates["ALPACA_API_SECRET"],
-            )
+            _prompt_alpaca_credentials(io_runtime, updates)
 
     _write_step_intro(
         io_runtime,
@@ -984,14 +1021,7 @@ def apply_configuration_wizard(
                 options=ALPACA_ENVIRONMENT_OPTIONS,
                 default=_safe_choice(updates["ALPACA_ENVIRONMENT"], {"paper", "live"}, "paper"),
             )
-            updates["ALPACA_API_KEY"] = io_runtime.prompt(
-                "ALPACA_API_KEY",
-                default=updates["ALPACA_API_KEY"],
-            )
-            updates["ALPACA_API_SECRET"] = io_runtime.prompt(
-                "ALPACA_API_SECRET",
-                default=updates["ALPACA_API_SECRET"],
-            )
+            _prompt_alpaca_credentials(io_runtime, updates)
 
     _write_step_intro(
         io_runtime,
@@ -1102,6 +1132,58 @@ def apply_configuration_wizard(
                 "GUIDELINE_MEMORY_PATH",
                 default=updates["GUIDELINE_MEMORY_PATH"],
             )
+
+
+def _prompt_trading212_credentials(
+    io_runtime: TerminalIO,
+    updates: dict[str, str],
+) -> None:
+    io_runtime.write(
+        "Store Trading 212 credentials per environment. "
+        "The active pair is selected from T212_ENVIRONMENT."
+    )
+    updates["T212_DEMO_API_KEY"] = io_runtime.prompt(
+        "T212_DEMO_API_KEY",
+        default=updates["T212_DEMO_API_KEY"],
+    )
+    updates["T212_DEMO_API_SECRET"] = io_runtime.prompt(
+        "T212_DEMO_API_SECRET",
+        default=updates["T212_DEMO_API_SECRET"],
+    )
+    updates["T212_LIVE_API_KEY"] = io_runtime.prompt(
+        "T212_LIVE_API_KEY",
+        default=updates["T212_LIVE_API_KEY"],
+    )
+    updates["T212_LIVE_API_SECRET"] = io_runtime.prompt(
+        "T212_LIVE_API_SECRET",
+        default=updates["T212_LIVE_API_SECRET"],
+    )
+
+
+def _prompt_alpaca_credentials(
+    io_runtime: TerminalIO,
+    updates: dict[str, str],
+) -> None:
+    io_runtime.write(
+        "Store Alpaca credentials per environment. "
+        "The active pair is selected from ALPACA_ENVIRONMENT."
+    )
+    updates["ALPACA_PAPER_API_KEY"] = io_runtime.prompt(
+        "ALPACA_PAPER_API_KEY",
+        default=updates["ALPACA_PAPER_API_KEY"],
+    )
+    updates["ALPACA_PAPER_API_SECRET"] = io_runtime.prompt(
+        "ALPACA_PAPER_API_SECRET",
+        default=updates["ALPACA_PAPER_API_SECRET"],
+    )
+    updates["ALPACA_LIVE_API_KEY"] = io_runtime.prompt(
+        "ALPACA_LIVE_API_KEY",
+        default=updates["ALPACA_LIVE_API_KEY"],
+    )
+    updates["ALPACA_LIVE_API_SECRET"] = io_runtime.prompt(
+        "ALPACA_LIVE_API_SECRET",
+        default=updates["ALPACA_LIVE_API_SECRET"],
+    )
 
 
 def _write_step_intro(

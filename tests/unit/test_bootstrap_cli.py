@@ -140,8 +140,10 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
             "n",
             "2",
             "",
-            "alpaca-key",
-            "alpaca-secret",
+            "alpaca-paper-key",
+            "alpaca-paper-secret",
+            "alpaca-live-key",
+            "alpaca-live-secret",
             "n",
             "n",
             "n",
@@ -156,8 +158,10 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     assert updates["BROKER_PROVIDER"] == "none"
     assert updates["MARKET_DATA_PROVIDER"] == "alpaca"
     assert updates["ALPACA_ENVIRONMENT"] == "paper"
-    assert updates["ALPACA_API_KEY"] == "alpaca-key"
-    assert updates["ALPACA_API_SECRET"] == "alpaca-secret"
+    assert updates["ALPACA_PAPER_API_KEY"] == "alpaca-paper-key"
+    assert updates["ALPACA_PAPER_API_SECRET"] == "alpaca-paper-secret"
+    assert updates["ALPACA_LIVE_API_KEY"] == "alpaca-live-key"
+    assert updates["ALPACA_LIVE_API_SECRET"] == "alpaca-live-secret"
     assert updates["YAHOO_ENABLED"] == "false"
 
 
@@ -169,8 +173,10 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
             "n",
             "2",
             "",
-            "alpaca-broker-key",
-            "alpaca-broker-secret",
+            "alpaca-paper-key",
+            "alpaca-paper-secret",
+            "alpaca-live-key",
+            "alpaca-live-secret",
             "n",
             "y",
             "n",
@@ -186,9 +192,68 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
     assert updates["BROKER_PROVIDER"] == "alpaca"
     assert updates["MARKET_DATA_PROVIDER"] == "alpaca"
     assert updates["ALPACA_ENVIRONMENT"] == "paper"
-    assert updates["ALPACA_API_KEY"] == "alpaca-broker-key"
-    assert updates["ALPACA_API_SECRET"] == "alpaca-broker-secret"
+    assert updates["ALPACA_PAPER_API_KEY"] == "alpaca-paper-key"
+    assert updates["ALPACA_PAPER_API_SECRET"] == "alpaca-paper-secret"
+    assert updates["ALPACA_LIVE_API_KEY"] == "alpaca-live-key"
+    assert updates["ALPACA_LIVE_API_SECRET"] == "alpaca-live-secret"
     assert updates["YAHOO_ENABLED"] == "false"
+
+
+def test_apply_configuration_wizard_supports_trading212_environment_specific_credentials() -> None:
+    updates = cli.build_managed_env_values({})
+    responses = iter(
+        [
+            "3",
+            "n",
+            "1",
+            "2",
+            "t212-demo-key",
+            "t212-demo-secret",
+            "t212-live-key",
+            "t212-live-secret",
+            "y",
+            "n",
+            "3",
+            "n",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+
+    cli.apply_configuration_wizard(io_runtime, updates)
+
+    assert updates["BROKER_PROVIDER"] == "trading212"
+    assert updates["T212_ENVIRONMENT"] == "live"
+    assert updates["T212_DEMO_API_KEY"] == "t212-demo-key"
+    assert updates["T212_DEMO_API_SECRET"] == "t212-demo-secret"
+    assert updates["T212_LIVE_API_KEY"] == "t212-live-key"
+    assert updates["T212_LIVE_API_SECRET"] == "t212-live-secret"
+    assert updates["T212_LIVE_TRADING_ENABLED"] == "true"
+
+
+def test_build_managed_env_values_migrates_legacy_broker_keys_to_active_environment() -> None:
+    updates = cli.build_managed_env_values(
+        {
+            "BROKER_PROVIDER": "trading212",
+            "T212_ENVIRONMENT": "live",
+            "T212_API_KEY": "legacy-live-key",
+            "T212_API_SECRET": "legacy-live-secret",
+            "ALPACA_ENVIRONMENT": "paper",
+            "ALPACA_API_KEY": "legacy-paper-key",
+            "ALPACA_API_SECRET": "legacy-paper-secret",
+        }
+    )
+
+    assert updates["T212_LIVE_API_KEY"] == "legacy-live-key"
+    assert updates["T212_LIVE_API_SECRET"] == "legacy-live-secret"
+    assert updates["T212_DEMO_API_KEY"] == ""
+    assert updates["T212_DEMO_API_SECRET"] == ""
+    assert updates["ALPACA_PAPER_API_KEY"] == "legacy-paper-key"
+    assert updates["ALPACA_PAPER_API_SECRET"] == "legacy-paper-secret"
+    assert updates["ALPACA_LIVE_API_KEY"] == ""
+    assert updates["ALPACA_LIVE_API_SECRET"] == ""
 
 
 def test_apply_configuration_wizard_can_skip_existing_sections_and_explains_searxng() -> None:

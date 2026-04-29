@@ -122,6 +122,12 @@ class AppSettings:
     trading212_environment: str = "demo"
     trading212_demo_base_url: str = "https://demo.trading212.com/api/v0"
     trading212_live_base_url: str = "https://live.trading212.com/api/v0"
+    trading212_demo_api_key: str | None = None
+    trading212_demo_api_secret: str | None = None
+    trading212_live_api_key: str | None = None
+    trading212_live_api_secret: str | None = None
+    trading212_legacy_api_key: str | None = None
+    trading212_legacy_api_secret: str | None = None
     trading212_api_key: str | None = None
     trading212_api_secret: str | None = None
     telegram_bot_token: str | None = None
@@ -129,6 +135,12 @@ class AppSettings:
     telegram_allowed_user_id: str | None = None
     alpha_vantage_api_key: str | None = None
     alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
+    alpaca_paper_api_key: str | None = None
+    alpaca_paper_api_secret: str | None = None
+    alpaca_live_api_key: str | None = None
+    alpaca_live_api_secret: str | None = None
+    alpaca_legacy_api_key: str | None = None
+    alpaca_legacy_api_secret: str | None = None
     alpaca_api_key: str | None = None
     alpaca_api_secret: str | None = None
     alpaca_environment: str = "paper"
@@ -163,6 +175,20 @@ class AppSettings:
             return self.trading212_live_base_url
         return self.trading212_demo_base_url
 
+    @property
+    def trading212_active_credential_keys(self) -> tuple[str, str]:
+        environment = self.trading212_environment.strip().lower()
+        if environment == "live":
+            return ("T212_LIVE_API_KEY", "T212_LIVE_API_SECRET")
+        return ("T212_DEMO_API_KEY", "T212_DEMO_API_SECRET")
+
+    @property
+    def alpaca_active_credential_keys(self) -> tuple[str, str]:
+        environment = self.alpaca_environment.strip().lower()
+        if environment == "live":
+            return ("ALPACA_LIVE_API_KEY", "ALPACA_LIVE_API_SECRET")
+        return ("ALPACA_PAPER_API_KEY", "ALPACA_PAPER_API_SECRET")
+
 
 def get_app_settings(
     *,
@@ -174,6 +200,9 @@ def get_app_settings(
         source = os.environ
     else:
         source = env
+
+    trading212_environment = source.get("T212_ENVIRONMENT", "demo")
+    alpaca_environment = source.get("ALPACA_ENVIRONMENT", "paper")
 
     return AppSettings(
         llm_provider=_resolve_llm_provider(source),
@@ -209,15 +238,29 @@ def get_app_settings(
             "2024-10-21",
         ),
         azure_openai_embed_deployment=source.get("AZURE_OPENAI_EMBED_DEPLOYMENT"),
-        trading212_environment=source.get("T212_ENVIRONMENT", "demo"),
+        trading212_environment=trading212_environment,
         trading212_demo_base_url=source.get(
             "T212_DEMO_BASE_URL", "https://demo.trading212.com/api/v0"
         ),
         trading212_live_base_url=source.get(
             "T212_LIVE_BASE_URL", "https://live.trading212.com/api/v0"
         ),
-        trading212_api_key=source.get("T212_API_KEY"),
-        trading212_api_secret=source.get("T212_API_SECRET"),
+        trading212_demo_api_key=source.get("T212_DEMO_API_KEY"),
+        trading212_demo_api_secret=source.get("T212_DEMO_API_SECRET"),
+        trading212_live_api_key=source.get("T212_LIVE_API_KEY"),
+        trading212_live_api_secret=source.get("T212_LIVE_API_SECRET"),
+        trading212_legacy_api_key=source.get("T212_API_KEY"),
+        trading212_legacy_api_secret=source.get("T212_API_SECRET"),
+        trading212_api_key=_resolve_trading212_credential(
+            source,
+            trading212_environment,
+            "key",
+        ),
+        trading212_api_secret=_resolve_trading212_credential(
+            source,
+            trading212_environment,
+            "secret",
+        ),
         telegram_bot_token=source.get("TELEGRAM_BOT_TOKEN"),
         telegram_allowed_chat_id=source.get("TELEGRAM_ALLOWED_CHAT_ID"),
         telegram_allowed_user_id=source.get("TELEGRAM_ALLOWED_USER_ID"),
@@ -226,9 +269,15 @@ def get_app_settings(
             "ALPHA_VANTAGE_BASE_URL",
             "https://www.alphavantage.co/query",
         ),
-        alpaca_api_key=source.get("ALPACA_API_KEY"),
-        alpaca_api_secret=source.get("ALPACA_API_SECRET"),
-        alpaca_environment=source.get("ALPACA_ENVIRONMENT", "paper"),
+        alpaca_paper_api_key=source.get("ALPACA_PAPER_API_KEY"),
+        alpaca_paper_api_secret=source.get("ALPACA_PAPER_API_SECRET"),
+        alpaca_live_api_key=source.get("ALPACA_LIVE_API_KEY"),
+        alpaca_live_api_secret=source.get("ALPACA_LIVE_API_SECRET"),
+        alpaca_legacy_api_key=source.get("ALPACA_API_KEY"),
+        alpaca_legacy_api_secret=source.get("ALPACA_API_SECRET"),
+        alpaca_api_key=_resolve_alpaca_credential(source, alpaca_environment, "key"),
+        alpaca_api_secret=_resolve_alpaca_credential(source, alpaca_environment, "secret"),
+        alpaca_environment=alpaca_environment,
         alpaca_market_data_base_url=source.get(
             "ALPACA_MARKET_DATA_BASE_URL",
             ALPACA_MARKET_DATA_BASE_URL,
@@ -327,10 +376,52 @@ def _resolve_broker_provider(source: Mapping[str, str]) -> str:
         return explicit
     if any(
         bool(str(source.get(key, "")).strip())
-        for key in ("T212_API_KEY", "T212_API_SECRET")
+        for key in (
+            "T212_API_KEY",
+            "T212_API_SECRET",
+            "T212_DEMO_API_KEY",
+            "T212_DEMO_API_SECRET",
+            "T212_LIVE_API_KEY",
+            "T212_LIVE_API_SECRET",
+        )
     ):
         return "trading212"
     return "none"
+
+
+def _resolve_trading212_credential(
+    source: Mapping[str, str],
+    environment: str,
+    kind: str,
+) -> str | None:
+    normalized_environment = str(environment or "").strip().lower()
+    suffix = "API_KEY" if kind == "key" else "API_SECRET"
+    environment_prefix = "T212_LIVE" if normalized_environment == "live" else "T212_DEMO"
+    return _first_non_empty(
+        source.get(f"{environment_prefix}_{suffix}"),
+        source.get(f"T212_{suffix}"),
+    )
+
+
+def _resolve_alpaca_credential(
+    source: Mapping[str, str],
+    environment: str,
+    kind: str,
+) -> str | None:
+    normalized_environment = str(environment or "").strip().lower()
+    suffix = "API_KEY" if kind == "key" else "API_SECRET"
+    environment_prefix = "ALPACA_LIVE" if normalized_environment == "live" else "ALPACA_PAPER"
+    return _first_non_empty(
+        source.get(f"{environment_prefix}_{suffix}"),
+        source.get(f"ALPACA_{suffix}"),
+    )
+
+
+def _first_non_empty(*values: str | None) -> str | None:
+    for value in values:
+        if str(value or "").strip():
+            return value
+    return None
 
 
 def _resolve_market_data_provider(source: Mapping[str, str]) -> str:

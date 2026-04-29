@@ -891,12 +891,16 @@ def _broker_provider_failure_hint(provider: str) -> str:
     normalized = str(provider or "").strip().lower()
     if normalized == "trading212":
         return (
-            "Check BROKER_PROVIDER=trading212, T212_ENVIRONMENT, Trading 212 API key/secret, "
-            "API scopes for account/portfolio/orders/history, IP restrictions, and rate limits."
+            "Check BROKER_PROVIDER=trading212, T212_ENVIRONMENT, the active Trading 212 key pair "
+            "(T212_DEMO_API_KEY/T212_DEMO_API_SECRET or T212_LIVE_API_KEY/T212_LIVE_API_SECRET), "
+            "legacy fallback vars T212_API_KEY/T212_API_SECRET if you still use them, API scopes "
+            "for account/portfolio/orders/history, IP restrictions, and rate limits."
         )
     if normalized == "alpaca":
         return (
-            "Check BROKER_PROVIDER=alpaca, ALPACA_ENVIRONMENT, Alpaca API key/secret, "
+            "Check BROKER_PROVIDER=alpaca, ALPACA_ENVIRONMENT, the active Alpaca key pair "
+            "(ALPACA_PAPER_API_KEY/ALPACA_PAPER_API_SECRET or ALPACA_LIVE_API_KEY/ALPACA_LIVE_API_SECRET), "
+            "legacy fallback vars ALPACA_API_KEY/ALPACA_API_SECRET if you still use them, "
             "paper/live account selection, account status, and rate limits."
         )
     return (

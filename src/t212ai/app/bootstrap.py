@@ -359,15 +359,17 @@ def _assess_broker_provider(settings: AppSettings) -> ProviderAssessment:
             notes=("Broker provider is disabled.",),
         )
     if provider == "trading212":
+        api_key_name, api_secret_name = settings.trading212_active_credential_keys
         missing = _missing_keys(
             {
-                "T212_API_KEY": settings.trading212_api_key,
-                "T212_API_SECRET": settings.trading212_api_secret,
+                api_key_name: settings.trading212_api_key,
+                api_secret_name: settings.trading212_api_secret,
             }
         )
         notes = (
             f"Trading 212 environment: {settings.trading212_environment}.",
             f"Live trading enabled: {settings.live_trading_enabled}.",
+            "Legacy fallback vars T212_API_KEY and T212_API_SECRET remain supported.",
         )
         return ProviderAssessment(
             name="broker",
@@ -376,15 +378,16 @@ def _assess_broker_provider(settings: AppSettings) -> ProviderAssessment:
             optional=True,
             configured=bool(settings.trading212_api_key or settings.trading212_api_secret),
             ready=not missing,
-            required_keys=("T212_API_KEY", "T212_API_SECRET"),
+            required_keys=(api_key_name, api_secret_name),
             missing_keys=missing,
             errors=_provider_errors("Trading 212", missing),
             notes=notes,
         )
+    api_key_name, api_secret_name = settings.alpaca_active_credential_keys
     missing = _missing_keys(
         {
-            "ALPACA_API_KEY": settings.alpaca_api_key,
-            "ALPACA_API_SECRET": settings.alpaca_api_secret,
+            api_key_name: settings.alpaca_api_key,
+            api_secret_name: settings.alpaca_api_secret,
         }
     )
     return ProviderAssessment(
@@ -394,10 +397,13 @@ def _assess_broker_provider(settings: AppSettings) -> ProviderAssessment:
         optional=True,
         configured=bool(settings.alpaca_api_key or settings.alpaca_api_secret),
         ready=not missing,
-        required_keys=("ALPACA_API_KEY", "ALPACA_API_SECRET"),
+        required_keys=(api_key_name, api_secret_name),
         missing_keys=missing,
         errors=_provider_errors("Alpaca broker", missing),
-        notes=(f"Alpaca environment: {settings.alpaca_environment}.",),
+        notes=(
+            f"Alpaca environment: {settings.alpaca_environment}.",
+            "Legacy fallback vars ALPACA_API_KEY and ALPACA_API_SECRET remain supported.",
+        ),
     )
 
 
@@ -453,10 +459,11 @@ def _assess_yahoo_provider(settings: AppSettings) -> ProviderAssessment:
 
 def _assess_alpaca_provider(settings: AppSettings) -> ProviderAssessment:
     enabled = settings.market_data_provider == "alpaca"
+    api_key_name, api_secret_name = settings.alpaca_active_credential_keys
     missing = _missing_keys(
         {
-            "ALPACA_API_KEY": settings.alpaca_api_key,
-            "ALPACA_API_SECRET": settings.alpaca_api_secret,
+            api_key_name: settings.alpaca_api_key,
+            api_secret_name: settings.alpaca_api_secret,
         }
     )
     return ProviderAssessment(
@@ -466,12 +473,13 @@ def _assess_alpaca_provider(settings: AppSettings) -> ProviderAssessment:
         optional=True,
         configured=enabled and bool(settings.alpaca_api_key or settings.alpaca_api_secret),
         ready=enabled and not missing,
-        required_keys=("ALPACA_API_KEY", "ALPACA_API_SECRET"),
+        required_keys=(api_key_name, api_secret_name),
         missing_keys=missing if enabled else (),
         errors=_provider_errors("Alpaca", missing) if enabled else (),
         notes=(
             f"Alpaca environment: {settings.alpaca_environment}.",
             f"Alpaca market-data feed: {settings.alpaca_data_feed}.",
+            "Legacy fallback vars ALPACA_API_KEY and ALPACA_API_SECRET remain supported.",
         )
         if enabled
         else ("Alpaca market data is disabled.",),
