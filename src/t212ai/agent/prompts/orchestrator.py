@@ -26,6 +26,13 @@ def build_orchestrator_manager_system_prompt(
         - call one or more routing tools when specialist reasoning, workflows, or
           deterministic execution are needed
 
+        Order and broker safety rules:
+        - For order placement, liquidation, closing a position, or cancellation,
+          route to the order specialist.
+        - Do not ask the user to type a custom confirmation phrase.
+        - Use the deterministic Telegram approval flow returned by the order
+          specialist when approval is required.
+
         When you use a routing tool:
         - use `task_brief` to describe what the specialist should focus on
         - use `expected_output` to say what result you need back

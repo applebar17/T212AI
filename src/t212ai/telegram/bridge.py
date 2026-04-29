@@ -196,7 +196,39 @@ class TelegramUpdateRouter:
             if action_id is None:
                 return ("reject", None)
             return ("reject", action_id)
+        if self._has_pending_actions(chat_id=inbound.chat_id, user_id=inbound.user_id):
+            if re.match(r"^(confirm|approve|approved|proceed|go ahead)\b", normalized):
+                action_id = self._resolve_single_pending_action_id(
+                    chat_id=inbound.chat_id,
+                    user_id=inbound.user_id,
+                )
+                if action_id is None:
+                    return ("approve", None)
+                return ("approve", action_id)
+            if re.match(r"^(reject|decline)\b", normalized):
+                action_id = self._resolve_single_pending_action_id(
+                    chat_id=inbound.chat_id,
+                    user_id=inbound.user_id,
+                )
+                if action_id is None:
+                    return ("reject", None)
+                return ("reject", action_id)
         return None
+
+    def _has_pending_actions(
+        self,
+        *,
+        chat_id: int,
+        user_id: int | None,
+    ) -> bool:
+        if self.pending_action_service is None:
+            return False
+        return bool(
+            self.pending_action_service.get_awaiting_actions(
+                chat_id=str(chat_id),
+                user_id=user_id,
+            )
+        )
 
     def _resolve_single_pending_action_id(
         self,

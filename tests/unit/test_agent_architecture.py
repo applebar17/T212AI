@@ -14,6 +14,7 @@ from t212ai.agent import (
     MainOrchestratorAgent,
     PortfolioAnalystAgent,
     TaskComplexity,
+    classify_message,
 )
 from t212ai.agent.history import ChatHistoryWindow
 from t212ai.agent.intents import AgentIntent, IntentKind
@@ -392,6 +393,33 @@ def test_orchestrator_routes_representative_requests() -> None:
             assert response.metadata["route"] == "direct"
         else:
             assert response.metadata["route"] == expected_route
+
+
+def test_classify_message_treats_liquidation_as_order_execution() -> None:
+    intent = classify_message("Can you fully liquidate my position in LVMH at mkt price?")
+
+    assert intent.kind == IntentKind.PLACE_ORDER
+    assert intent.entities["action"] == "liquidate"
+
+
+def test_classify_message_keeps_advisory_buy_question_as_trade_discussion() -> None:
+    intent = classify_message("Should I buy Apple after earnings?")
+
+    assert intent.kind == IntentKind.PROPOSE_TRADE
+
+
+def test_orchestrator_forces_order_agent_for_liquidation_requests() -> None:
+    orchestrator = MainOrchestratorAgent(_reasoner())
+
+    response = orchestrator.handle(
+        AgentRequest(
+            user_message="Can you fully liquidate my position in LVMH at mkt price?",
+            chat_id="chat",
+        )
+    )
+
+    assert response.selected_agent == "main_orchestrator"
+    assert response.metadata["route"] == "order_agent"
 
 
 def test_agent_judge_uses_standardized_critique() -> None:

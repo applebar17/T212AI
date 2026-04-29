@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -174,17 +175,19 @@ class MainOrchestratorAgent(BaseAgent):
             task_complexity=(task_complexity or TaskComplexity.EASY).value,
         )
         tool_runs: list[SpecialistToolRun] = []
-        final_answer = self.reasoner.orchestrate_with_tools(
-            agent_name=self.profile.name,
-            purpose=self.profile.purpose,
-            guidelines=self.profile.guidelines,
-            toolbox_summary=self.profile.toolbox_summary,
-            user_request=request.user_message,
-            toolbox=self.orchestrator_toolbox,
-            tools_mapping=self._build_tool_mapping(request, tool_runs),
-            chat_history=self._history_for_prompt(request.history),
-            persistent_guidance=self._persistent_guidance(),
-        )
+        final_answer = self._forced_order_route_answer(request, tool_runs)
+        if final_answer is None:
+            final_answer = self.reasoner.orchestrate_with_tools(
+                agent_name=self.profile.name,
+                purpose=self.profile.purpose,
+                guidelines=self.profile.guidelines,
+                toolbox_summary=self.profile.toolbox_summary,
+                user_request=request.user_message,
+                toolbox=self.orchestrator_toolbox,
+                tools_mapping=self._build_tool_mapping(request, tool_runs),
+                chat_history=self._history_for_prompt(request.history),
+                persistent_guidance=self._persistent_guidance(),
+            )
         approval_payload = self._approval_payload(tool_runs)
         if isinstance(approval_payload, dict) and approval_payload.get("text"):
             final_answer = str(approval_payload["text"])
@@ -200,6 +203,38 @@ class MainOrchestratorAgent(BaseAgent):
             metadata=metadata,
             artifacts=artifacts,
         )
+
+    def _forced_order_route_answer(
+        self,
+        request: AgentRequest,
+        tool_runs: list[SpecialistToolRun],
+    ) -> str | None:
+        inferred_intent = classify_message(request.user_message)
+        if inferred_intent.kind not in {
+            IntentKind.PLACE_ORDER,
+            IntentKind.CANCEL_ORDER,
+        }:
+            return None
+        tool_mapping = self._build_tool_mapping(request, tool_runs)
+        delegate = tool_mapping["delegate_to_order_agent"]
+        result = delegate(
+            task_brief=self._forced_order_task_brief(inferred_intent),
+            expected_output=(
+                "Return a deterministic broker action result. If approval is required, "
+                "prepare the Telegram approval request and do not ask for a typed "
+                "confirmation phrase."
+            ),
+            intent_kind=inferred_intent.kind.value,
+            entities=_entities_to_items(inferred_intent),
+        )
+        if result.status == "ok":
+            return str(result.output or "")
+        if result.error is None:
+            return str(result.output or "")
+        message = result.error.message
+        if result.error.hint:
+            message = f"{message} Hint: {result.error.hint}"
+        return message
 
     def _build_orchestrator_toolbox(self) -> ToolBox:
         specialists = self.specialists.by_key()
@@ -501,6 +536,19 @@ class MainOrchestratorAgent(BaseAgent):
                 return approval
         return None
 
+    def _forced_order_task_brief(self, intent: AgentIntent) -> str:
+        if intent.kind == IntentKind.CANCEL_ORDER:
+            return (
+                "Treat this as a broker order cancellation request. Resolve the target "
+                "deterministically, prepare the cancellation for Telegram approval, and "
+                "avoid conversational confirmation."
+            )
+        return (
+            "Treat this as an executable broker order request. Extract the order details, "
+            "prepare the order for deterministic Telegram approval, and avoid "
+            "conversational confirmation."
+        )
+
 
 class AgentOrchestrator:
     """Compatibility fallback classifier used before the full agent runtime is wired."""
@@ -579,6 +627,12 @@ def classify_message(message: str) -> AgentIntent:
         return AgentIntent(kind=IntentKind.CANCEL_ORDER, confidence=0.85)
     if any(word in text for word in ("pending order", "orders", "open order")):
         return AgentIntent(kind=IntentKind.REVIEW_PENDING_ORDERS, confidence=0.8)
+    if _is_explicit_order_execution_request(text):
+        return AgentIntent(
+            kind=IntentKind.PLACE_ORDER,
+            entities={"action": "liquidate" if "liquidate" in text or "close" in text or "exit" in text else "submit_order"},
+            confidence=0.9,
+        )
     if any(word in text for word in ("buy", "sell", "place order", "trade")):
         return AgentIntent(kind=IntentKind.PROPOSE_TRADE, confidence=0.8)
     has_digit = any(char.isdigit() for char in text)
@@ -594,6 +648,16 @@ def classify_message(message: str) -> AgentIntent:
     if any(word in text for word in ("analyze", "company", "ticker", "earnings", "analyst")):
         return AgentIntent(kind=IntentKind.ANALYZE_INSTRUMENT, confidence=0.75)
     return AgentIntent(kind=IntentKind.UNKNOWN, entities={"message": message}, confidence=0.0)
+
+
+def _entities_to_items(intent: AgentIntent) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for key, value in intent.entities.items():
+        normalized_key = str(key).strip()
+        normalized_value = str(value).strip()
+        if normalized_key and normalized_value:
+            items.append({"key": normalized_key, "value": normalized_value})
+    return items
 
 
 def _classify_guideline_message(text: str) -> AgentIntent | None:
@@ -684,3 +748,16 @@ def _classify_guideline_message(text: str) -> AgentIntent | None:
             confidence=0.85,
         )
     return None
+
+
+def _is_explicit_order_execution_request(text: str) -> bool:
+    patterns = (
+        r"^\s*(buy|sell)\b",
+        r"^\s*can you\s+(buy|sell|liquidate|close|exit)\b",
+        r"\b(i want to|please|go ahead and)\s+(buy|sell|liquidate|close|exit)\b",
+        r"\b(liquidate|fully liquidate|close my position|close the position|close position)\b",
+        r"\b(exit my position|exit the position|exit position|sell all|fully close)\b",
+        r"\b(place order|market order|limit order)\b",
+        r"\b(at market|at mkt|market price)\b",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)

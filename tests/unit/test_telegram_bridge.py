@@ -412,6 +412,45 @@ def test_router_text_fallback_rejects_single_pending_action(tmp_path) -> None:
     assert bot.sent_messages[-1]["reply_to_message_id"] == 700
 
 
+def test_router_text_confirm_fallback_approves_single_pending_action(tmp_path) -> None:
+    pending_action_service, broker = _pending_action_service(tmp_path)
+    history = ChatHistoryManager()
+    action = pending_action_service.create_submit_action(
+        chat_id="123",
+        user_id=1,
+        prepared_order=_prepared_order(),
+        original_user_message="sell lvmh at market",
+        summary_text="Prepared LVMH sell order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    pending_action_service.attach_approval_message_id(action.action_id, 701)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: None,
+        history_manager=history,
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("CONFIRM SELL LVMH AT MARKET", message_id=702),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    window = history.get_context_window(123)
+    stored = pending_action_service.get_action(action.action_id)
+
+    assert len(broker.submitted_orders) == 1
+    assert stored is not None
+    assert stored.state.value == "submitted"
+    assert [message.content for message in window.messages] == [
+        "CONFIRM SELL LVMH AT MARKET",
+        "The prepared order was approved and submitted to Trading 212.",
+    ]
+    assert bot.sent_messages[-1]["reply_to_message_id"] == 702
+
+
 def test_router_yes_is_ambiguous_when_multiple_pending_actions_exist(tmp_path) -> None:
     pending_action_service, broker = _pending_action_service(tmp_path)
     history = ChatHistoryManager()
