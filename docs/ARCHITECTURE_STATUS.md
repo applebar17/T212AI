@@ -135,19 +135,22 @@ Implemented:
 
 Current status:
 - the agent architecture is in place and runtime-owned
-- routing and planning are consistent
+- top-level orchestration is now LLM-first and tool-based
+- the orchestrator holds the user-facing conversation and can answer directly, ask for clarification, or explicitly call specialist-routing tools
+- specialist delegation happens through an orchestrator toolbox plus tool:function mapping, so routing decisions and specialist outputs stay inside the same LLM conversation
+- specialists usually start with structured planning and then execute workflows or deterministic tools when available
 - persistent guideline context is available to the orchestrator and specialists
 - live specialist toolboxes are runtime-built and capability-first
 - provider-specific toolboxes are retained only as compatibility or explicit specialist exceptions
 - `OrderAgent` has a deterministic higher-level order-action path for:
   - prepared order submission
   - prepared order cancellation
-- `CalculatorAgent` exists as a standalone specialist with deterministic tools, but it is intentionally not routed through `MainOrchestratorAgent` yet
+- `CalculatorAgent` is routed through the orchestrator and still uses deterministic tools for execution-safe math
 
 Missing:
 - company and market specialists are still mostly plan/tool-driven
+- orchestration is not yet a fully open-ended recursive multi-agent loop; today it is an LLM manager with bounded sequential specialist tool calls
 - the judge is implemented but not yet meaningfully plugged into critical pipelines
-- calculator routing is intentionally off by default
 
 ### 5. Data And Broker Integrations
 

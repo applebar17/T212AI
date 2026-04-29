@@ -126,6 +126,27 @@ Agent tracing should show:
 
 Agent traces must not expose hidden reasoning. The plan and critique models are the observable artifacts.
 
+## Orchestrator Model
+
+Scope:
+- agents
+- prompts
+- tools
+- docs
+
+Rules:
+- treat `MainOrchestratorAgent` as an LLM-based conversation manager, not as a deterministic router
+- the orchestrator must be able to answer directly, ask clarifying questions, or call specialist-routing tools
+- specialist delegation should happen through an explicit toolbox plus tool:function mapping so the LLM sees the routing sequence and tool returns inside the same conversation
+- when the orchestrator delegates, it should pass explicit specialist guidance about task focus and expected output rather than hiding delegation intent in ad hoc control flow
+- deterministic logic should remain at sensitive execution boundaries such as broker actions, approvals, and calculator execution, even when orchestration is LLM-driven
+- chat history and scoped persistent guidance should be available to both the orchestrator and delegated specialists unless a specific flow intentionally disables them
+
+Current baseline:
+- the orchestrator uses specialist-routing tools for portfolio, order, market, company, guideline-memory, and calculator delegation
+- specialist outputs are returned to the orchestrator, which then decides whether to answer the user directly or continue with further tool calls
+- specialist planning remains structured and auditable even when the top-level orchestration path is tool-driven
+
 ### Tool Rules
 
 Every public LLM tool should be decorated.
