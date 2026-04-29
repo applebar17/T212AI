@@ -20,6 +20,7 @@ from t212ai.brokers.trading212.models import (
     Position,
 )
 from t212ai.brokers.trading212.service import Trading212BrokerService
+from t212ai.brokers.models import BrokerOrderActionRequest
 from t212ai.pending_actions import PendingActionService, Trading212OrderActionRequest
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.proposals import (
@@ -260,3 +261,10 @@ def test_order_agent_marks_preparation_failed_when_order_validation_fails(tmp_pa
     assert detail is not None
     assert detail.proposal.status == ProposalStatus.PREPARATION_FAILED
     assert detail.proposal.pending_action_id is None
+
+
+def test_broker_order_action_request_schema_forbids_additional_properties() -> None:
+    schema = BrokerOrderActionRequest.model_json_schema()
+
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False

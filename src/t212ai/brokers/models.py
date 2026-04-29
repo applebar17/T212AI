@@ -228,6 +228,8 @@ class BrokerOrderActionResult(BrokerModel):
 
 
 class BrokerOrderActionRequest(BrokerModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     action: BrokerOrderAction
     order_type: str | None = None
     side: str | None = None
