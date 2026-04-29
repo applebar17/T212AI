@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 __all__ = [
     "ToolBox",
     "SearchResultRegistry",
@@ -31,6 +30,9 @@ __all__ = [
     "build_toolboxes",
     "SEARXNG_SEARCH_TOOL",
     "searxng_search",
+    "PageScraper",
+    "SCRAPE_PAGE_TOOL",
+    "scrape_page",
     "SCRAPE_ARTICLE_TOOL",
     "scrape_article",
     "BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL",
@@ -189,10 +191,25 @@ def __getattr__(name: str) -> Any:
         }
         return exports[name]
 
-    if name in {"SCRAPE_ARTICLE_TOOL", "scrape_article"}:
-        from .scrape_article import SCRAPE_ARTICLE_TOOL, scrape_article
+    if name in {
+        "SCRAPE_PAGE_TOOL",
+        "PageScraper",
+        "scrape_page",
+        "SCRAPE_ARTICLE_TOOL",
+        "scrape_article",
+    }:
+        from .scrape_article import (
+            PageScraper,
+            SCRAPE_ARTICLE_TOOL,
+            SCRAPE_PAGE_TOOL,
+            scrape_article,
+            scrape_page,
+        )
 
         exports = {
+            "PageScraper": PageScraper,
+            "SCRAPE_PAGE_TOOL": SCRAPE_PAGE_TOOL,
+            "scrape_page": scrape_page,
             "SCRAPE_ARTICLE_TOOL": SCRAPE_ARTICLE_TOOL,
             "scrape_article": scrape_article,
         }

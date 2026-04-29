@@ -378,6 +378,7 @@ def test_searxng_search_service_delegates_to_existing_helpers(monkeypatch) -> No
     import t212ai.capabilities.services as capability_services
 
     expected_search = ToolResult(status="ok", output="search")
+    expected_scrape_page = ToolResult(status="ok", output="scrape-page")
     expected_scrape = ToolResult(status="ok", output="scrape")
     captured: dict[str, object] = {}
 
@@ -389,13 +390,25 @@ def test_searxng_search_service_delegates_to_existing_helpers(monkeypatch) -> No
         captured["scrape"] = kwargs
         return expected_scrape
 
+    def _fake_scrape_page(**kwargs):
+        captured["scrape_page"] = kwargs
+        return expected_scrape_page
+
     monkeypatch.setattr(capability_services, "searxng_search", _fake_search)
     monkeypatch.setattr(capability_services, "scrape_article", _fake_scrape)
+    monkeypatch.setattr(capability_services, "scrape_page", _fake_scrape_page)
     service = SearxngSearchService("http://searxng:8080")
 
     assert isinstance(service, SearchService)
-    assert service.search(query="market", max_results=3) is expected_search
+    assert (
+        service.search(query="market", max_results=3, scrape_results=True, scrape_top_n=2)
+        is expected_search
+    )
+    assert service.scrape_page(url="https://example.com/page") is expected_scrape_page
     assert service.scrape_article(url="https://example.com") is expected_scrape
     assert captured["search"]["base_url"] == "http://searxng:8080"
     assert captured["search"]["query"] == "market"
+    assert captured["search"]["scrape_results"] is True
+    assert captured["search"]["scrape_top_n"] == 2
+    assert captured["scrape_page"]["url"] == "https://example.com/page"
     assert captured["scrape"]["url"] == "https://example.com"
