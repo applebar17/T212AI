@@ -262,15 +262,18 @@ Current status:
 - `AgentReasoner` can build a structured plan.
 - It can run a critique.
 - It can run a tool-enabled chat completion through `orchestrate_with_tools()`.
+- `ConfigurableReasonerAgent` now exists as the reusable no-tool reason step.
+- `ConfigurablePlannerAgent` now exists as the reusable no-tool grouped planner.
 
 Gap:
 
-- It is a service/helper, not a Reasoner Agent.
-- It does not produce a dedicated structured reasoning context before planning.
+- The legacy `AgentReasoner` is still a mixed service/helper for existing flows.
+- Live specialists do not yet use `ConfigurableReasonerAgent` by default.
+- Live specialists do not yet use `ConfigurablePlannerAgent` by default.
 - It mixes several responsibilities: planning, critique, and tool-enabled
   orchestration.
-- It is not yet configurable per specialist as independent reasoner/planner
-  components.
+- The configurable reasoner/planner components are not yet wired into a full
+  specialist loop.
 
 ### AgentJudge
 
@@ -292,13 +295,18 @@ Current status:
 - `AgentPlan` exists.
 - `ToolStep` includes tool name, purpose, input summary, dependencies, risk
   class, and `can_run_parallel`.
+- `GroupedAgentPlan` now exists for future execution-oriented plans.
+- `PlanActionGroup` models sequential groups with parallel or sequential
+  sub-actions.
+- `PlanAction` includes stable action IDs, dependencies, expected output,
+  output keys, risk class, and retry/stop policy fields.
 
 Gap:
 
 - Tool steps are not yet used by a generic executor.
-- Plan actions do not yet have stable action IDs, expected outputs, retry policy,
-  or output-binding rules.
-- Parallelization is represented in the schema, but not executed by a runtime.
+- Grouped plan actions are not yet used by a generic executor.
+- Parallelization is represented in the grouped schema, but not executed by a
+  runtime.
 
 ### Portfolio Analyst
 
@@ -379,22 +387,17 @@ Gap:
 
 The next agentic work should focus on these issues:
 
-1. Create a structured `AgentReasoningContext` schema.
-2. Introduce a reusable Reasoner Agent that produces that context with no tools.
-3. Introduce a reusable Planner Agent that consumes reasoning context and emits
-   an executable structured plan.
-4. Extend plan actions with stable IDs, dependency/output binding, expected
-   output, parallelization, risk class, and retry/stop policy.
-5. Build a generic executor that runs plan actions with the selected toolbox.
-6. Wire `AgentJudge` into the configurable loop, with access to plan and
+1. Build a generic executor that runs grouped plan actions with the selected
+   toolbox.
+2. Wire `AgentJudge` into the configurable loop, with access to plan and
    execution traces.
-7. Add loop configuration per specialist:
+3. Add loop configuration per specialist:
    - enabled steps
    - prompts per step
    - toolbox per execution step
    - judge policy
    - return contract
-8. Migrate specialists incrementally:
+4. Migrate specialists incrementally:
    - Market Analyst first, because broad scans need real agentic tool use.
    - Company Analyst second, because research flows benefit from planned
      evidence gathering.
