@@ -10,6 +10,7 @@ from t212ai.agent import (
     ChatHistoryManager,
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
+    GroupedPlanExecutor,
     MainOrchestratorAgent,
     build_specialist_agents,
 )
@@ -89,6 +90,7 @@ class AppRuntime:
     agent_reasoner: AgentReasoner | None = None
     configurable_reasoner_agent: ConfigurableReasonerAgent | None = None
     configurable_planner_agent: ConfigurablePlannerAgent | None = None
+    grouped_plan_executor: GroupedPlanExecutor | None = None
     agent_judge: AgentJudge | None = None
     main_orchestrator: MainOrchestratorAgent | None = None
     calculator_agent: CalculatorAgent | None = None
@@ -198,6 +200,7 @@ def _build_genai_stack(runtime: AppRuntime) -> None:
     runtime.agent_reasoner = AgentReasoner(client)
     runtime.configurable_reasoner_agent = ConfigurableReasonerAgent(client)
     runtime.configurable_planner_agent = ConfigurablePlannerAgent(client)
+    runtime.grouped_plan_executor = GroupedPlanExecutor(client)
     runtime.agent_judge = AgentJudge(runtime.agent_reasoner)
 
 
@@ -446,6 +449,9 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_read_service=runtime.broker_read_service,
             broker_execution_service=runtime.broker_execution_service,
             market_data_service=runtime.market_data_service,
+            configurable_reasoner_agent=runtime.configurable_reasoner_agent,
+            configurable_planner_agent=runtime.configurable_planner_agent,
+            grouped_plan_executor=runtime.grouped_plan_executor,
             broker_provider=runtime.settings.broker_provider,
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,

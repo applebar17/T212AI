@@ -8,7 +8,6 @@ from typing import Any
 
 from pydantic import ValidationError
 from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadService
-from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
@@ -18,10 +17,14 @@ from t212ai.genai.tracing import (
     set_trace_name,
     traceable,
 )
+from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import PendingActionService
 from t212ai.proposals import ProposalService
+from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 from .base import AgentProfile, BaseAgent
+from .configurable import ConfigurablePlannerAgent, ConfigurableReasonerAgent
+from .execution import GroupedPlanExecutor
 from .guideline_memory import GuidelineMemoryAgent
 from .intents import AgentIntent, IntentKind
 from .planner import TaskComplexity
@@ -34,7 +37,6 @@ from .specialists import (
     OrderAgent,
     PortfolioAnalystAgent,
 )
-from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 
 @dataclass(slots=True)
@@ -570,6 +572,9 @@ def build_specialist_agents(
     broker_read_service: BrokerReadService | None = None,
     broker_execution_service: BrokerExecutionService | None = None,
     market_data_service=None,
+    configurable_reasoner_agent: ConfigurableReasonerAgent | None = None,
+    configurable_planner_agent: ConfigurablePlannerAgent | None = None,
+    grouped_plan_executor: GroupedPlanExecutor | None = None,
     broker_provider: str = "broker",
     pending_action_service: PendingActionService | None = None,
     proposal_service: ProposalService | None = None,
@@ -608,6 +613,9 @@ def build_specialist_agents(
             market_data_service=market_data_service,
             toolbox=market_toolbox,
             toolbox_summary=market_toolbox_summary,
+            configurable_reasoner_agent=configurable_reasoner_agent,
+            configurable_planner_agent=configurable_planner_agent,
+            grouped_plan_executor=grouped_plan_executor,
         ),
         company=CompanyAnalystAgent(
             reasoner,

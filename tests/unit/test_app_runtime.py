@@ -378,6 +378,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.genai_client is None
     assert runtime.configurable_reasoner_agent is None
     assert runtime.configurable_planner_agent is None
+    assert runtime.grouped_plan_executor is None
     assert runtime.calculator_agent is None
     assert runtime.main_orchestrator is None
     assert "genai_client" in runtime.component_errors
@@ -406,6 +407,7 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.agent_reasoner is not None
     assert runtime.configurable_reasoner_agent is not None
     assert runtime.configurable_planner_agent is not None
+    assert runtime.grouped_plan_executor is not None
     assert runtime.agent_judge is not None
     assert runtime.main_orchestrator is not None
     assert runtime.db_engine is not None

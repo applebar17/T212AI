@@ -170,6 +170,104 @@ def build_grouped_plan_user_prompt(
     ).strip()
 
 
+def build_plan_action_system_prompt(
+    *,
+    agent_name: str,
+    purpose: str,
+    guidelines: str,
+    toolbox_summary: str,
+    persistent_guidance: str | None,
+) -> str:
+    prompt = dedent(
+        f"""\
+        You are {agent_name}.
+        Purpose: {purpose}
+
+        Execute exactly one planned action. Use tools only when they are needed
+        for this action and are available in the attached toolbox. Return a
+        compact assistant message that captures the essential result, source
+        caveats, and any failure. Do not dump raw tool JSON.
+
+        This action result will become high-level context for later actions, so
+        keep it self-contained and coherent.
+
+        Available capability/toolbox summary:
+        {toolbox_summary}
+
+        Agent-specific guidelines:
+        {guidelines}
+        """
+    ).strip()
+    if persistent_guidance:
+        prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
+    return prompt
+
+
+def build_plan_action_user_prompt(
+    *,
+    user_request: str,
+    reasoning_context_payload: dict[str, Any],
+    group_payload: dict[str, Any],
+    action_payload: dict[str, Any],
+    dependency_summaries: list[str],
+) -> str:
+    return dedent(
+        f"""\
+        Execute the next planned action.
+        Original user request: {user_request}
+        Reasoning context: {reasoning_context_payload}
+        Current group: {group_payload}
+        Current action: {action_payload}
+        Dependency summaries: {dependency_summaries}
+
+        Return only the essential action result as a concise assistant message.
+        """
+    ).strip()
+
+
+def build_final_synthesis_system_prompt(
+    *,
+    agent_name: str,
+    purpose: str,
+    guidelines: str,
+    persistent_guidance: str | None,
+) -> str:
+    prompt = dedent(
+        f"""\
+        You are {agent_name}.
+        Purpose: {purpose}
+
+        Produce the final response for the orchestrator and user from completed
+        planning-execution summaries. Do not call tools. Keep the answer concise,
+        grounded, and explicit about missing or failed context.
+
+        Agent-specific guidelines:
+        {guidelines}
+        """
+    ).strip()
+    if persistent_guidance:
+        prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
+    return prompt
+
+
+def build_final_synthesis_user_prompt(
+    *,
+    user_request: str,
+    reasoning_context_payload: dict[str, Any],
+    grouped_plan_payload: dict[str, Any],
+    action_summaries: list[str],
+) -> str:
+    return dedent(
+        f"""\
+        Build the final market-analysis answer.
+        Original user request: {user_request}
+        Reasoning context: {reasoning_context_payload}
+        Grouped plan: {grouped_plan_payload}
+        Completed action summaries: {action_summaries}
+        """
+    ).strip()
+
+
 def build_critique_system_prompt(
     *,
     agent_name: str,

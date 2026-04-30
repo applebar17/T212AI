@@ -16,6 +16,7 @@ from t212ai.agent import (
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
     GroupedAgentPlan,
+    GroupedPlanExecutor,
     InMemoryChatHistoryStore,
     MainOrchestratorAgent,
     PlanAction,
@@ -204,7 +205,7 @@ class FakeGenAIClient:
         messages = params.get("messages") or []
         text = str(messages[-1]["content"]).lower() if messages else ""
         if tools_mapping is not None:
-            if "show my portfolio" in text:
+            if "show my portfolio" in text and "delegate_to_portfolio_analyst" in tools_mapping:
                 tools_mapping["delegate_to_portfolio_analyst"](
                     task_brief="Review the user's current portfolio.",
                     expected_output="Return a concise portfolio summary.",
@@ -212,7 +213,7 @@ class FakeGenAIClient:
                     entities=[],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
-            if "cancel my oldest order" in text:
+            if "cancel my oldest order" in text and "delegate_to_order_agent" in tools_mapping:
                 tools_mapping["delegate_to_order_agent"](
                     task_brief="Figure out how to cancel the oldest pending order safely.",
                     expected_output="Return the broker action package or the next safe step.",
@@ -220,7 +221,10 @@ class FakeGenAIClient:
                     entities=[],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
-            if "what happened in the market today" in text:
+            if (
+                "what happened in the market today" in text
+                and "delegate_to_market_analyst" in tools_mapping
+            ):
                 tools_mapping["delegate_to_market_analyst"](
                     task_brief="Review today's market context.",
                     expected_output="Summarize the main market drivers.",
@@ -228,7 +232,7 @@ class FakeGenAIClient:
                     entities=[{"key": "domain", "value": "market"}],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
-            if "analyze apple earnings" in text:
+            if "analyze apple earnings" in text and "delegate_to_company_analyst" in tools_mapping:
                 tools_mapping["delegate_to_company_analyst"](
                     task_brief="Analyze Apple earnings.",
                     expected_output="Return a company-focused analysis for the user.",
@@ -236,7 +240,7 @@ class FakeGenAIClient:
                     entities=[{"key": "ticker", "value": "AAPL"}],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
-            if "calculate 2 + 2" in text:
+            if "calculate 2 + 2" in text and "delegate_to_calculator_agent" in tools_mapping:
                 tools_mapping["delegate_to_calculator_agent"](
                     task_brief="Compute the requested arithmetic.",
                     expected_output="Return the deterministic calculation result.",
@@ -254,6 +258,63 @@ def _fake_chat_response(text: str):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=text, tool_calls=None))]
     )
+
+
+class FakeExecutorGenAIClient:
+    def __init__(self) -> None:
+        self.handle_calls: list[dict[str, object]] = []
+        self.openai_calls: list[dict[str, object]] = []
+
+    def chat_model_for(self, purpose: str | None = None) -> str:
+        return f"{purpose or 'default'}-model"
+
+    def handle_params(
+        self,
+        system_prompt: str,
+        chat_messages: object,
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+        toolbox=None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        call = {
+            "system_prompt": system_prompt,
+            "chat_messages": chat_messages,
+            "model": model,
+            "temperature": temperature,
+            "toolbox": getattr(toolbox, "name", None),
+            **kwargs,
+        }
+        self.handle_calls.append(call)
+        return {
+            "messages": list(chat_messages) if isinstance(chat_messages, list) else chat_messages,
+            "toolbox": toolbox,
+            **kwargs,
+        }
+
+    def call_openai(
+        self,
+        params: dict[str, object],
+        tools_mapping: dict[str, object] | None = None,
+        toolbox=None,
+        include_tool_meta: bool = False,
+    ):
+        del tools_mapping, toolbox, include_tool_meta
+        self.openai_calls.append({"params": params})
+        messages = params.get("messages")
+        if isinstance(messages, list) and params.get("toolbox") is not None:
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_fake",
+                    "content": (
+                        '{"status":"ok","data":{"quotes":{"AAPL":{"price":100}}},'
+                        '"output":"raw provider payload"}'
+                    ),
+                }
+            )
+        return _fake_chat_response(f"Essential action result {len(self.openai_calls)}.")
 
 
 def _reasoner() -> AgentReasoner:
@@ -486,6 +547,121 @@ def test_grouped_plan_rejects_parallel_internal_dependencies() -> None:
         )
 
 
+def test_grouped_plan_executor_controls_parallel_tool_calls_and_context() -> None:
+    from t212ai.genai.tools.base import ToolBox, build_tool_index
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "market_get_market_snapshot",
+            "description": "Fetch market context.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+    toolbox = ToolBox(
+        name="market_analyst",
+        tools=[tool],
+        tools_by_name=build_tool_index([tool]),
+    )
+    plan = GroupedAgentPlan(
+        summary="Review the market.",
+        expected_final_output="Concise market answer.",
+        action_groups=[
+            PlanActionGroup(
+                group_id="group_1",
+                title="Fetch independent context",
+                execution_mode=PlanExecutionMode.PARALLEL,
+                actions=[
+                    PlanAction(
+                        action_id="action_1",
+                        tool_name="market_get_market_snapshot",
+                        purpose="Fetch first market context.",
+                        expected_output="First market context.",
+                        risk_class="read_only",
+                    ),
+                    PlanAction(
+                        action_id="action_2",
+                        tool_name="market_get_market_snapshot",
+                        purpose="Fetch second market context.",
+                        expected_output="Second market context.",
+                        risk_class="unknown",
+                    ),
+                ],
+            ),
+            PlanActionGroup(
+                group_id="group_2",
+                title="Synthesize",
+                execution_mode=PlanExecutionMode.SEQUENTIAL,
+                actions=[
+                    PlanAction(
+                        action_id="action_3",
+                        purpose="Synthesize the final answer.",
+                        expected_output="Final answer.",
+                        depends_on=["action_1", "action_2"],
+                    )
+                ],
+            ),
+        ],
+    )
+    invocation = AgentInvocationContext(
+        user_request="What happened in the market today?",
+        invocation_reason="Market analyst delegated by orchestrator.",
+        intent=AgentIntent(kind=IntentKind.UNKNOWN, entities={"domain": "market"}),
+        agent_name="market_analyst",
+        purpose="Analyze market context.",
+        guidelines="Use market data as context.",
+        toolbox_summary="Market data tools.",
+        task_complexity=TaskComplexity.COMPLEX,
+    )
+    reasoning_context = AgentReasoningContext(
+        task_interpretation="Review market context.",
+        relevant_capabilities=["market data"],
+        confidence=0.8,
+    )
+    fake = FakeExecutorGenAIClient()
+
+    result = GroupedPlanExecutor(fake).execute(
+        invocation=invocation,
+        reasoning_context=reasoning_context,
+        grouped_plan=plan,
+        toolbox=toolbox,
+        tools_mapping={"market_get_market_snapshot": lambda **_kwargs: None},
+    )
+
+    assert result.status == "ok"
+    assert [call["parallel_tool_calls"] for call in fake.handle_calls] == [
+        True,
+        False,
+        False,
+    ]
+    second_action_messages = fake.handle_calls[1]["chat_messages"]
+    assert isinstance(second_action_messages, list)
+    assert not any(
+        "Completed action action_1" in str(message.get("content", ""))
+        for message in second_action_messages
+        if isinstance(message, dict)
+    )
+    third_action_messages = fake.handle_calls[2]["chat_messages"]
+    assert isinstance(third_action_messages, list)
+    assert any(
+        "Completed action action_1" in str(message.get("content", ""))
+        for message in third_action_messages
+        if isinstance(message, dict)
+    )
+    assert not any(
+        message.get("role") == "tool"
+        for message in third_action_messages
+        if isinstance(message, dict)
+    )
+    assert result.group_executions[0].actions[0].tool_calls[0]["data_keys"] == [
+        "quotes"
+    ]
+
+
 def test_structured_agent_plan_schema_avoids_free_form_entities() -> None:
     schema = StructuredAgentPlan.model_json_schema()
     entities_schema = schema["$defs"]["StructuredAgentIntent"]["properties"]["entities"]
@@ -573,6 +749,98 @@ def test_market_analyst_agent_executes_with_configured_toolbox(monkeypatch) -> N
     assert response.selected_agent == "market_analyst"
     assert response.metadata["workflow"] == "market_analysis"
     assert response.final_answer.startswith("I can chat naturally")
+
+
+def test_market_analyst_agent_uses_configurable_grouped_loop(monkeypatch) -> None:
+    from t212ai.agent import MarketAnalystAgent
+    import t212ai.agent.specialists as specialists_module
+    from t212ai.genai.tools.base import ToolBox, build_tool_index
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "market_get_market_snapshot",
+                "description": "Fetch market context.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "edgar_company_disclosure_snapshot",
+                "description": "Fetch disclosure context.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ]
+    toolbox = ToolBox(
+        name="market_analyst",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+    monkeypatch.setattr(
+        specialists_module,
+        "build_tool_mapping_for",
+        lambda *_args, **_kwargs: {
+            "market_get_market_snapshot": lambda **_kwargs: None,
+            "edgar_company_disclosure_snapshot": lambda **_kwargs: None,
+        },
+    )
+    fake = FakeGenAIClient()
+    agent = MarketAnalystAgent(
+        AgentReasoner(fake),  # type: ignore[arg-type]
+        toolbox=toolbox,
+        configurable_reasoner_agent=ConfigurableReasonerAgent(fake),  # type: ignore[arg-type]
+        configurable_planner_agent=ConfigurablePlannerAgent(fake),  # type: ignore[arg-type]
+        grouped_plan_executor=GroupedPlanExecutor(fake),  # type: ignore[arg-type]
+    )
+    history = ChatHistoryWindow(
+        chat_id="chat",
+        messages=[
+            ChatHistoryMessage(
+                chat_id="chat",
+                role="user",
+                content="Earlier market context request.",
+            )
+        ],
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="What happened in the market today?",
+            chat_id="chat",
+            history=history,
+            orchestrator_guidance="Task brief: Review today's market context.",
+        ),
+        intent=AgentIntent(kind=IntentKind.UNKNOWN, entities={"domain": "market"}),
+    )
+
+    assert response.selected_agent == "market_analyst"
+    assert response.metadata["workflow"] == "market_analysis"
+    assert response.metadata["execution_mode"] == "grouped_plan"
+    assert response.plan is not None
+    assert response.artifacts["market_analysis"]["reasoning_context"]["can_proceed"]
+    assert "grouped_plan" in response.artifacts["market_analysis"]
+    assert "execution" in response.artifacts["market_analysis"]
+    assert response.artifacts["market_analysis"]["execution"]["action_summaries"]
+    schemas = [call.get("schema") for call in fake.calls if "schema" in call]
+    assert schemas == ["AgentReasoningContext", "GroupedAgentPlan"]
+    reasoning_call = fake.calls[0]
+    assert reasoning_call["chat_message"][0]["content"] == "Earlier market context request."
+    assert (
+        "Task brief: Review today's market context."
+        in reasoning_call["chat_message"][-1]["content"]
+    )
+    assert response.final_answer.strip()
 
 
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
