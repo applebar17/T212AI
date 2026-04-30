@@ -155,7 +155,7 @@ class TelegramUpdateRouter:
         self,
         verb: str,
         *,
-        action_id: str | None,
+        action_id: str,
         chat_id: int,
         user_id: int | None,
     ) -> PendingActionDecisionResult:
@@ -164,25 +164,6 @@ class TelegramUpdateRouter:
                 status=PendingActionDecisionStatus.FAILED,
                 message="Pending-action runtime is not configured.",
             )
-        if not action_id:
-            actions = self.pending_action_service.get_awaiting_actions(
-                chat_id=str(chat_id),
-                user_id=user_id,
-            )
-            if not actions:
-                return PendingActionDecisionResult(
-                    status=PendingActionDecisionStatus.NOT_FOUND,
-                    message="There is no pending action awaiting approval in this chat.",
-                )
-            if len(actions) > 1:
-                return PendingActionDecisionResult(
-                    status=PendingActionDecisionStatus.FAILED,
-                    message=(
-                        "Multiple pending actions are awaiting approval. "
-                        "Use the Telegram buttons on the action you want to resolve."
-                    ),
-                )
-            action_id = actions[0].action_id
         if verb == "approve":
             return self.pending_action_service.approve_and_execute(
                 action_id,

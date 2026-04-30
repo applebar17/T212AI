@@ -178,6 +178,35 @@ Implementation guidance:
   - resolve the live tradable quantity
   - load the broker portfolio snapshot
 
+## No Legacy Interface Logic By Default
+
+Scope:
+- telegram
+- agents
+- high-level application interfaces
+- tools
+- docs
+
+Rules:
+- when a high-level interaction contract changes, remove the deprecated logic in
+  favor of the new approach instead of keeping silent compatibility branches
+- this is especially strict for Telegram, orchestration, approval, broker-facing,
+  and other user-visible or state-changing interfaces
+- do not keep word-based or heuristic fallbacks after the product decision has
+  moved to a deterministic or structured flow
+- do not leave "just in case" branches that preserve old behavior unless the
+  user explicitly approves keeping them
+- update tests and docs to assert the new contract, not the deprecated behavior
+- remove old user-facing copy that advertises deprecated paths
+
+If a deprecated path seems valuable to keep, stop and ask the user whether to
+keep it or delete it. State the tradeoff plainly. The user decides.
+
+Current example:
+- Telegram pending-action approval is button-only. Text such as `yes`, `no`,
+  `proceed`, `approve`, or `reject` must route through the normal
+  natural-language/agent path and must not resolve a pending action.
+
 ### Tool Rules
 
 Every public LLM tool should be decorated.
