@@ -196,6 +196,7 @@ class Trading212BrokerService:
             prepared_order.signed_quantity,
             prepared_order.order_fingerprint,
         )
+        self._validate_sell_order_against_portfolio(prepared_order)
         self._validate_prepared_order_ticker(prepared_order)
         order_type = prepared_order.order_type
         payload = prepared_order.request_payload
@@ -342,7 +343,7 @@ class Trading212BrokerService:
         resolution = self.resolve_instrument(prepared_order.ticker, limit=5)
         if (
             resolution.status == BrokerInstrumentResolutionStatus.RESOLVED
-            and str(resolution.resolved_ticker or "").upper() == prepared_order.ticker.upper()
+            and str(resolution.resolved_ticker or "") == prepared_order.ticker
         ):
             return
         raise BrokerInstrumentResolutionError(
@@ -352,6 +353,40 @@ class Trading212BrokerService:
             provider=self.provider_name,
             resolution=resolution,
         )
+
+    def _validate_sell_order_against_portfolio(
+        self,
+        prepared_order: PreparedBrokerOrder,
+    ) -> None:
+        if prepared_order.side != BrokerOrderSide.SELL and prepared_order.signed_quantity >= 0:
+            return
+        positions = [_broker_position(position) for position in self.api.list_positions()]
+        ticker = str(prepared_order.ticker or "").strip()
+        exact_position = _find_position_by_ticker(positions, ticker, exact=True)
+        if exact_position is None:
+            case_insensitive_position = _find_position_by_ticker(positions, ticker, exact=False)
+            extra = ""
+            if case_insensitive_position is not None and case_insensitive_position.instrument:
+                extra = (
+                    " A holding exists with the same ticker ignoring case; use the exact "
+                    f"broker ticker {case_insensitive_position.instrument.ticker!r}."
+                )
+            raise ValueError(
+                "Sell order blocked before Trading 212 API submission: the prepared "
+                f"ticker {ticker!r} does not exactly match a current portfolio holding."
+                f"{extra} Current portfolio holdings for correction: "
+                f"{_format_portfolio_positions_for_error(positions)}"
+            )
+
+        available = exact_position.quantity_available_for_trading or exact_position.quantity
+        if available is not None and abs(prepared_order.signed_quantity) > available:
+            raise ValueError(
+                "Sell order blocked before Trading 212 API submission: requested "
+                f"quantity {abs(prepared_order.signed_quantity)} exceeds "
+                f"quantityAvailableForTrading {available} for ticker {ticker!r}. "
+                "Current portfolio holding for correction: "
+                f"{_format_portfolio_positions_for_error([exact_position])}"
+            )
 
 
 def _coerce_enum(enum_type: type[Any], value: Any, field_name: str) -> Any:
@@ -383,9 +418,52 @@ def _prepared_order_has_confirmed_instrument(prepared_order: PreparedBrokerOrder
         return False
     return (
         resolution.status == BrokerInstrumentResolutionStatus.RESOLVED
-        and str(resolution.resolved_ticker or "").upper() == prepared_order.ticker.upper()
+        and str(resolution.resolved_ticker or "") == prepared_order.ticker
         and _looks_like_trading212_ticker(prepared_order.ticker)
     )
+
+
+def _find_position_by_ticker(
+    positions: list[BrokerPosition],
+    ticker: str,
+    *,
+    exact: bool,
+) -> BrokerPosition | None:
+    requested = str(ticker or "").strip()
+    if not requested:
+        return None
+    for position in positions:
+        instrument = position.instrument
+        position_ticker = str(instrument.ticker or "").strip() if instrument is not None else ""
+        if exact and position_ticker == requested:
+            return position
+        if not exact and position_ticker.upper() == requested.upper():
+            return position
+    return None
+
+
+def _format_portfolio_positions_for_error(positions: list[BrokerPosition]) -> str:
+    if not positions:
+        return "none"
+    formatted = []
+    for position in positions:
+        instrument = position.instrument
+        formatted.append(
+            "{"
+            f"name={_error_field(instrument.name if instrument else None)}, "
+            f"ticker={_error_field(instrument.ticker if instrument else None)}, "
+            "quantityAvailableForTrading="
+            f"{_error_field(position.quantity_available_for_trading)}, "
+            f"currentPrice={_error_field(position.current_price)}"
+            "}"
+        )
+    return "; ".join(formatted)
+
+
+def _error_field(value: Any) -> str:
+    if value is None or value == "":
+        return "unknown"
+    return str(value)
 
 
 def _metadata_unchecked_resolution(ticker: str) -> BrokerInstrumentResolution:

@@ -280,6 +280,66 @@ def test_prepare_order_preserves_mixed_case_trading212_instrument_ticker() -> No
     assert prepared.request_payload["quantity"] == -1.84752365
 
 
+def test_submit_sell_order_blocks_wrong_case_ticker_with_portfolio_context() -> None:
+    class MixedCasePortfolioApi(FakeTrading212Api):
+        def list_positions(self, *, ticker: str | None = None) -> list[Position]:
+            del ticker
+            return [
+                Position(
+                    instrument=Instrument(
+                        currency="EUR",
+                        isin="FR0000121014",
+                        name="LVMH Moet Hennessy Louis Vuitton",
+                        ticker="MCp_EQ",
+                    ),
+                    quantity=Decimal("1.84752365"),
+                    quantity_available_for_trading=Decimal("1.84752365"),
+                    current_price=Decimal("487.2"),
+                )
+            ]
+
+        def list_instruments(self) -> list[TradableInstrument]:
+            self.list_instruments_calls += 1
+            return [
+                TradableInstrument(
+                    ticker="MCp_EQ",
+                    name="LVMH Moet Hennessy Louis Vuitton",
+                    isin="FR0000121014",
+                    currency_code="EUR",
+                )
+            ]
+
+    api = MixedCasePortfolioApi()
+    service = Trading212BrokerService(api)
+    prepared = PreparedBrokerOrder(
+        broker_provider="trading212",
+        order_type=BrokerOrderType.MARKET,
+        side=BrokerOrderSide.SELL,
+        ticker="MCP_EQ",
+        quantity=Decimal("1.84752365"),
+        signed_quantity=Decimal("-1.84752365"),
+        time_in_force=BrokerTimeInForce.DAY,
+        request_payload={
+            "ticker": "MCP_EQ",
+            "quantity": -1.84752365,
+            "extendedHours": False,
+        },
+        order_fingerprint="wrongcase",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        service.submit_prepared_order(prepared)
+
+    message = str(exc_info.value)
+    assert "blocked before Trading 212 API submission" in message
+    assert "MCp_EQ" in message
+    assert "MCP_EQ" in message
+    assert "LVMH Moet Hennessy Louis Vuitton" in message
+    assert "quantityAvailableForTrading=1.84752365" in message
+    assert "currentPrice=487.2" in message
+    assert api.placed_market_orders == []
+
+
 def test_prepare_order_reports_ambiguous_trading212_instrument_candidates() -> None:
     class AmbiguousInstrumentApi(FakeTrading212Api):
         def list_instruments(self) -> list[TradableInstrument]:
