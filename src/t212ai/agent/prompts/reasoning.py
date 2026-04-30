@@ -60,6 +60,116 @@ def build_plan_user_prompt(
     return prompt
 
 
+def build_reasoning_context_system_prompt(
+    *,
+    agent_name: str,
+    purpose: str,
+    guidelines: str,
+    toolbox_summary: str,
+    persistent_guidance: str | None,
+) -> str:
+    prompt = dedent(
+        f"""\
+        You are {agent_name}.
+        Purpose: {purpose}
+
+        Return only the structured AgentReasoningContext schema. Do not include
+        hidden chain-of-thought. Produce concise, auditable task context that a
+        later planner can consume.
+
+        This is the reason step of a configurable agent loop:
+        reason -> plan -> execute -> judge -> return.
+        You do not receive tools in this step. You may use only the user request,
+        chat history, invocation reason, intent hint, persistent guidance, and
+        toolbox descriptions.
+
+        Available capability/toolbox summary:
+        {toolbox_summary}
+
+        Agent-specific guidelines:
+        {guidelines}
+        """
+    ).strip()
+    if persistent_guidance:
+        prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
+    return prompt
+
+
+def build_reasoning_context_user_prompt(
+    *,
+    user_request: str,
+    invocation_reason: str,
+    intent_payload: dict[str, Any],
+) -> str:
+    return dedent(
+        f"""\
+        Build structured reasoning context.
+        Invocation reason: {invocation_reason}
+        Intent hint: {intent_payload}
+        User request: {user_request}
+        """
+    ).strip()
+
+
+def build_grouped_plan_system_prompt(
+    *,
+    agent_name: str,
+    purpose: str,
+    guidelines: str,
+    toolbox_summary: str,
+    persistent_guidance: str | None,
+) -> str:
+    prompt = dedent(
+        f"""\
+        You are {agent_name}.
+        Purpose: {purpose}
+
+        Return only the structured GroupedAgentPlan schema. Do not include hidden
+        reasoning. Turn the reasoning context into an executable grouped plan.
+
+        Execution semantics:
+        - action groups run sequentially in listed order
+        - actions inside a sequential group run in listed order
+        - actions inside a parallel group must be independent and may run together
+        - dependent actions must declare depends_on action IDs
+        - every action needs a stable action_id and expected_output
+        - use output_key when later actions should consume an action result
+        - state-changing broker work must be sequential and must prepare a side
+          effect for deterministic approval, never treat natural language as approval
+
+        You do not receive tools in this step. You may use only toolbox
+        descriptions to choose likely action/tool names.
+
+        Available capability/toolbox summary:
+        {toolbox_summary}
+
+        Agent-specific guidelines:
+        {guidelines}
+        """
+    ).strip()
+    if persistent_guidance:
+        prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
+    return prompt
+
+
+def build_grouped_plan_user_prompt(
+    *,
+    user_request: str,
+    invocation_reason: str,
+    intent_payload: dict[str, Any],
+    reasoning_context_payload: dict[str, Any],
+) -> str:
+    return dedent(
+        f"""\
+        Build a grouped execution plan.
+        Invocation reason: {invocation_reason}
+        Intent hint: {intent_payload}
+        User request: {user_request}
+        Reasoning context: {reasoning_context_payload}
+        """
+    ).strip()
+
+
 def build_critique_system_prompt(
     *,
     agent_name: str,

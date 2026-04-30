@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .history import ChatHistoryWindow
 from .intents import AgentIntent, IntentKind, StructuredIntentEntity
-from .planner import AgentPlan
+from .planner import AgentPlan, TaskComplexity
 
 
 class EvidenceItem(BaseModel):
@@ -38,6 +38,39 @@ class AgentRequest(BaseModel):
     history: ChatHistoryWindow | None = None
     orchestrator_guidance: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class AgentInvocationContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_request: str
+    chat_history: ChatHistoryWindow | None = None
+    invocation_reason: str
+    intent: AgentIntent = Field(
+        default_factory=lambda: AgentIntent(kind=IntentKind.UNKNOWN)
+    )
+    persistent_guidance: str | None = None
+    agent_name: str
+    purpose: str
+    guidelines: str
+    toolbox_summary: str
+    task_complexity: TaskComplexity = TaskComplexity.EASY
+
+
+class AgentReasoningContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_interpretation: str
+    known_facts: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    ambiguities: list[str] = Field(default_factory=list)
+    required_evidence: list[str] = Field(default_factory=list)
+    safety_constraints: list[str] = Field(default_factory=list)
+    relevant_capabilities: list[str] = Field(default_factory=list)
+    approval_notes: list[str] = Field(default_factory=list)
+    can_proceed: bool = True
+    clarifying_questions: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class AgentCritique(BaseModel):

@@ -1,6 +1,7 @@
 """Agent orchestration, planning, policies, and structured schemas."""
 
 from .base import AgentProfile, BaseAgent
+from .configurable import ConfigurablePlannerAgent, ConfigurableReasonerAgent
 from .guideline_memory import GuidelineMemoryAgent
 from .history import (
     ChatHistoryManager,
@@ -17,9 +18,23 @@ from .orchestrator import (
     build_specialist_agents,
     classify_message,
 )
-from .planner import AgentPlan, TaskComplexity, ToolStep
+from .planner import (
+    AgentPlan,
+    GroupedAgentPlan,
+    PlanAction,
+    PlanActionGroup,
+    PlanExecutionMode,
+    TaskComplexity,
+    ToolStep,
+)
 from .reasoning import AgentReasoner
-from .schemas import AgentCritique, AgentRequest, AgentResponse
+from .schemas import (
+    AgentCritique,
+    AgentInvocationContext,
+    AgentReasoningContext,
+    AgentRequest,
+    AgentResponse,
+)
 from .specialists import (
     CalculatorAgent,
     CompanyAnalystAgent,
@@ -30,10 +45,12 @@ from .specialists import (
 
 __all__ = [
     "AgentCritique",
+    "AgentInvocationContext",
     "AgentJudge",
     "AgentOrchestrator",
     "AgentPlan",
     "AgentProfile",
+    "AgentReasoningContext",
     "AgentReasoner",
     "AgentRequest",
     "AgentResponse",
@@ -44,11 +61,17 @@ __all__ = [
     "ChatHistoryWindow",
     "CalculatorAgent",
     "CompanyAnalystAgent",
+    "ConfigurablePlannerAgent",
+    "ConfigurableReasonerAgent",
     "GuidelineMemoryAgent",
+    "GroupedAgentPlan",
     "InMemoryChatHistoryStore",
     "MainOrchestratorAgent",
     "MarketAnalystAgent",
     "OrderAgent",
+    "PlanAction",
+    "PlanActionGroup",
+    "PlanExecutionMode",
     "PortfolioAnalystAgent",
     "SpecialistAgents",
     "TaskComplexity",

@@ -8,6 +8,8 @@ from t212ai.agent import (
     AgentReasoner,
     CalculatorAgent,
     ChatHistoryManager,
+    ConfigurablePlannerAgent,
+    ConfigurableReasonerAgent,
     MainOrchestratorAgent,
     build_specialist_agents,
 )
@@ -85,6 +87,8 @@ class AppRuntime:
     calculator_service: CalculatorService | None = None
     genai_client: GenAIClient | None = None
     agent_reasoner: AgentReasoner | None = None
+    configurable_reasoner_agent: ConfigurableReasonerAgent | None = None
+    configurable_planner_agent: ConfigurablePlannerAgent | None = None
     agent_judge: AgentJudge | None = None
     main_orchestrator: MainOrchestratorAgent | None = None
     calculator_agent: CalculatorAgent | None = None
@@ -192,6 +196,8 @@ def _build_genai_stack(runtime: AppRuntime) -> None:
 
     runtime.genai_client = client
     runtime.agent_reasoner = AgentReasoner(client)
+    runtime.configurable_reasoner_agent = ConfigurableReasonerAgent(client)
+    runtime.configurable_planner_agent = ConfigurablePlannerAgent(client)
     runtime.agent_judge = AgentJudge(runtime.agent_reasoner)
 
 
