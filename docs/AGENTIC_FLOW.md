@@ -251,6 +251,31 @@ The Reasoner Agent and Planner Agent should be organized in the same spirit as
 the current `AgentJudge`: reusable, configurable, and scalable across different
 specialist agents. They should not be hardcoded inside each specialist.
 
+## Prompt Configuration
+
+Reusable reasoner and planner components must receive enough configuration to
+behave like the specialist flow they are serving. Each configurable invocation
+should be able to pass:
+
+- the high-level toolbox summary
+- detailed descriptions for every available tool and field
+- reason-step guidelines
+- plan-step guidelines
+- reason-step examples
+- plan-step examples
+
+These examples are the correct place for flow patterns such as:
+
+```text
+For "use half the available cash":
+1. read broker cash with broker_get_portfolio_snapshot
+2. calculate half of available_to_trade
+3. call broker_prepare_order_action with a concrete decimal notional_amount
+```
+
+The examples guide model behavior through the LLM prompt. They are not
+application-code phrase matchers.
+
 ## Current Implementation Status
 
 ### Orchestrator
