@@ -27,6 +27,7 @@ The structure should support:
 |-- data/
 |-- docs/
 |   |-- AGENT_DESIGN.md
+|   |-- AGENTIC_FLOW.md
 |   |-- AGENTIC_LOGIC.md
 |   |-- AGENT_PATTERNS.md
 |   |-- DATA_SOURCES.md

@@ -11,7 +11,7 @@ The project is currently in baseline-shaping mode. The intended first build is:
 - lightweight SQLite/Alembic persistence for operational state
 - reusable GenAI/tool orchestration under `t212ai.genai`
 
-See `docs/PLAN.md`, `docs/AGENT_DESIGN.md`, and `docs/REPO_STRUCTURE.md` for the current design direction.
+See `docs/PLAN.md`, `docs/AGENTIC_FLOW.md`, `docs/AGENT_DESIGN.md`, and `docs/REPO_STRUCTURE.md` for the current design direction.
 
 ## Development
 
