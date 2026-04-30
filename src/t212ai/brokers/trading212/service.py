@@ -366,7 +366,7 @@ def _coerce_enum(enum_type: type[Any], value: Any, field_name: str) -> Any:
 
 
 def _normalize_ticker(value: str) -> str:
-    ticker = str(value or "").strip().upper()
+    ticker = str(value or "").strip()
     if not ticker:
         raise ValueError("ticker is required.")
     return ticker

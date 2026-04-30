@@ -100,7 +100,7 @@ def _score_instrument(
     query: str,
     instrument: TradableInstrument,
 ) -> BrokerInstrumentCandidate:
-    ticker = str(instrument.ticker or "").strip().upper()
+    ticker = str(instrument.ticker or "").strip()
     name = str(instrument.name or "").strip() or None
     short_name = str(instrument.short_name or "").strip() or None
     isin = str(instrument.isin or "").strip().upper() or None

@@ -238,14 +238,46 @@ def test_prepare_order_resolves_public_symbol_to_trading212_instrument() -> None
     )
 
     assert prepared.ticker == "GOOGLE_ES_EQ"
-    assert prepared.requested_ticker == "GOOGL"
+    assert prepared.requested_ticker == "googl"
     assert prepared.instrument is not None
     assert prepared.instrument.ticker == "GOOGLE_ES_EQ"
     assert prepared.instrument_resolution is not None
     assert prepared.instrument_resolution.resolved_ticker == "GOOGLE_ES_EQ"
-    assert "GOOGL -> GOOGLE_ES_EQ" in prepared.warnings[0]
+    assert "googl -> GOOGLE_ES_EQ" in prepared.warnings[0]
     assert prepared.request_payload["ticker"] == "GOOGLE_ES_EQ"
     assert api.list_instruments_calls == 1
+
+
+def test_prepare_order_preserves_mixed_case_trading212_instrument_ticker() -> None:
+    class MixedCaseInstrumentApi(FakeTrading212Api):
+        def list_instruments(self) -> list[TradableInstrument]:
+            self.list_instruments_calls += 1
+            return [
+                TradableInstrument(
+                    ticker="MCp_EQ",
+                    name="LVMH Moet Hennessy Louis Vuitton",
+                    isin="FR0000121014",
+                    currency_code="EUR",
+                )
+            ]
+
+    api = MixedCaseInstrumentApi()
+    service = Trading212BrokerService(api)
+
+    prepared = service.prepare_order(
+        order_type="MARKET",
+        side="SELL",
+        ticker="MCp_EQ",
+        quantity="1.84752365",
+    )
+
+    assert prepared.ticker == "MCp_EQ"
+    assert prepared.instrument is not None
+    assert prepared.instrument.ticker == "MCp_EQ"
+    assert prepared.instrument_resolution is not None
+    assert prepared.instrument_resolution.resolved_ticker == "MCp_EQ"
+    assert prepared.request_payload["ticker"] == "MCp_EQ"
+    assert prepared.request_payload["quantity"] == -1.84752365
 
 
 def test_prepare_order_reports_ambiguous_trading212_instrument_candidates() -> None:
