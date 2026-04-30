@@ -35,6 +35,7 @@ class ToolStep(BaseModel):
     purpose: str
     input_summary: str | None = None
     depends_on: list[str] = Field(default_factory=list)
+    can_run_parallel: bool = False
     risk_class: str = "read_only"
 
 

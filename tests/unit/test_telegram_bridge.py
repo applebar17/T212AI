@@ -358,14 +358,14 @@ def test_router_callback_approve_executes_exact_stored_action_and_projects_histo
     assert stored is not None
     assert stored.state.value == "submitted"
     assert [message.content for message in window.messages] == [
-        "yes",
+        "telegram button: approve",
         "The prepared order was approved and submitted to Trading 212.",
     ]
     assert bot.edited_messages[0]["message_id"] == 501
     assert bot.sent_messages[-1]["text"] == "The prepared order was approved and submitted to Trading 212."
 
 
-def test_router_text_fallback_rejects_single_pending_action(tmp_path) -> None:
+def test_router_natural_language_does_not_reject_pending_action(tmp_path) -> None:
     pending_action_service, broker = _pending_action_service(tmp_path)
     history = ChatHistoryManager()
     action = pending_action_service.create_cancel_action(
@@ -388,7 +388,7 @@ def test_router_text_fallback_rejects_single_pending_action(tmp_path) -> None:
     bot = FakeBot()
     router = TelegramUpdateRouter(
         access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
-        message_handler=lambda _message: None,
+        message_handler=lambda _message: "agent response",
         history_manager=history,
         pending_action_service=pending_action_service,
     )
@@ -399,20 +399,17 @@ def test_router_text_fallback_rejects_single_pending_action(tmp_path) -> None:
     )
 
     asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
-    window = history.get_context_window(123)
     stored = pending_action_service.get_action(action.action_id)
 
     assert broker.cancelled_order_ids == []
     assert stored is not None
-    assert stored.state.value == "rejected"
-    assert [message.content for message in window.messages] == [
-        "no",
-        "The pending action was rejected and discarded.",
-    ]
+    assert stored.state.value == "awaiting_approval"
+    assert history.get_context_window(123).messages == []
+    assert bot.sent_messages[-1]["text"] == "agent response"
     assert bot.sent_messages[-1]["reply_to_message_id"] == 700
 
 
-def test_router_text_confirm_fallback_approves_single_pending_action(tmp_path) -> None:
+def test_router_natural_language_does_not_approve_pending_action(tmp_path) -> None:
     pending_action_service, broker = _pending_action_service(tmp_path)
     history = ChatHistoryManager()
     action = pending_action_service.create_submit_action(
@@ -427,7 +424,7 @@ def test_router_text_confirm_fallback_approves_single_pending_action(tmp_path) -
     bot = FakeBot()
     router = TelegramUpdateRouter(
         access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
-        message_handler=lambda _message: None,
+        message_handler=lambda _message: "agent response",
         history_manager=history,
         pending_action_service=pending_action_service,
     )
@@ -438,22 +435,18 @@ def test_router_text_confirm_fallback_approves_single_pending_action(tmp_path) -
     )
 
     asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
-    window = history.get_context_window(123)
     stored = pending_action_service.get_action(action.action_id)
 
-    assert len(broker.submitted_orders) == 1
+    assert broker.submitted_orders == []
     assert stored is not None
-    assert stored.state.value == "submitted"
-    assert [message.content for message in window.messages] == [
-        "CONFIRM SELL LVMH AT MARKET",
-        "The prepared order was approved and submitted to Trading 212.",
-    ]
+    assert stored.state.value == "awaiting_approval"
+    assert history.get_context_window(123).messages == []
+    assert bot.sent_messages[-1]["text"] == "agent response"
     assert bot.sent_messages[-1]["reply_to_message_id"] == 702
 
 
-def test_router_yes_is_ambiguous_when_multiple_pending_actions_exist(tmp_path) -> None:
+def test_router_natural_language_routes_to_agent_with_multiple_pending_actions(tmp_path) -> None:
     pending_action_service, broker = _pending_action_service(tmp_path)
-    history = ChatHistoryManager()
     for _ in range(2):
         pending_action_service.create_submit_action(
             chat_id="123",
@@ -466,8 +459,7 @@ def test_router_yes_is_ambiguous_when_multiple_pending_actions_exist(tmp_path) -
     bot = FakeBot()
     router = TelegramUpdateRouter(
         access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
-        message_handler=lambda _message: None,
-        history_manager=history,
+        message_handler=lambda _message: "agent response",
         pending_action_service=pending_action_service,
     )
     update = FakeUpdate(
@@ -479,7 +471,28 @@ def test_router_yes_is_ambiguous_when_multiple_pending_actions_exist(tmp_path) -
     asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
 
     assert broker.submitted_orders == []
-    assert "Multiple pending actions" in str(bot.sent_messages[-1]["text"])
+    assert bot.sent_messages[-1]["text"] == "agent response"
+    assert bot.sent_messages[-1]["reply_to_message_id"] == 701
+
+
+def test_router_yes_without_pending_action_routes_to_message_handler(tmp_path) -> None:
+    pending_action_service, _broker = _pending_action_service(tmp_path)
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: "agent response",
+        pending_action_service=pending_action_service,
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("Yes i’m comfortable", message_id=701),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+
+    assert bot.sent_messages[-1]["text"] == "agent response"
+    assert bot.sent_messages[-1]["reply_to_message_id"] == 701
 
 
 def test_router_blocks_unauthorized_user_when_allowed_user_id_is_configured(tmp_path) -> None:
@@ -595,7 +608,11 @@ def test_router_reject_updates_linked_proposal_and_allows_proposal_commands(tmp_
     reject_update = FakeUpdate(
         effective_chat=FakeChat(123),
         effective_user=FakeUser(1),
-        effective_message=FakeMessage("no", message_id=700),
+        effective_message=FakeMessage("prepared order", message_id=601),
+        callback_query=FakeCallbackQuery(
+            data=f"pa:reject:{action.action_id}",
+            message=FakeMessage("prepared order", message_id=601),
+        ),
     )
 
     asyncio.run(router.handle_update(reject_update, FakeContext(bot=bot)))

@@ -22,6 +22,13 @@ def build_plan_system_prompt(
         Return only the structured AgentPlan schema. Do not include hidden reasoning.
         Use explicit assumptions, required_context, tool_steps, risks, and
         missing_inputs to make the plan auditable.
+        Treat this as the plan step of a configurable agent loop:
+        reason -> plan -> execute -> judge -> return. The reason and plan steps
+        do not receive tools. The execute step will receive the agent's narrow
+        toolbox later and should follow this plan action by action. Mark a tool
+        step as can_run_parallel only when it has no dependency on another step's
+        output. State-changing work must be represented as preparation plus
+        button approval, never as natural-language approval.
 
         Available capability/toolbox summary:
         {toolbox_summary}

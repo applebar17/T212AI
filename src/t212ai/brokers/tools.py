@@ -1630,8 +1630,7 @@ def _approval_message_text(action) -> str:
     return (
         f"{action.summary_text}\n\n"
         "Nothing has been executed yet.\n"
-        "Approve with the Telegram buttons below, or reply yes/no, si/sì, "
-        f"approve {action.action_id}, reject {action.action_id}."
+        "Approve or reject with the Telegram buttons below."
     )
 
 

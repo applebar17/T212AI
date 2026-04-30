@@ -19,6 +19,7 @@ from t212ai.calculator import (
     build_calculator_tool_mapping,
 )
 from t212ai.genai.tools.base import ToolBox
+from t212ai.genai.tools import build_tool_mapping_for
 from t212ai.genai.models import ToolError, ToolResult
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import (
@@ -160,8 +161,9 @@ class OrderAgent(BaseAgent):
                 purpose="Review, prepare, cancel, and reason about broker orders.",
                 guidelines=(
                     "Treat order submission and cancellation as state-changing. "
-                    "Require explicit confirmation before execution. Never retry "
-                    "uncertain submissions without reconciliation."
+                    "Require explicit Telegram button approval before execution. "
+                    "Never treat natural-language messages as approval or rejection. "
+                    "Never retry uncertain submissions without reconciliation."
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Broker pending orders, order lookup, generic order preparation and "
@@ -705,6 +707,7 @@ class MarketAnalystAgent(BaseAgent):
         reasoner,
         guideline_service: GuidelineMemoryService | None = None,
         *,
+        market_data_service=None,
         toolbox: ToolBox | None = None,
         toolbox_summary: str | None = None,
     ) -> None:
@@ -718,7 +721,10 @@ class MarketAnalystAgent(BaseAgent):
                 ),
                 guidelines=(
                     "Use market data as context, not broker state. Distinguish latest "
-                    "price context from slower research enrichment."
+                    "price context from slower research enrichment. For broad live market "
+                    "scans, movers, gainers, losers, or watchlists, use available market "
+                    "tools and proceed with reasonable defaults instead of asking broker "
+                    "execution-risk or volatility-preference questions."
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Market analyst toolbox: market snapshot and relative-volume monitoring; "
@@ -730,6 +736,43 @@ class MarketAnalystAgent(BaseAgent):
                 toolbox=toolbox or _empty_toolbox("market_analyst"),
             ),
             guideline_service=guideline_service,
+        )
+        self.market_data_service = market_data_service
+
+    def execute(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent,
+        task_complexity: TaskComplexity,
+        plan,
+    ) -> AgentResponse | None:
+        del intent, task_complexity
+        if self.profile.toolbox is None or not self.profile.toolbox.tools:
+            return None
+
+        final_answer = self.reasoner.orchestrate_with_tools(
+            agent_name=self.profile.name,
+            purpose=self.profile.purpose,
+            guidelines=self.profile.guidelines,
+            toolbox_summary=self.profile.toolbox_summary,
+            user_request=request.user_message,
+            toolbox=self.profile.toolbox,
+            tools_mapping=build_tool_mapping_for(
+                self.profile.toolbox,
+                market_data_service=self.market_data_service,
+            ),
+            chat_history=self._history_for_prompt(request.history),
+            persistent_guidance=self._persistent_guidance(),
+        )
+        if not final_answer.strip():
+            return None
+        return AgentResponse(
+            final_answer=final_answer,
+            selected_agent=self.name,
+            plan=plan,
+            metadata={"workflow": "market_analysis", "workflow_status": "ok"},
+            artifacts={"workflow": "market_analysis"},
         )
 
 

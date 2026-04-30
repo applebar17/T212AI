@@ -133,7 +133,10 @@ class MainOrchestratorAgent(BaseAgent):
                     "prefer plain text over Markdown or HTML. Answer capability questions, help "
                     "questions, and ordinary conversation directly. Delegate when specialist "
                     "reasoning, tools, workflows, or deterministic execution are needed. "
-                    "Preserve safety boundaries for orders, approvals, and broker actions."
+                    "Preserve safety boundaries for orders, approvals, and broker actions. "
+                    "Natural-language messages can request or discuss side effects, but "
+                    "pending side effects are approved or rejected only through Telegram "
+                    "button callbacks."
                 ),
                 toolbox_summary=(
                     "Delegation tools: portfolio_analyst, order_agent, market_analyst, "
@@ -221,8 +224,8 @@ class MainOrchestratorAgent(BaseAgent):
             task_brief=self._forced_order_task_brief(inferred_intent),
             expected_output=(
                 "Return a deterministic broker action result. If approval is required, "
-                "prepare the Telegram approval request and do not ask for a typed "
-                "confirmation phrase."
+                "prepare the Telegram button approval request and do not ask for or "
+                "interpret a typed confirmation phrase."
             ),
             intent_kind=inferred_intent.kind.value,
             entities=_entities_to_items(inferred_intent),
@@ -545,7 +548,7 @@ class MainOrchestratorAgent(BaseAgent):
             )
         return (
             "Treat this as an executable broker order request. Extract the order details, "
-            "prepare the order for deterministic Telegram approval, and avoid "
+            "prepare the order for deterministic Telegram button approval, and avoid "
             "conversational confirmation."
         )
 
@@ -602,6 +605,7 @@ def build_specialist_agents(
         market=MarketAnalystAgent(
             reasoner,
             guideline_service=guideline_service,
+            market_data_service=market_data_service,
             toolbox=market_toolbox,
             toolbox_summary=market_toolbox_summary,
         ),

@@ -144,110 +144,12 @@ class TelegramUpdateRouter:
                 inbound,
                 messenger=messenger,
                 result=result,
-                projected_user_text="yes" if verb == "approve" else "no",
+                projected_user_text=f"telegram button: {verb}",
                 send_followup=True,
             )
             return True
 
-        text_resolution = self._parse_text_approval(inbound)
-        if text_resolution is None:
-            return False
-
-        verb, action_id = text_resolution
-        result = self._resolve_pending_action(
-            verb,
-            action_id=action_id,
-            chat_id=inbound.chat_id,
-            user_id=inbound.user_id,
-        )
-        await self._finalize_pending_action(
-            inbound,
-            messenger=messenger,
-            result=result,
-            projected_user_text=inbound.text,
-            send_followup=False,
-        )
-        return True
-
-    def _parse_text_approval(
-        self,
-        inbound: TelegramInboundMessage,
-    ) -> tuple[str, str | None] | None:
-        stripped = inbound.text.strip()
-        explicit_match = re.match(
-            r"^(approve|reject)\s+(pa_[A-Za-z0-9]+)\s*$",
-            stripped,
-            flags=re.IGNORECASE,
-        )
-        if explicit_match:
-            return explicit_match.group(1).lower(), explicit_match.group(2)
-
-        normalized = stripped.casefold()
-        if re.match(r"^(yes|si|sì)\b", normalized):
-            action_id = self._resolve_single_pending_action_id(
-                chat_id=inbound.chat_id,
-                user_id=inbound.user_id,
-            )
-            if action_id is None:
-                return ("approve", None)
-            return ("approve", action_id)
-        if re.match(r"^(no)\b", normalized):
-            action_id = self._resolve_single_pending_action_id(
-                chat_id=inbound.chat_id,
-                user_id=inbound.user_id,
-            )
-            if action_id is None:
-                return ("reject", None)
-            return ("reject", action_id)
-        if self._has_pending_actions(chat_id=inbound.chat_id, user_id=inbound.user_id):
-            if re.match(r"^(confirm|approve|approved|proceed|go ahead)\b", normalized):
-                action_id = self._resolve_single_pending_action_id(
-                    chat_id=inbound.chat_id,
-                    user_id=inbound.user_id,
-                )
-                if action_id is None:
-                    return ("approve", None)
-                return ("approve", action_id)
-            if re.match(r"^(reject|decline)\b", normalized):
-                action_id = self._resolve_single_pending_action_id(
-                    chat_id=inbound.chat_id,
-                    user_id=inbound.user_id,
-                )
-                if action_id is None:
-                    return ("reject", None)
-                return ("reject", action_id)
-        return None
-
-    def _has_pending_actions(
-        self,
-        *,
-        chat_id: int,
-        user_id: int | None,
-    ) -> bool:
-        if self.pending_action_service is None:
-            return False
-        return bool(
-            self.pending_action_service.get_awaiting_actions(
-                chat_id=str(chat_id),
-                user_id=user_id,
-            )
-        )
-
-    def _resolve_single_pending_action_id(
-        self,
-        *,
-        chat_id: int,
-        user_id: int | None,
-    ) -> str | None:
-        if self.pending_action_service is None:
-            return None
-        actions = self.pending_action_service.get_awaiting_actions(
-            chat_id=str(chat_id),
-            user_id=user_id,
-        )
-        if len(actions) == 1:
-            return actions[0].action_id
-        return None
+        return False
 
     def _resolve_pending_action(
         self,
@@ -277,7 +179,7 @@ class TelegramUpdateRouter:
                     status=PendingActionDecisionStatus.FAILED,
                     message=(
                         "Multiple pending actions are awaiting approval. "
-                        "Use the Telegram buttons or reply approve <action_id> / reject <action_id>."
+                        "Use the Telegram buttons on the action you want to resolve."
                     ),
                 )
             action_id = actions[0].action_id

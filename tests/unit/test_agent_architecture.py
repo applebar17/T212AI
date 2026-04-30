@@ -324,6 +324,45 @@ def test_market_analyst_agent_direct_default_uses_empty_generic_toolbox() -> Non
     assert agent.profile.toolbox.tools_by_name == {}
 
 
+def test_market_analyst_agent_executes_with_configured_toolbox(monkeypatch) -> None:
+    from t212ai.agent import MarketAnalystAgent
+    import t212ai.agent.specialists as specialists_module
+    from t212ai.genai.tools.base import ToolBox, build_tool_index
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "market_get_market_snapshot",
+            "description": "Fetch market context.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+    toolbox = ToolBox(
+        name="market_analyst",
+        tools=[tool],
+        tools_by_name=build_tool_index([tool]),
+    )
+    monkeypatch.setattr(
+        specialists_module,
+        "build_tool_mapping_for",
+        lambda *_args, **_kwargs: {"market_get_market_snapshot": lambda **_kwargs: None},
+    )
+    agent = MarketAnalystAgent(_reasoner(), toolbox=toolbox)
+
+    response = agent.handle(
+        AgentRequest(user_message="general market scan", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.UNKNOWN, entities={"domain": "market"}),
+    )
+
+    assert response.selected_agent == "market_analyst"
+    assert response.metadata["workflow"] == "market_analysis"
+    assert response.final_answer.startswith("I can chat naturally")
+
+
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
     agent = PortfolioAnalystAgent(
         _reasoner(),

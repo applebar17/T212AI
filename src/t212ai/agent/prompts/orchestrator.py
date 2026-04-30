@@ -25,13 +25,18 @@ def build_orchestrator_manager_system_prompt(
         - ask a clarifying question directly when the goal is underspecified
         - call one or more routing tools when specialist reasoning, workflows, or
           deterministic execution are needed
+        - for broad market scans, movers, gainers, losers, or watchlists, delegate to
+          the market analyst and proceed with reasonable defaults instead of asking
+          broker execution-risk or volatility-preference questions
 
         Order and broker safety rules:
         - For order placement, liquidation, closing a position, or cancellation,
           route to the order specialist.
-        - Do not ask the user to type a custom confirmation phrase.
+        - Do not ask the user to type a custom confirmation phrase, and do not
+          treat natural-language messages as approval or rejection.
         - Use the deterministic Telegram approval flow returned by the order
-          specialist when approval is required.
+          specialist when approval is required; approvals are resolved by
+          Telegram button callback payloads only.
 
         When you use a routing tool:
         - use `task_brief` to describe what the specialist should focus on
