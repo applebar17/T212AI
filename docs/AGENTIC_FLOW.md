@@ -129,6 +129,39 @@ Execution must respect tool boundaries. Market analysis tools do not become
 broker-state authority. Broker execution tools must not be called merely because
 the user typed an approval-like phrase.
 
+### Broker-State Dependent Values
+
+Agent execution must resolve broker-state dependent values before calling a
+state-changing broker preparation tool.
+
+Example:
+
+```text
+User: prepare a market buy for COIN using half the available cash
+```
+
+Correct flow:
+
+- reason that the order size depends on broker cash
+- plan a broker portfolio/cash read before order preparation
+- execute the cash read
+- calculate half of the available cash from the tool output
+- call the order preparation tool with a concrete decimal `notional_amount`
+- if the user also asks for a protective stop/stop-limit after the buy, model it
+  as a dependent action that requires the buy result, executed quantity, and a
+  resolved reference price before preparing the sell-side protection
+
+Incorrect flow:
+
+- pass `"half available cash"`, `"50%"`, or another unresolved phrase/formula as
+  `notional_amount`
+- add deterministic natural-language parsing rules in application code for
+  specific phrases such as "half", "all", or "quarter"
+
+The model should be guided by typed structured fields and field descriptions.
+Application code may validate that a tool argument is coherent, but it should not
+replace the agent's reasoning with phrase-specific sizing logic.
+
 ## Step 4: Judge
 
 The judge step reviews the draft result and execution trace.
