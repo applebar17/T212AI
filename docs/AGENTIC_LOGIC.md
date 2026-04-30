@@ -47,9 +47,12 @@ If the design is command-first, these become hard-coded flows too early. If the 
 ### Secondary path
 
 - slash commands for speed, discoverability, and common workflows
-- text-based approval or confirmation messages in Telegram
+- button-based approval or rejection messages in Telegram
 
 Both paths should end in the same internal intent-resolution and tool-planning logic.
+Approvals are the exception: natural language may request, discuss, or revise an
+action, but it must not approve or reject a pending side effect. Pending actions
+are resolved only through deterministic Telegram button callback payloads.
 
 ## Capability Model
 
@@ -156,26 +159,33 @@ Keep these out of the baseline unless a concrete need appears:
 - heavy RAG infrastructure
 - full autonomous goal systems
 
-## Agent Loop
+## Agent Loop Contract
 
-1. Receive natural-language input.
-2. Classify the intent.
-3. Extract key entities:
-   - ticker
-   - order reference
-   - amount
-   - risk limit
-   - timeframe
-4. Build an action plan using allowed tools.
-5. Run read-only steps first.
-6. If needed, ask one clarifying question.
-7. Build a structured result:
-   - explanation
-   - proposal
-   - execution plan
-8. Apply policy and approval gates.
-9. Execute side-effect tools if allowed.
-10. Reconcile broker state and report the outcome.
+Each agent can be configured to run all or part of this loop:
+
+1. Reason.
+   - Input: recent chat history, invocation reason from the orchestrator, optional structured intent, persistent guidance, and available toolbox descriptions.
+   - Tools: none.
+   - Output: structured reasoning context for the next step, not hidden chain-of-thought.
+2. Plan.
+   - Input: history, invocation reason, intent, reasoning context, and available toolbox descriptions.
+   - Tools: none.
+   - Output: structured plan with ordered actions, dependencies, parallelization flags, missing inputs, assumptions, risks, and approval requirements.
+3. Execute.
+   - Input: history, invocation reason, intent, reasoning context, plan, prior action outputs, and the agent's configured toolbox.
+   - Tools: the deliberately narrow toolbox for that agent or flow.
+   - Behavior: execute plan actions sequentially unless the plan marks independent actions as parallelizable.
+4. Judge.
+   - Input: original request, intent, reasoning context, plan, tool outputs, and draft result.
+   - Tools: normally none, unless a specific verification flow needs read-only checks.
+   - Output: structured critique covering completeness, safety, grounding, and clarity.
+5. Return.
+   - Input: accepted execution output and judge result.
+   - Output: concise result back to the orchestrator or caller, including caveats, follow-up options, and approval payloads when a side effect is prepared.
+
+The loop is configurable. Simple deterministic workflows can plug only execute
+and return. Advisory analysis can use reason, plan, execute, judge, and return.
+State-changing workflows must separate preparation from approval and execution.
 
 ## Example: Cancel Order
 
@@ -213,7 +223,7 @@ Agent plan:
    - keep
    - cancel
    - modify later if supported
-6. If the user approves a cancellation, execute it.
+6. If the user approves a cancellation with the Telegram button, execute it.
 
 ## Example: Attention Scan
 
@@ -257,7 +267,7 @@ Do not ask when:
 - state-changing tools require policy checks first
 - uncertain executions must be reconciled before retry
 - natural language can drive the workflow, but not bypass the controls
-- live decisions require explicit Telegram confirmation
+- live decisions require explicit Telegram button approval
 
 ## Recommended v1 Scope
 

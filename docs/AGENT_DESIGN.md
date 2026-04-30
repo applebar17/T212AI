@@ -38,6 +38,8 @@ Telegram Bot
 - all Trading 212 order types should be supported
 - extended-hours trading should be disabled by default
 - every live order or cancellation requires Telegram confirmation
+- approval and rejection are button-only; natural-language messages may request,
+  discuss, or revise actions, but they do not resolve pending side effects
 - free-text interaction is the primary UX
 - slash commands remain available as shortcuts, including `/help`
 - broad market context matters first; deep company research can come later
@@ -167,6 +169,20 @@ Build the system around a capability-driven agent:
 - state-changing tools are only called through policy gates
 
 Slash commands can call the same internal capability graph, but they should not be a separate logic path.
+
+## Configurable Agent Loop
+
+Specialist agents should converge on a configurable loop:
+
+- reason over recent chat history, invocation reason, optional orchestrator intent, persistent guidance, and toolbox descriptions with no tools attached
+- plan with structured output that includes action ordering, dependencies, parallelization flags, assumptions, risks, missing inputs, and approval requirements
+- execute the plan action by action with the agent's narrow toolbox, passing previous action outputs into later steps
+- judge the draft result for completeness, safety, grounding, and clarity
+- return a concise result package to the orchestrator or caller
+
+Agents do not all need every step. Deterministic workflows may plug only execute
+and return. Complex advisory agents should use the full loop. State-changing
+flows must split proposal/preparation from button approval and final execution.
 
 ## Tool Spectrum
 

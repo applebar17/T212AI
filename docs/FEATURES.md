@@ -142,7 +142,7 @@ The main design rule is that execution-critical decisions should not depend on a
 
 - Trading 212 demo and live environment support
 - proposal-to-order workflow
-- Telegram approval flow with natural-language confirmation as the baseline
+- Telegram approval flow with deterministic approve/reject buttons as the baseline
 - limit, market, stop, and stop-limit order support
 - cancel pending order support
 - post-submit reconciliation and status reporting

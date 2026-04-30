@@ -96,13 +96,6 @@ Implemented:
 - runtime-backed free-text path into the orchestrator
 - runtime-owned chat history reuse
 - inline approval/rejection buttons for prepared actions
-- chat fallback for approval/rejection:
-  - `yes`
-  - `no`
-  - `si`
-  - accented `si`
-  - `approve <action_id>`
-  - `reject <action_id>`
 - optional `TELEGRAM_ALLOWED_USER_ID`
 - proposal inspection commands:
   - `/proposals`
@@ -110,7 +103,7 @@ Implemented:
 
 Current status:
 - Telegram is correctly acting as a transport/bridge layer
-- deterministic approval resolution happens before normal LLM routing
+- deterministic approval resolution happens only for Telegram button callbacks
 - proposal and execution state can now be inspected from Telegram
 
 Missing:

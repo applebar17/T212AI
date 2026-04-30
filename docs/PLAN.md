@@ -124,7 +124,7 @@ Exit criteria:
 
 Deliverables:
 
-- Telegram approval flow with natural-language confirmation as the baseline
+- Telegram approval flow with deterministic approve/reject buttons as the baseline
 - proposal persistence
 - order translation for market, limit, stop, and stop-limit
 - local idempotency guard
