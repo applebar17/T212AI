@@ -20,6 +20,11 @@ from t212ai.pending_actions import PendingActionKind, PendingActionService, appr
 
 from .exceptions import BrokerInstrumentResolutionError
 from .models import BrokerOrder, PreparedBrokerOrder
+from .references import (
+    BrokerReferenceKind,
+    BrokerReferenceMap,
+    UnknownBrokerPublicReference,
+)
 
 
 @dataclass(slots=True)
@@ -33,6 +38,7 @@ class BrokerToolRuntime:
     chat_id: str | None = None
     user_id: int | None = None
     user_message: str | None = None
+    reference_map: BrokerReferenceMap | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,14 +87,18 @@ BROKER_GET_ORDER_TOOL: ToolSpec = {
     "type": "function",
     "function": {
         "name": "broker_get_order",
-        "description": "Read-only lookup for one broker order by broker-native order reference.",
+        "description": (
+            "Read-only lookup for one broker order. Prefer the ORDER_000001-style "
+            "public reference returned by broker_list_pending_orders; broker-native "
+            "refs are still accepted for compatibility."
+        ),
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "order_ref": {
                     "type": "string",
-                    "description": "Broker-native order reference.",
+                    "description": "Public ORDER_000001 reference or broker-native order reference.",
                 },
             },
             "required": ["order_ref"],
@@ -272,7 +282,10 @@ BROKER_PREPARE_CANCEL_ACTION_TOOL: ToolSpec = {
                 "order_ref": {
                     "type": ["string", "null"],
                     "default": None,
-                    "description": "Explicit broker-native pending order reference to cancel.",
+                    "description": (
+                        "Explicit ORDER_000001 public reference from broker_list_pending_orders, "
+                        "or a broker-native pending order reference."
+                    ),
                 },
                 "selector": {
                     "type": ["string", "null"],
@@ -332,7 +345,10 @@ BROKER_CANCEL_ORDER_TOOL: ToolSpec = {
             "properties": {
                 "order_ref": {
                     "type": "string",
-                    "description": "Broker-native pending order reference to cancel.",
+                    "description": (
+                        "ORDER_000001 public reference from broker_list_pending_orders, "
+                        "or a broker-native pending order reference."
+                    ),
                 },
                 "confirmed": {"type": "boolean"},
                 "reason": {
@@ -452,10 +468,14 @@ def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
         )
     return ToolResult(
         status="ok",
-        output=_format_portfolio_snapshot_output(snapshot, provider=runtime.broker_provider),
+        output=_format_portfolio_snapshot_output(
+            snapshot,
+            provider=runtime.broker_provider,
+            runtime=runtime,
+        ),
         data={
             "provider": runtime.broker_provider,
-            "snapshot": snapshot.model_dump(by_alias=True, exclude_none=True, mode="json"),
+            "snapshot": _dump_snapshot_with_public_refs(snapshot, runtime=runtime),
         },
     )
 
@@ -484,10 +504,10 @@ def broker_list_pending_orders(*, runtime: BrokerToolRuntime) -> ToolResult:
         )
     return ToolResult(
         status="ok",
-        output=f"Retrieved {len(orders)} pending { _display_broker_name(runtime.broker_provider) } orders.",
+        output=_format_pending_orders_output(orders, runtime=runtime),
         data={
             "provider": runtime.broker_provider,
-            "orders": [order.model_dump(by_alias=True, exclude_none=True, mode="json") for order in orders],
+            "orders": [_dump_order_with_public_ref(order, runtime=runtime) for order in orders],
         },
     )
 
@@ -505,21 +525,38 @@ def broker_get_order(*, order_ref: str, runtime: BrokerToolRuntime) -> ToolResul
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
+    resolved_order_ref = _resolve_order_ref(order_ref, runtime=runtime)
+    if isinstance(resolved_order_ref, ToolResult):
+        return resolved_order_ref
+    if resolved_order_ref is None:
+        return _tool_error(
+            "order_ref is required and cannot be empty.",
+            code="missing_order_ref",
+            hint="Use an ORDER_000001 reference from broker_list_pending_orders or a broker-native order reference.",
+        )
     try:
-        order = runtime.broker_read_service.get_order(str(order_ref))
+        order = runtime.broker_read_service.get_order(resolved_order_ref)
     except Exception as exc:
         return _tool_exception(
             exc,
             runtime=runtime,
             operation="get_order",
-            message=f"Unable to retrieve broker order {order_ref}.",
+            message=f"Unable to retrieve broker order {resolved_order_ref}.",
         )
+    order_payload = _dump_order_with_public_ref(
+        order,
+        runtime=runtime,
+        fallback_true_ref=resolved_order_ref,
+    )
     return ToolResult(
         status="ok",
-        output=f"Retrieved { _display_broker_name(runtime.broker_provider) } order {order_ref}.",
+        output=(
+            f"Retrieved { _display_broker_name(runtime.broker_provider) } order "
+            f"{order_payload.get('publicOrderRef', resolved_order_ref)}."
+        ),
         data={
             "provider": runtime.broker_provider,
-            "order": order.model_dump(by_alias=True, exclude_none=True, mode="json"),
+            "order": order_payload,
         },
     )
 
@@ -800,10 +837,16 @@ def broker_prepare_cancel_action(
             "Broker read service is not configured.",
             code="broker_not_configured",
         )
+    resolved_order_ref = _resolve_order_ref(order_ref, runtime=runtime)
+    if isinstance(resolved_order_ref, ToolResult):
+        return resolved_order_ref
     try:
+        pending_orders = runtime.broker_read_service.list_pending_orders()
+        for pending_order in pending_orders:
+            _register_order_public_ref(pending_order, runtime=runtime)
         target_order = _resolve_cancel_target(
-            runtime.broker_read_service.list_pending_orders(),
-            order_ref=order_ref,
+            pending_orders,
+            order_ref=resolved_order_ref,
             selector=selector,
         )
     except ValueError as exc:
@@ -824,6 +867,7 @@ def broker_prepare_cancel_action(
             target_order,
             provider=runtime.broker_provider,
             reason=reason,
+            runtime=runtime,
         ),
         expires_at=approval_expiry(kind=PendingActionKind.CANCEL_ORDER),
         broker_provider=runtime.broker_provider,
@@ -835,6 +879,7 @@ def broker_prepare_cancel_action(
             "provider": runtime.broker_provider,
             "pendingAction": action.model_dump(mode="json"),
             "telegramApproval": _approval_payload(action),
+            "targetOrder": _dump_order_with_public_ref(target_order, runtime=runtime),
         },
     )
 
@@ -949,13 +994,23 @@ def broker_cancel_order(
             "Order cancellation requires explicit user confirmation.",
             code="confirmation_required",
         )
-    result = runtime.broker_execution_service.cancel_order(str(order_ref))
+    resolved_order_ref = _resolve_order_ref(order_ref, runtime=runtime)
+    if isinstance(resolved_order_ref, ToolResult):
+        return resolved_order_ref
+    if resolved_order_ref is None:
+        return _tool_error(
+            "order_ref is required and cannot be empty.",
+            code="missing_order_ref",
+            hint="Use an ORDER_000001 reference from broker_list_pending_orders or a broker-native order reference.",
+        )
+    result = runtime.broker_execution_service.cancel_order(resolved_order_ref)
     return ToolResult(
         status="ok",
         output=result.message or f"Cancellation requested for order {order_ref}.",
         data={
             "provider": runtime.broker_provider,
             "result": result.model_dump(by_alias=True, exclude_none=True, mode="json"),
+            "brokerOrderRef": resolved_order_ref,
         },
     )
 
@@ -1309,6 +1364,180 @@ def _normalize_currency(value: Any) -> str | None:
     return raw or None
 
 
+def _reference_map(runtime: BrokerToolRuntime) -> BrokerReferenceMap:
+    if runtime.reference_map is None:
+        runtime.reference_map = BrokerReferenceMap()
+    return runtime.reference_map
+
+
+def _resolve_order_ref(
+    order_ref: str | None,
+    *,
+    runtime: BrokerToolRuntime,
+) -> str | None | ToolResult:
+    if order_ref is None:
+        return None
+    raw = str(order_ref).strip()
+    if not raw:
+        return None
+    if _looks_like_public_ref(raw, BrokerReferenceKind.ORDER):
+        try:
+            return _reference_map(runtime).resolve(
+                BrokerReferenceKind.ORDER,
+                raw,
+                provider=runtime.broker_provider,
+            ).true_ref
+        except UnknownBrokerPublicReference:
+            return _unknown_public_reference_error(
+                raw,
+                kind=BrokerReferenceKind.ORDER,
+            )
+    return raw
+
+
+def _looks_like_public_ref(value: str | None, kind: BrokerReferenceKind) -> bool:
+    raw = str(value or "").strip().upper()
+    return raw.startswith(f"{kind.value}_")
+
+
+def _unknown_public_reference_error(
+    public_ref: str,
+    *,
+    kind: BrokerReferenceKind,
+) -> ToolResult:
+    return _tool_error(
+        f"Unknown {kind.value.lower()} public reference {public_ref!r}.",
+        code="unknown_public_reference",
+        hint=(
+            "Call broker_list_pending_orders again for order references, or "
+            "broker_get_portfolio_snapshot again for position references. "
+            "Public references are scoped to one agent interaction and are not durable."
+        ),
+        details={"kind": kind.value, "public_ref": public_ref},
+    )
+
+
+def _register_order_public_ref(
+    order: BrokerOrder,
+    *,
+    runtime: BrokerToolRuntime,
+    fallback_true_ref: str | None = None,
+) -> str | None:
+    true_ref = _order_true_ref(order) or _non_empty_str(fallback_true_ref)
+    if true_ref is None:
+        return None
+    return _reference_map(runtime).register(
+        BrokerReferenceKind.ORDER,
+        provider=runtime.broker_provider,
+        true_ref=true_ref,
+    )
+
+
+def _dump_order_with_public_ref(
+    order: BrokerOrder,
+    *,
+    runtime: BrokerToolRuntime,
+    fallback_true_ref: str | None = None,
+) -> dict[str, Any]:
+    payload = order.model_dump(by_alias=True, exclude_none=True, mode="json")
+    true_ref = _order_true_ref(order) or _non_empty_str(fallback_true_ref)
+    if true_ref is not None:
+        payload["brokerOrderRef"] = true_ref
+        public_ref = _register_order_public_ref(
+            order,
+            runtime=runtime,
+            fallback_true_ref=true_ref,
+        )
+        if public_ref is not None:
+            payload["publicOrderRef"] = public_ref
+    return payload
+
+
+def _dump_snapshot_with_public_refs(snapshot, *, runtime: BrokerToolRuntime) -> dict[str, Any]:
+    payload = snapshot.model_dump(by_alias=True, exclude_none=True, mode="json")
+    positions_payload = payload.get("positions")
+    if isinstance(positions_payload, list):
+        for index, position in enumerate(snapshot.positions):
+            public_ref = _register_position_public_ref(
+                position,
+                index=index,
+                runtime=runtime,
+            )
+            if public_ref is not None and index < len(positions_payload):
+                positions_payload[index]["publicPositionRef"] = public_ref
+            broker_position_ref = _native_position_ref(position)
+            if broker_position_ref is not None and index < len(positions_payload):
+                positions_payload[index]["brokerPositionRef"] = broker_position_ref
+
+    pending_orders_payload = payload.get("pendingOrders")
+    if isinstance(pending_orders_payload, list):
+        for index, order in enumerate(snapshot.pending_orders):
+            if index >= len(pending_orders_payload):
+                continue
+            pending_orders_payload[index].update(
+                _dump_order_with_public_ref(order, runtime=runtime)
+            )
+    return payload
+
+
+def _register_position_public_ref(
+    position,
+    *,
+    index: int,
+    runtime: BrokerToolRuntime,
+) -> str | None:
+    true_ref = _position_true_ref(position, index=index, provider=runtime.broker_provider)
+    if true_ref is None:
+        return None
+    return _reference_map(runtime).register(
+        BrokerReferenceKind.POSITION,
+        provider=runtime.broker_provider,
+        true_ref=true_ref,
+    )
+
+
+def _order_true_ref(order: BrokerOrder) -> str | None:
+    return _non_empty_str(order.id)
+
+
+def _position_true_ref(position, *, index: int, provider: str) -> str | None:
+    native_ref = _native_position_ref(position)
+    if native_ref is not None:
+        return native_ref
+    instrument = getattr(position, "instrument", None)
+    ticker = _non_empty_str(getattr(instrument, "ticker", None)) if instrument else None
+    isin = _non_empty_str(getattr(instrument, "isin", None)) if instrument else None
+    name = _non_empty_str(getattr(instrument, "name", None)) if instrument else None
+    currency = _non_empty_str(getattr(instrument, "currency", None)) if instrument else None
+    if any((ticker, isin, name, currency)):
+        return (
+            f"derived-position:{provider}:"
+            f"ticker={ticker or ''}:isin={isin or ''}:name={name or ''}:currency={currency or ''}"
+        )
+    return f"derived-position:{provider}:index={index}"
+
+
+def _native_position_ref(position) -> str | None:
+    for attr in ("id", "position_id", "positionId"):
+        value = getattr(position, attr, None)
+        if value is not None:
+            resolved = _non_empty_str(value)
+            if resolved is not None:
+                return resolved
+    raw_payload = getattr(position, "raw_provider_payload", None)
+    if isinstance(raw_payload, dict):
+        for key in ("id", "position_id", "positionId"):
+            resolved = _non_empty_str(raw_payload.get(key))
+            if resolved is not None:
+                return resolved
+    return None
+
+
+def _non_empty_str(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    return raw or None
+
+
 def _tool_error(
     message: str,
     *,
@@ -1435,7 +1664,33 @@ def _resolve_cancel_target(
     )
 
 
-def _format_portfolio_snapshot_output(snapshot, *, provider: str) -> str:
+def _format_pending_orders_output(
+    orders: list[BrokerOrder],
+    *,
+    runtime: BrokerToolRuntime,
+) -> str:
+    provider_name = _display_broker_name(runtime.broker_provider)
+    lines = [f"Retrieved {len(orders)} pending {provider_name} orders."]
+    for order in orders:
+        public_ref = _register_order_public_ref(order, runtime=runtime)
+        if public_ref is None:
+            continue
+        lines.append(
+            f"- {public_ref}: "
+            f"{_format_value(order.side)} {_format_value(order.ticker)}, "
+            f"type={_format_value(order.type)}, "
+            f"status={_format_value(order.status)}, "
+            f"quantity={_format_value(order.quantity)}"
+        )
+    return "\n".join(lines)
+
+
+def _format_portfolio_snapshot_output(
+    snapshot,
+    *,
+    provider: str,
+    runtime: BrokerToolRuntime,
+) -> str:
     account = snapshot.account
     cash = account.cash
     investments = account.investments
@@ -1469,10 +1724,37 @@ def _format_portfolio_snapshot_output(snapshot, *, provider: str) -> str:
         )
     if snapshot.positions:
         lines.append(f"Positions: {len(snapshot.positions)} open position(s).")
+        for index, position in enumerate(snapshot.positions):
+            instrument = position.instrument
+            public_ref = _register_position_public_ref(
+                position,
+                index=index,
+                runtime=runtime,
+            )
+            if public_ref is None:
+                continue
+            lines.append(
+                f"- {public_ref}: "
+                f"{_format_value(instrument.ticker if instrument else None)}, "
+                f"quantity={_format_value(position.quantity)}, "
+                f"available={_format_value(position.quantity_available_for_trading)}, "
+                f"current_price={_format_money(position.current_price, instrument.currency if instrument else None)}"
+            )
     else:
         lines.append(f"Positions: no open positions returned by {provider_name}.")
     if snapshot.pending_orders:
         lines.append(f"Pending orders: {len(snapshot.pending_orders)} active/pending order(s).")
+        for order in snapshot.pending_orders:
+            public_ref = _register_order_public_ref(order, runtime=runtime)
+            if public_ref is None:
+                continue
+            lines.append(
+                f"- {public_ref}: "
+                f"{_format_value(order.side)} {_format_value(order.ticker)}, "
+                f"type={_format_value(order.type)}, "
+                f"status={_format_value(order.status)}, "
+                f"quantity={_format_value(order.quantity)}"
+            )
     else:
         lines.append(f"Pending orders: no active/pending orders returned by {provider_name}.")
     return "\n".join(lines)
@@ -1524,13 +1806,20 @@ def _format_cancel_action_summary(
     *,
     provider: str,
     reason: str | None,
+    runtime: BrokerToolRuntime | None = None,
 ) -> str:
     provider_name = _display_broker_name(provider)
+    public_ref = (
+        _register_order_public_ref(order, runtime=runtime)
+        if runtime is not None
+        else None
+    )
     lines = [
         f"Prepared {provider_name} cancellation action.",
         "",
         "Target order:",
-        f"- id: {_format_value(order.id)}",
+        f"- public_ref: {_format_value(public_ref)}",
+        f"- broker_order_ref: {_format_value(order.id)}",
         f"- ticker: {_format_value(order.ticker)}",
         f"- type: {_format_value(order.type)}",
         f"- side: {_format_value(order.side)}",

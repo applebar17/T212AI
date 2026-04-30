@@ -28,6 +28,13 @@ from .models import (
     BrokerTimeInForce,
     PreparedBrokerOrder,
 )
+from .references import (
+    BrokerReferenceKind,
+    BrokerReferenceMap,
+    ResolvedBrokerReference,
+    UnknownBrokerPublicReference,
+    is_public_reference,
+)
 
 __all__ = [
     "BrokerAccountSummary",
@@ -56,4 +63,9 @@ __all__ = [
     "BrokerTax",
     "BrokerTimeInForce",
     "PreparedBrokerOrder",
+    "BrokerReferenceKind",
+    "BrokerReferenceMap",
+    "ResolvedBrokerReference",
+    "UnknownBrokerPublicReference",
+    "is_public_reference",
 ]

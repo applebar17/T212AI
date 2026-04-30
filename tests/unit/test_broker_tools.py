@@ -10,7 +10,10 @@ from t212ai.brokers.models import (
     BrokerInstrumentCandidate,
     BrokerInstrumentResolution,
     BrokerInstrumentResolutionStatus,
+    BrokerOrder,
+    BrokerOrderActionResult,
     BrokerOrderSide,
+    BrokerOrderStatus,
     BrokerOrderType,
     BrokerPortfolioSnapshot,
     BrokerPosition,
@@ -20,8 +23,11 @@ from t212ai.brokers.models import (
 )
 from t212ai.brokers.tools import (
     BrokerToolRuntime,
+    broker_cancel_order,
+    broker_get_order,
     broker_get_portfolio_snapshot,
     broker_list_pending_orders,
+    broker_prepare_cancel_action,
     broker_prepare_order,
     broker_resolve_instrument,
 )
@@ -72,6 +78,69 @@ class WorkingBrokerReadService:
                 )
             ],
             hint="Use broker-native ticker AAPL_US_EQ.",
+        )
+
+
+class PendingOrderReadService(WorkingBrokerReadService):
+    def __init__(self) -> None:
+        self.orders = [
+            BrokerOrder(
+                id="broker-order-abc",
+                ticker="AAPL_US_EQ",
+                side=BrokerOrderSide.BUY,
+                type=BrokerOrderType.LIMIT,
+                status=BrokerOrderStatus.NEW,
+                quantity=Decimal("2"),
+                limit_price=Decimal("150"),
+                currency="USD",
+            )
+        ]
+        self.get_order_refs: list[str] = []
+
+    def list_pending_orders(self):
+        return self.orders
+
+    def get_order(self, order_ref: str):
+        self.get_order_refs.append(order_ref)
+        for order in self.orders:
+            if order.id == order_ref:
+                return order
+        raise ValueError(f"Order {order_ref} not found.")
+
+
+class CapturingPendingActionService:
+    def __init__(self) -> None:
+        self.target_order: BrokerOrder | None = None
+
+    def create_cancel_action(self, **kwargs):
+        self.target_order = kwargs["target_order"]
+
+        class Action:
+            action_id = "pa_123"
+            summary_text = kwargs["summary_text"]
+
+            def model_dump(self, mode="json"):
+                del mode
+                return {
+                    "action_id": self.action_id,
+                    "target_order_ref": kwargs["target_order"].id,
+                }
+
+        return Action()
+
+
+class CapturingExecutionService:
+    def __init__(self) -> None:
+        self.cancelled_refs: list[str] = []
+
+    def cancel_order(self, order_ref: str):
+        self.cancelled_refs.append(order_ref)
+        return BrokerOrderActionResult(
+            brokerProvider="trading212",
+            action="cancel_order",
+            status="submitted",
+            orderId=order_ref,
+            message="Cancellation sent.",
         )
 
 
@@ -214,6 +283,128 @@ def test_generic_broker_snapshot_still_returns_readable_ok_result() -> None:
     assert "broker-authoritative" in result.output
     assert result.data["provider"] == "trading212"
     assert result.data["snapshot"]["account"]["currency"] == "EUR"
+
+
+def test_generic_broker_snapshot_exposes_public_position_refs() -> None:
+    runtime = BrokerToolRuntime(
+        broker_read_service=PortfolioWithAppleReadService(),
+        broker_provider="trading212",
+    )
+
+    result = broker_get_portfolio_snapshot(runtime=runtime)
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "POSITION_000001" in result.output
+    position = result.data["snapshot"]["positions"][0]
+    assert position["publicPositionRef"] == "POSITION_000001"
+
+
+def test_generic_broker_pending_orders_exposes_public_order_refs() -> None:
+    runtime = BrokerToolRuntime(
+        broker_read_service=PendingOrderReadService(),
+        broker_provider="trading212",
+    )
+
+    result = broker_list_pending_orders(runtime=runtime)
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "ORDER_000001" in result.output
+    order = result.data["orders"][0]
+    assert order["publicOrderRef"] == "ORDER_000001"
+    assert order["brokerOrderRef"] == "broker-order-abc"
+
+
+def test_generic_broker_get_order_accepts_public_order_ref() -> None:
+    read_service = PendingOrderReadService()
+    runtime = BrokerToolRuntime(
+        broker_read_service=read_service,
+        broker_provider="trading212",
+    )
+    list_result = broker_list_pending_orders(runtime=runtime)
+    public_ref = list_result.data["orders"][0]["publicOrderRef"]
+
+    result = broker_get_order(order_ref=public_ref, runtime=runtime)
+
+    assert result.status == "ok"
+    assert read_service.get_order_refs == ["broker-order-abc"]
+    assert result.data["order"]["publicOrderRef"] == public_ref
+
+
+def test_generic_broker_get_order_rejects_unknown_public_order_ref() -> None:
+    runtime = BrokerToolRuntime(
+        broker_read_service=PendingOrderReadService(),
+        broker_provider="trading212",
+    )
+
+    result = broker_get_order(order_ref="ORDER_000999", runtime=runtime)
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "unknown_public_reference"
+
+
+def test_generic_broker_prepare_cancel_accepts_public_ref_but_persists_true_ref() -> None:
+    pending_action_service = CapturingPendingActionService()
+    runtime = BrokerToolRuntime(
+        broker_read_service=PendingOrderReadService(),
+        pending_action_service=pending_action_service,
+        broker_provider="trading212",
+        chat_id="chat-1",
+    )
+    list_result = broker_list_pending_orders(runtime=runtime)
+    public_ref = list_result.data["orders"][0]["publicOrderRef"]
+
+    result = broker_prepare_cancel_action(
+        order_ref=public_ref,
+        selector=None,
+        reason="user requested cancel",
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert pending_action_service.target_order is not None
+    assert pending_action_service.target_order.id == "broker-order-abc"
+    assert result.data["pendingAction"]["target_order_ref"] == "broker-order-abc"
+    assert result.data["targetOrder"]["publicOrderRef"] == public_ref
+
+
+def test_generic_broker_cancel_order_accepts_public_order_ref() -> None:
+    execution_service = CapturingExecutionService()
+    runtime = BrokerToolRuntime(
+        broker_read_service=PendingOrderReadService(),
+        broker_execution_service=execution_service,
+        broker_provider="trading212",
+        allow_state_changes=True,
+    )
+    list_result = broker_list_pending_orders(runtime=runtime)
+    public_ref = list_result.data["orders"][0]["publicOrderRef"]
+
+    result = broker_cancel_order(
+        order_ref=public_ref,
+        confirmed=True,
+        reason=None,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert execution_service.cancelled_refs == ["broker-order-abc"]
+    assert result.data["brokerOrderRef"] == "broker-order-abc"
+
+
+def test_generic_broker_get_order_still_accepts_raw_broker_refs() -> None:
+    read_service = PendingOrderReadService()
+    runtime = BrokerToolRuntime(
+        broker_read_service=read_service,
+        broker_provider="trading212",
+    )
+
+    result = broker_get_order(order_ref="broker-order-abc", runtime=runtime)
+
+    assert result.status == "ok"
+    assert read_service.get_order_refs == ["broker-order-abc"]
+    assert result.data["order"]["publicOrderRef"] == "ORDER_000001"
 
 
 def test_generic_broker_resolve_instrument_returns_llm_ready_candidates() -> None:

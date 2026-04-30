@@ -9,6 +9,7 @@ from t212ai.brokers.models import (
     BrokerOrderAction,
     BrokerOrderActionRequest,
 )
+from t212ai.brokers.references import BrokerReferenceMap
 from t212ai.brokers.tools import BrokerToolRuntime, build_broker_tool_mapping
 from t212ai.calculator import (
     CALCULATOR_TOOLBOX,
@@ -352,6 +353,7 @@ class OrderAgent(BaseAgent):
             chat_id=request.chat_id,
             user_id=_metadata_user_id(request.metadata),
             user_message=request.user_message,
+            reference_map=BrokerReferenceMap(),
         )
         tool_mapping = build_broker_tool_mapping(runtime)
         if action_request.action == BrokerOrderAction.PREPARE_CANCEL_ORDER:
