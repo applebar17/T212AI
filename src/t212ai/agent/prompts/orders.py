@@ -19,8 +19,12 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
       preserve that quantity.
     - For cancellation, use target_order_ref when explicit. Otherwise use selector
       latest, oldest, or only when the user's request clearly implies one.
-    - For order submission, include order_type, side, ticker, quantity, limit_price,
-      stop_price, time_in_force, and extended_hours when known.
+    - For order submission, include order_type, side, ticker, quantity, notional_amount,
+      notional_currency, limit_price, stop_price, time_in_force, and extended_hours
+      when known.
+    - If the user specifies a cash amount/value such as "around 200 euros" rather
+      than a share count, put that value in notional_amount/notional_currency and
+      leave quantity unset. Deterministic sizing will resolve the share quantity.
     - Prefer broker-native asset identifiers when known. For Trading 212 this means
       the instrument ticker from metadata, not necessarily the public exchange symbol.
     - If only a public symbol or company name is known, put the best available

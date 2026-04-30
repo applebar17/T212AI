@@ -439,6 +439,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             pending_orders_review_workflow=runtime.pending_orders_review_workflow,
             broker_read_service=runtime.broker_read_service,
             broker_execution_service=runtime.broker_execution_service,
+            market_data_service=runtime.market_data_service,
             broker_provider=runtime.settings.broker_provider,
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,

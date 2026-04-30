@@ -234,6 +234,10 @@ class PreparedBrokerOrder(BrokerModel):
     requested_ticker: str | None = Field(default=None, alias="requestedTicker")
     quantity: Decimal = Field(alias="quantity")
     signed_quantity: Decimal = Field(alias="signedQuantity")
+    requested_notional_amount: Decimal | None = Field(default=None, alias="requestedNotionalAmount")
+    requested_notional_currency: str | None = Field(default=None, alias="requestedNotionalCurrency")
+    sizing_price: Decimal | None = Field(default=None, alias="sizingPrice")
+    sizing_price_source: str | None = Field(default=None, alias="sizingPriceSource")
     limit_price: Decimal | None = Field(default=None, alias="limitPrice")
     stop_price: Decimal | None = Field(default=None, alias="stopPrice")
     time_in_force: BrokerTimeInForce = Field(alias="timeInForce")
@@ -266,6 +270,8 @@ class BrokerOrderActionRequest(BrokerModel):
     side: str | None = None
     ticker: str | None = None
     quantity: str | int | float | None = None
+    notional_amount: str | int | float | None = Field(default=None, alias="notionalAmount")
+    notional_currency: str | None = Field(default=None, alias="notionalCurrency")
     limit_price: str | int | float | None = None
     stop_price: str | int | float | None = None
     time_in_force: str = Field(

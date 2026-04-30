@@ -145,6 +145,7 @@ class OrderAgent(BaseAgent):
         broker_service=None,
         broker_read_service=None,
         broker_execution_service=None,
+        market_data_service=None,
         broker_provider: str = "broker",
         pending_action_service: PendingActionService | None = None,
         proposal_service: ProposalService | None = None,
@@ -181,6 +182,7 @@ class OrderAgent(BaseAgent):
             resolved_provider = getattr(broker_service, "provider_name", "broker")
         self.broker_read_service = resolved_read_service
         self.broker_execution_service = resolved_execution_service
+        self.market_data_service = market_data_service
         self.broker_provider = resolved_provider
         self.pending_action_service = pending_action_service
         self.proposal_service = proposal_service
@@ -346,6 +348,7 @@ class OrderAgent(BaseAgent):
             broker_execution_service=self.broker_execution_service,
             broker_provider=self.broker_provider,
             pending_action_service=self.pending_action_service,
+            market_data_service=self.market_data_service,
             chat_id=request.chat_id,
             user_id=_metadata_user_id(request.metadata),
             user_message=request.user_message,
@@ -366,6 +369,8 @@ class OrderAgent(BaseAgent):
             side=action_request.side,
             ticker=action_request.ticker,
             quantity=action_request.quantity,
+            notional_amount=action_request.notional_amount,
+            notional_currency=action_request.notional_currency,
             limit_price=action_request.limit_price,
             stop_price=action_request.stop_price,
             time_in_force=action_request.time_in_force,
@@ -384,7 +389,9 @@ class OrderAgent(BaseAgent):
         side = str(action_request.side or "").strip().upper()
         liquidation_intent = str(intent.entities.get("action", "")).strip().lower() == "liquidate"
         full_position_requested = action_request.use_full_position_size or (
-            liquidation_intent and action_request.quantity in {None, ""}
+            liquidation_intent
+            and action_request.quantity in {None, ""}
+            and action_request.notional_amount in {None, ""}
         )
         position_lookup_requested = full_position_requested or side == "SELL"
         if not position_lookup_requested:
@@ -787,13 +794,15 @@ def _order_action_summary(action_request: BrokerOrderActionRequest) -> str:
 
 
 def _order_intent_payload(action_request: BrokerOrderActionRequest) -> dict[str, Any]:
-    return {
-        "action": action_request.action.value,
-        "order_type": action_request.order_type,
-        "side": action_request.side,
-        "ticker": action_request.ticker,
-        "quantity": action_request.quantity,
-        "limit_price": action_request.limit_price,
+        return {
+            "action": action_request.action.value,
+            "order_type": action_request.order_type,
+            "side": action_request.side,
+            "ticker": action_request.ticker,
+            "quantity": action_request.quantity,
+            "notional_amount": action_request.notional_amount,
+            "notional_currency": action_request.notional_currency,
+            "limit_price": action_request.limit_price,
         "stop_price": action_request.stop_price,
         "time_in_force": action_request.time_in_force,
         "extended_hours": action_request.extended_hours,
