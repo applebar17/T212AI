@@ -147,6 +147,21 @@ Current baseline:
 - specialist outputs are returned to the orchestrator, which then decides whether to answer the user directly or continue with further tool calls
 - specialist planning remains structured and auditable even when the top-level orchestration path is tool-driven
 
+## Specialist Execution Packages
+
+Scope:
+- agents
+- prompts
+- tools
+- docs
+
+Rules:
+- specialist flows that use reason/plan/execute should return the whole compact planning-execution package to the orchestrator through `AgentResponse.metadata` and `AgentResponse.artifacts`
+- keep `final_answer` concise and user-facing; put reasoning context summaries, grouped plans, action summaries, execution traces, and final synthesis in artifacts
+- pass compact assistant summaries between planned actions instead of raw tool transcripts or full provider payloads
+- raw provider/tool details should stay summarized to status, tool names, top-level data keys, errors, and short previews unless a debugging path explicitly needs more
+- deterministic execution boundaries such as broker actions, approvals, and calculator execution must keep their existing safety gates even when later migrated into the common loop
+
 ## Telegram Error Diagnostics
 
 Scope:

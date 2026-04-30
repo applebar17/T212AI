@@ -343,17 +343,19 @@ Gap:
 Current status:
 
 - Has a configured market toolbox.
-- Can use tool-enabled execution when tools are available.
+- Uses the configurable reasoner and grouped planner when the runtime provides
+  those components and a non-empty market toolbox.
+- Uses `GroupedPlanExecutor` to run planned market actions through the existing
+  GenAI tool loop.
 - Has guidance to proceed with reasonable defaults for broad scans instead of
   asking broker execution-risk questions.
 
 Gap:
 
-- The current tool-enabled execution is a broad chat-with-tools call, not a
-  plan-action executor.
-- It does not yet run reason -> plan -> execute -> judge.
-- It needs a market-analysis flow that plans market snapshot, movers, volume,
-  catalyst enrichment, and final watchlist synthesis as explicit actions.
+- It does not yet run the judge step as part of the default market-analysis
+  loop.
+- Company, portfolio attention, and order flows have not yet migrated to the
+  shared grouped executor.
 
 ### Company Analyst
 
@@ -387,21 +389,18 @@ Gap:
 
 The next agentic work should focus on these issues:
 
-1. Build a generic executor that runs grouped plan actions with the selected
-   toolbox.
-2. Wire `AgentJudge` into the configurable loop, with access to plan and
+1. Wire `AgentJudge` into the configurable loop, with access to plan and
    execution traces.
-3. Add loop configuration per specialist:
+2. Add loop configuration per specialist:
    - enabled steps
    - prompts per step
    - toolbox per execution step
    - judge policy
    - return contract
-4. Migrate specialists incrementally:
-   - Market Analyst first, because broad scans need real agentic tool use.
-   - Company Analyst second, because research flows benefit from planned
+3. Migrate the remaining specialists incrementally:
+   - Company Analyst next, because research flows benefit from planned
      evidence gathering.
-   - Portfolio attention scan third.
+   - Portfolio attention scan after company analysis.
    - Order Agent carefully, preserving deterministic approval and broker safety.
 
 ## Design Principles
@@ -414,5 +413,10 @@ The next agentic work should focus on these issues:
   tool calls.
 - Agent-specific prompts should be step-specific: reason prompt, plan prompt,
   execute prompt, judge prompt, return prompt.
+- Specialist responses should return the whole planning-execution package to the
+  orchestrator through structured metadata and artifacts, while keeping
+  user-facing text concise.
+- Execution context should pass compact assistant summaries between actions, not
+  raw tool transcripts or full provider payloads.
 - The system should favor reusable loop components over bespoke specialist
   logic.
