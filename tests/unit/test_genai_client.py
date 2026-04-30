@@ -18,6 +18,21 @@ def test_chat_model_for_falls_back_to_default_when_optional_models_are_blank() -
     assert client.chat_model_for("reasoning") == "base-model"
 
 
+def test_handle_params_strips_parallel_tool_calls_without_tools() -> None:
+    client = GenAIClient.__new__(GenAIClient)
+    client.settings = GenAISettings(chat_model_default="base-model")
+    client._ensure_context_budget = lambda _params: None
+
+    params = client.handle_params(
+        "system",
+        [{"role": "user", "content": "hello"}],
+        parallel_tool_calls=False,
+    )
+
+    assert "tools" not in params
+    assert "parallel_tool_calls" not in params
+
+
 def test_message_to_dict_falls_back_when_model_dump_raises() -> None:
     client = GenAIClient.__new__(GenAIClient)
 

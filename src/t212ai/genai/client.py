@@ -241,6 +241,8 @@ class GenAIClient:
         for key, value in kwargs.items():
             if value is not None:
                 params[key] = value
+        if "tools" not in params:
+            params.pop("parallel_tool_calls", None)
 
         self._ensure_context_budget(params)
         return params

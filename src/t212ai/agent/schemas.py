@@ -54,6 +54,11 @@ class AgentInvocationContext(BaseModel):
     purpose: str
     guidelines: str
     toolbox_summary: str
+    tool_descriptions: str | None = None
+    reasoning_guidelines: list[str] = Field(default_factory=list)
+    planning_guidelines: list[str] = Field(default_factory=list)
+    reasoning_examples: list[str] = Field(default_factory=list)
+    planning_examples: list[str] = Field(default_factory=list)
     task_complexity: TaskComplexity = TaskComplexity.EASY
 
 

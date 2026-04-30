@@ -16,11 +16,14 @@ from t212ai.agent import (
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
     GroupedAgentPlan,
+    GroupedPlanExecutionResult,
     GroupedPlanExecutor,
     InMemoryChatHistoryStore,
     MainOrchestratorAgent,
     PlanAction,
+    PlanActionExecution,
     PlanActionGroup,
+    PlanActionGroupExecution,
     PlanExecutionMode,
     PortfolioAnalystAgent,
     TaskComplexity,
@@ -34,6 +37,7 @@ from t212ai.agent.schemas import (
 )
 from t212ai.app.bootstrap import assess_settings
 from t212ai.app.config import get_app_settings
+from t212ai.brokers.tools import build_broker_order_action_toolbox
 from t212ai.brokers.trading212.models import (
     AccountSummary,
     Cash,
@@ -251,6 +255,161 @@ class FakeGenAIClient:
         return _fake_chat_response(
             "I can chat naturally, explain what I do, and delegate portfolio, "
             "order, market, company, guideline-memory, or calculation work when needed."
+        )
+
+
+class BrokerFlowGenAIClient(FakeGenAIClient):
+    def generate_structured(
+        self,
+        schema: type,
+        system_prompt: str,
+        chat_message: object,
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> object:
+        self.calls.append(
+            {
+                "schema": schema.__name__,
+                "system_prompt": system_prompt,
+                "chat_message": chat_message,
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        if schema is AgentReasoningContext:
+            return AgentReasoningContext(
+                task_interpretation="Prepare a cash-relative broker order.",
+                known_facts=["The user asked to use half the available cash."],
+                assumptions=[],
+                ambiguities=[],
+                required_evidence=["broker cash", "broker-native instrument"],
+                safety_constraints=["Prepare for Telegram approval only."],
+                relevant_capabilities=[
+                    "broker_get_portfolio_snapshot",
+                    "broker_prepare_order_action",
+                ],
+                approval_notes=["Telegram callback approval is required."],
+                can_proceed=True,
+                confidence=0.8,
+            )
+        if schema is GroupedAgentPlan:
+            return GroupedAgentPlan(
+                intent={
+                    "kind": IntentKind.PROPOSE_TRADE,
+                    "entities": [],
+                    "confidence": 0.8,
+                },
+                summary="Read cash, calculate notional, then prepare approval.",
+                required_context=["broker cash"],
+                action_groups=[
+                    {
+                        "group_id": "broker_context",
+                        "title": "Read broker context",
+                        "execution_mode": "sequential",
+                        "actions": [
+                            {
+                                "action_id": "read_cash",
+                                "tool_name": "broker_get_portfolio_snapshot",
+                                "purpose": "Read available cash.",
+                                "expected_output": "Available cash and account currency.",
+                                "output_key": "portfolio",
+                                "risk_class": "read_only",
+                            }
+                        ],
+                    },
+                    {
+                        "group_id": "prepare",
+                        "title": "Calculate and prepare order",
+                        "execution_mode": "sequential",
+                        "actions": [
+                            {
+                                "action_id": "calculate_notional",
+                                "purpose": "Calculate half of available cash.",
+                                "expected_output": "Resolved decimal notional amount.",
+                                "depends_on": ["read_cash"],
+                                "output_key": "resolved_notional",
+                                "risk_class": "read_only",
+                            },
+                            {
+                                "action_id": "prepare_order",
+                                "tool_name": "broker_prepare_order_action",
+                                "purpose": "Prepare market buy for approval.",
+                                "expected_output": "Pending action and Telegram approval payload.",
+                                "depends_on": ["calculate_notional"],
+                                "output_key": "approval_payload",
+                                "risk_class": "state_changing",
+                            },
+                        ],
+                    },
+                ],
+                expected_final_output="Approval-ready broker order summary.",
+                task_complexity=TaskComplexity.CRITICAL,
+            )
+        return super().generate_structured(
+            schema,
+            system_prompt,
+            chat_message,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+
+class RecordingGroupedPlanExecutor:
+    def __init__(self) -> None:
+        self.invocation: AgentInvocationContext | None = None
+        self.grouped_plan: GroupedAgentPlan | None = None
+        self.toolbox_name: str | None = None
+        self.tool_names: set[str] = set()
+
+    def execute(
+        self,
+        *,
+        invocation: AgentInvocationContext,
+        reasoning_context: AgentReasoningContext,
+        grouped_plan: GroupedAgentPlan,
+        toolbox,
+        tools_mapping,
+    ) -> GroupedPlanExecutionResult:
+        del reasoning_context
+        self.invocation = invocation
+        self.grouped_plan = grouped_plan
+        self.toolbox_name = getattr(toolbox, "name", None)
+        self.tool_names = set(tools_mapping)
+        return GroupedPlanExecutionResult(
+            status="ok",
+            final_answer="Prepared broker approval from grouped plan.",
+            action_summaries=["read cash", "calculated notional", "prepared approval"],
+            group_executions=[
+                PlanActionGroupExecution(
+                    group_id="prepare",
+                    title="Prepare approval",
+                    execution_mode=PlanExecutionMode.SEQUENTIAL,
+                    actions=[
+                        PlanActionExecution(
+                            action_id="prepare_order",
+                            group_id="prepare",
+                            tool_name="broker_prepare_order_action",
+                            purpose="Prepare market buy for approval.",
+                            status="ok",
+                            output_summary="Prepared approval.",
+                            tool_calls=[
+                                {
+                                    "tool_name": "broker_prepare_order_action",
+                                    "status": "ok",
+                                    "telegramApproval": {
+                                        "text": "Approve prepared order.",
+                                        "actionId": "pa_123",
+                                    },
+                                }
+                            ],
+                        )
+                    ],
+                )
+            ],
         )
 
 
@@ -633,10 +792,10 @@ def test_grouped_plan_executor_controls_parallel_tool_calls_and_context() -> Non
     )
 
     assert result.status == "ok"
-    assert [call["parallel_tool_calls"] for call in fake.handle_calls] == [
+    assert [call.get("parallel_tool_calls") for call in fake.handle_calls] == [
         True,
         False,
-        False,
+        None,
     ]
     second_action_messages = fake.handle_calls[1]["chat_messages"]
     assert isinstance(second_action_messages, list)
@@ -843,6 +1002,55 @@ def test_market_analyst_agent_uses_configurable_grouped_loop(monkeypatch) -> Non
     assert response.final_answer.strip()
 
 
+def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> None:
+    from t212ai.agent import OrderAgent
+
+    fake = BrokerFlowGenAIClient()
+    executor = RecordingGroupedPlanExecutor()
+    agent = OrderAgent(
+        AgentReasoner(fake),  # type: ignore[arg-type]
+        toolbox=build_broker_order_action_toolbox(),
+        configurable_reasoner_agent=ConfigurableReasonerAgent(fake),  # type: ignore[arg-type]
+        configurable_planner_agent=ConfigurablePlannerAgent(fake),  # type: ignore[arg-type]
+        grouped_plan_executor=executor,  # type: ignore[arg-type]
+        broker_read_service=object(),
+        broker_execution_service=object(),
+        pending_action_service=object(),  # type: ignore[arg-type]
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="Prepare a market buy for COIN using half the available cash",
+            chat_id="chat",
+            orchestrator_guidance="Prepare the broker action safely.",
+        ),
+        intent=AgentIntent(kind=IntentKind.PROPOSE_TRADE),
+    )
+
+    assert response.selected_agent == "order_agent"
+    assert response.metadata["workflow"] == "order_action"
+    assert response.metadata["execution_mode"] == "grouped_plan"
+    assert response.final_answer == "Prepared broker approval from grouped plan."
+    assert response.artifacts["telegram_approval_request"]["actionId"] == "pa_123"
+    assert executor.toolbox_name == "broker_order_actions"
+    assert "broker_prepare_order_action" in executor.tool_names
+    assert executor.grouped_plan is not None
+    assert executor.grouped_plan.action_groups[1].actions[0].tool_name is None
+    assert executor.invocation is not None
+    assert "broker_get_portfolio_snapshot" in (executor.invocation.tool_descriptions or "")
+    assert "broker_prepare_order_action" in (executor.invocation.tool_descriptions or "")
+    assert any("available-cash fractions" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("cash-relative buy" in item for item in executor.invocation.planning_examples)
+
+    reasoning_prompt = fake.calls[0]["system_prompt"]
+    planner_prompt = fake.calls[1]["system_prompt"]
+    assert "Available tool descriptions" in reasoning_prompt
+    assert "broker_get_portfolio_snapshot" in reasoning_prompt
+    assert "Reasoning examples" in reasoning_prompt
+    assert "Planning examples" in planner_prompt
+    assert "cash-relative buy" in planner_prompt
+
+
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
     agent = PortfolioAnalystAgent(
         _reasoner(),
@@ -889,7 +1097,7 @@ def test_order_agent_direct_default_uses_empty_generic_toolbox() -> None:
     agent = OrderAgent(_reasoner())
 
     assert agent.profile.toolbox is not None
-    assert agent.profile.toolbox.name == "broker_execution"
+    assert agent.profile.toolbox.name == "broker_order_actions"
     assert agent.profile.toolbox.tools_by_name == {}
 
 

@@ -66,6 +66,9 @@ def build_reasoning_context_system_prompt(
     purpose: str,
     guidelines: str,
     toolbox_summary: str,
+    tool_descriptions: str | None = None,
+    flow_guidelines: list[str] | None = None,
+    examples: list[str] | None = None,
     persistent_guidance: str | None,
 ) -> str:
     prompt = dedent(
@@ -86,10 +89,17 @@ def build_reasoning_context_system_prompt(
         Available capability/toolbox summary:
         {toolbox_summary}
 
+        Available tool descriptions:
+        {tool_descriptions or "No detailed tool descriptions provided."}
+
         Agent-specific guidelines:
         {guidelines}
         """
     ).strip()
+    if flow_guidelines:
+        prompt = f"{prompt}\n\nReasoning-step guidelines:\n{_render_list(flow_guidelines)}"
+    if examples:
+        prompt = f"{prompt}\n\nReasoning examples:\n{_render_examples(examples)}"
     if persistent_guidance:
         prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
     return prompt
@@ -117,6 +127,9 @@ def build_grouped_plan_system_prompt(
     purpose: str,
     guidelines: str,
     toolbox_summary: str,
+    tool_descriptions: str | None = None,
+    flow_guidelines: list[str] | None = None,
+    examples: list[str] | None = None,
     persistent_guidance: str | None,
 ) -> str:
     prompt = dedent(
@@ -143,10 +156,17 @@ def build_grouped_plan_system_prompt(
         Available capability/toolbox summary:
         {toolbox_summary}
 
+        Available tool descriptions:
+        {tool_descriptions or "No detailed tool descriptions provided."}
+
         Agent-specific guidelines:
         {guidelines}
         """
     ).strip()
+    if flow_guidelines:
+        prompt = f"{prompt}\n\nPlanning-step guidelines:\n{_render_list(flow_guidelines)}"
+    if examples:
+        prompt = f"{prompt}\n\nPlanning examples:\n{_render_examples(examples)}"
     if persistent_guidance:
         prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
     return prompt
@@ -201,6 +221,14 @@ def build_plan_action_system_prompt(
     if persistent_guidance:
         prompt = f"{prompt}\n\nPersistent guidance memory:\n{persistent_guidance}"
     return prompt
+
+
+def _render_list(items: list[str]) -> str:
+    return "\n".join(f"- {str(item).strip()}" for item in items if str(item).strip())
+
+
+def _render_examples(items: list[str]) -> str:
+    return "\n\n".join(str(item).strip() for item in items if str(item).strip())
 
 
 def build_plan_action_user_prompt(
@@ -259,7 +287,7 @@ def build_final_synthesis_user_prompt(
 ) -> str:
     return dedent(
         f"""\
-        Build the final market-analysis answer.
+        Build the final answer.
         Original user request: {user_request}
         Reasoning context: {reasoning_context_payload}
         Grouped plan: {grouped_plan_payload}

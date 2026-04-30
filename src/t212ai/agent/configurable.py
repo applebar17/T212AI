@@ -46,6 +46,9 @@ class ConfigurableReasonerAgent:
             purpose=invocation.purpose,
             guidelines=invocation.guidelines,
             toolbox_summary=invocation.toolbox_summary,
+            tool_descriptions=invocation.tool_descriptions,
+            flow_guidelines=invocation.reasoning_guidelines,
+            examples=invocation.reasoning_examples,
             persistent_guidance=invocation.persistent_guidance,
         )
         messages = _messages_with_history(
@@ -98,6 +101,9 @@ class ConfigurablePlannerAgent:
             purpose=invocation.purpose,
             guidelines=invocation.guidelines,
             toolbox_summary=invocation.toolbox_summary,
+            tool_descriptions=invocation.tool_descriptions,
+            flow_guidelines=invocation.planning_guidelines,
+            examples=invocation.planning_examples,
             persistent_guidance=invocation.persistent_guidance,
         )
         messages = _messages_with_history(
@@ -157,6 +163,11 @@ def _trace_invocation_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
             else 0
         ),
         "toolbox_summary_chars": len(invocation.toolbox_summary),
+        "tool_descriptions_chars": len(invocation.tool_descriptions or ""),
+        "reasoning_guidelines": len(invocation.reasoning_guidelines),
+        "planning_guidelines": len(invocation.planning_guidelines),
+        "reasoning_examples": len(invocation.reasoning_examples),
+        "planning_examples": len(invocation.planning_examples),
         "has_persistent_guidance": bool(invocation.persistent_guidance),
     }
 

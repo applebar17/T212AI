@@ -20,7 +20,7 @@ from t212ai.calculator import (
 )
 from t212ai.genai.models import ToolError, ToolResult
 from t212ai.genai.tools import build_tool_mapping_for
-from t212ai.genai.tools.base import ToolBox
+from t212ai.genai.tools.base import ToolBox, render_tool_descriptions
 from t212ai.genai.tracing import (
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
@@ -162,6 +162,9 @@ class OrderAgent(BaseAgent):
         proposal_service: ProposalService | None = None,
         toolbox: ToolBox | None = None,
         toolbox_summary: str | None = None,
+        configurable_reasoner_agent: ConfigurableReasonerAgent | None = None,
+        configurable_planner_agent: ConfigurablePlannerAgent | None = None,
+        grouped_plan_executor: GroupedPlanExecutor | None = None,
     ) -> None:
         super().__init__(
             reasoner,
@@ -172,7 +175,9 @@ class OrderAgent(BaseAgent):
                     "Treat order submission and cancellation as state-changing. "
                     "Require explicit Telegram button approval before execution. "
                     "Never treat natural-language messages as approval or rejection. "
-                    "Never retry uncertain submissions without reconciliation."
+                    "Never retry uncertain submissions without reconciliation. "
+                    "When summarizing broker read outputs for later plan actions, preserve "
+                    "exact numeric cash, quantity, price, and order-reference values."
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Broker pending orders, order lookup, generic order preparation and "
@@ -182,7 +187,7 @@ class OrderAgent(BaseAgent):
                 task_complexity=TaskComplexity.CRITICAL,
                 guideline_scopes=("global", "agent:order"),
                 guideline_include_categories=("investment_preference",),
-                toolbox=toolbox or _empty_toolbox("broker_execution"),
+                toolbox=toolbox or _empty_toolbox("broker_order_actions"),
             ),
             guideline_service=guideline_service,
         )
@@ -198,10 +203,185 @@ class OrderAgent(BaseAgent):
         self.broker_provider = resolved_provider
         self.pending_action_service = pending_action_service
         self.proposal_service = proposal_service
+        self.configurable_reasoner_agent = configurable_reasoner_agent
+        self.configurable_planner_agent = configurable_planner_agent
+        self.grouped_plan_executor = grouped_plan_executor
 
     def resolve_complexity(self, message: str) -> TaskComplexity:
         del message
         return TaskComplexity.CRITICAL
+
+    @traceable(
+        name="Order Agent Handle",
+        run_type="chain",
+        process_inputs=_trace_agent_handle_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
+    def handle(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent | None = None,
+        task_complexity: TaskComplexity | None = None,
+    ) -> AgentResponse:
+        resolved_intent = intent or AgentIntent(kind=IntentKind.UNKNOWN)
+        if (
+            resolved_intent.kind
+            in {IntentKind.PROPOSE_TRADE, IntentKind.PLACE_ORDER, IntentKind.CANCEL_ORDER}
+            and self._can_use_configurable_loop()
+        ):
+            complexity = task_complexity or self.resolve_complexity(request.user_message)
+            set_trace_name(f"{self.__class__.__name__}.handle")
+            set_trace_metadata(
+                agent_name=self.name,
+                agent_kind="specialist",
+                intent_kind=resolved_intent.kind.value,
+                task_complexity=complexity.value,
+                workflow="order_action",
+                execution_mode="grouped_plan",
+            )
+            try:
+                return self._handle_configurable_order_action(
+                    request,
+                    intent=resolved_intent,
+                    task_complexity=complexity,
+                )
+            except Exception as exc:  # pragma: no cover - live LLM/provider safety net
+                return AgentResponse(
+                    final_answer=(
+                        "I couldn't complete the configurable broker-order loop. "
+                        f"Reason: {exc.__class__.__name__}: {exc}"
+                    ),
+                    selected_agent=self.name,
+                    metadata={
+                        "workflow": "order_action",
+                        "workflow_status": "error",
+                        "execution_mode": "grouped_plan",
+                        "error_type": exc.__class__.__name__,
+                    },
+                    artifacts={
+                        "workflow": "order_action",
+                        "order_action": {
+                            "status": "error",
+                            "error": str(exc),
+                            "error_type": exc.__class__.__name__,
+                        },
+                    },
+                )
+        return super().handle(
+            request,
+            intent=resolved_intent,
+            task_complexity=task_complexity,
+        )
+
+    def _handle_configurable_order_action(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent,
+        task_complexity: TaskComplexity,
+    ) -> AgentResponse:
+        invocation = AgentInvocationContext(
+            user_request=request.user_message,
+            chat_history=self._history_for_prompt(request.history),
+            invocation_reason=(
+                request.orchestrator_guidance
+                or "Order agent handling the current broker order request."
+            ),
+            intent=intent,
+            persistent_guidance=self._persistent_guidance(),
+            agent_name=self.profile.name,
+            purpose=self.profile.purpose,
+            guidelines=self.profile.guidelines,
+            toolbox_summary=self.profile.toolbox_summary,
+            tool_descriptions=render_tool_descriptions(self.profile.toolbox),
+            reasoning_guidelines=_broker_order_reasoning_guidelines(),
+            planning_guidelines=_broker_order_planning_guidelines(),
+            reasoning_examples=_broker_order_reasoning_examples(),
+            planning_examples=_broker_order_planning_examples(),
+            task_complexity=task_complexity,
+        )
+        assert self.configurable_reasoner_agent is not None
+        assert self.configurable_planner_agent is not None
+        assert self.grouped_plan_executor is not None
+        assert self.profile.toolbox is not None
+
+        reasoning_context = self.configurable_reasoner_agent.reason(invocation)
+        if not reasoning_context.can_proceed and reasoning_context.clarifying_questions:
+            return AgentResponse(
+                final_answer="I need one clarification: "
+                + " ".join(reasoning_context.clarifying_questions),
+                selected_agent=self.name,
+                metadata={
+                    "workflow": "order_action",
+                    "workflow_status": "needs_clarification",
+                    "execution_mode": "grouped_plan",
+                },
+                artifacts={
+                    "workflow": "order_action",
+                    "order_action": {
+                        "reasoning_context": reasoning_context.model_dump(mode="json"),
+                    },
+                },
+            )
+
+        grouped_plan = self.configurable_planner_agent.plan(
+            invocation,
+            reasoning_context=reasoning_context,
+        )
+        runtime = BrokerToolRuntime(
+            broker_read_service=self.broker_read_service,
+            broker_execution_service=self.broker_execution_service,
+            broker_provider=self.broker_provider,
+            pending_action_service=self.pending_action_service,
+            market_data_service=self.market_data_service,
+            chat_id=request.chat_id,
+            user_id=_metadata_user_id(request.metadata),
+            user_message=request.user_message,
+            reference_map=BrokerReferenceMap(),
+        )
+        execution_result = self.grouped_plan_executor.execute(
+            invocation=invocation,
+            reasoning_context=reasoning_context,
+            grouped_plan=grouped_plan,
+            toolbox=self.profile.toolbox,
+            tools_mapping=build_broker_tool_mapping(runtime),
+        )
+        compatible_plan = grouped_plan.to_agent_plan()
+        artifacts: dict[str, Any] = {
+            "workflow": "order_action",
+            "order_action": {
+                "reasoning_context": reasoning_context.model_dump(mode="json"),
+                "grouped_plan": grouped_plan.model_dump(mode="json"),
+                "execution": execution_result.model_dump(mode="json"),
+                "final_synthesis": execution_result.final_answer,
+            },
+        }
+        approval_payload = _approval_payload_from_grouped_execution(execution_result)
+        if approval_payload is not None:
+            artifacts["telegram_approval_request"] = approval_payload
+        return AgentResponse(
+            final_answer=execution_result.final_answer,
+            selected_agent=self.name,
+            plan=compatible_plan,
+            metadata={
+                "workflow": "order_action",
+                "workflow_status": execution_result.status,
+                "execution_mode": "grouped_plan",
+                "group_count": str(len(grouped_plan.action_groups)),
+                "action_count": str(execution_result.action_count),
+            },
+            artifacts=artifacts,
+        )
+
+    def _can_use_configurable_loop(self) -> bool:
+        return (
+            self.configurable_reasoner_agent is not None
+            and self.configurable_planner_agent is not None
+            and self.grouped_plan_executor is not None
+            and self.profile.toolbox is not None
+            and bool(self.profile.toolbox.tools)
+        )
 
     def execute(
         self,
@@ -849,6 +1029,7 @@ class MarketAnalystAgent(BaseAgent):
             purpose=self.profile.purpose,
             guidelines=self.profile.guidelines,
             toolbox_summary=self.profile.toolbox_summary,
+            tool_descriptions=render_tool_descriptions(self.profile.toolbox),
             task_complexity=task_complexity,
         )
         assert self.configurable_reasoner_agent is not None
@@ -1080,6 +1261,66 @@ def _compact_tool_error_details(details: dict[str, Any] | None) -> str | None:
         if raw:
             parts.append(f"{key}={raw}")
     return "; ".join(parts) if parts else None
+
+
+def _approval_payload_from_grouped_execution(execution_result: Any) -> dict[str, Any] | None:
+    group_executions = list(getattr(execution_result, "group_executions", []) or [])
+    for group in reversed(group_executions):
+        actions = list(getattr(group, "actions", []) or [])
+        for action in reversed(actions):
+            tool_calls = list(getattr(action, "tool_calls", []) or [])
+            for tool_call in reversed(tool_calls):
+                if not isinstance(tool_call, dict):
+                    continue
+                approval = tool_call.get("telegramApproval")
+                if isinstance(approval, dict):
+                    return approval
+    return None
+
+
+def _broker_order_reasoning_guidelines() -> list[str]:
+    return [
+        "Treat broker reads as the only authority for cash, positions, pending orders, and order references.",
+        "Detect broker-state dependent values such as available-cash fractions, full-position exits, and protective orders that depend on a prior fill.",
+        "Do not resolve approvals from natural-language messages; approval and rejection are Telegram callback-button events only.",
+        "Numeric broker fields must be resolved decimal values before order preparation.",
+    ]
+
+
+def _broker_order_planning_guidelines() -> list[str]:
+    return [
+        "Use broker_get_portfolio_snapshot before preparing orders that depend on cash, holdings, or available quantities.",
+        "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker or company name that may need a broker-native ticker.",
+        "Add no-tool calculation actions for simple arithmetic from prior tool outputs, then pass the resolved decimal value into broker_prepare_order_action.",
+        "Use broker_prepare_order_action or broker_prepare_cancel_action for Telegram flows; do not plan broker_place_order for natural-language requests.",
+        "State-changing broker preparation actions must be sequential and dependent on all broker reads/calculations they require.",
+        "If a protective stop or stop-limit depends on the buy fill price or executed quantity, model it as a dependent follow-up requiring that execution/fill context.",
+    ]
+
+
+def _broker_order_reasoning_examples() -> list[str]:
+    return [
+        (
+            "User asks: 'Prepare a market buy for COIN using half my available cash.' "
+            "Reasoning context should note that the notional amount is broker-state dependent, "
+            "available cash must be read from broker_get_portfolio_snapshot, and notional_amount "
+            "must remain unset until half of available_to_trade is calculated."
+        )
+    ]
+
+
+def _broker_order_planning_examples() -> list[str]:
+    return [
+        (
+            "Example grouped plan for cash-relative buy: "
+            "group 1 sequential action broker_get_portfolio_snapshot with output_key=portfolio; "
+            "group 2 sequential no-tool action calculate_notional_from_cash depending on portfolio, "
+            "expected_output='resolved decimal notional amount and currency'; "
+            "group 3 sequential action broker_resolve_instrument if needed; "
+            "group 4 sequential action broker_prepare_order_action depending on the cash calculation "
+            "and instrument resolution, passing notional_amount as a concrete decimal number."
+        )
+    ]
 
 
 def _broker_snapshot_order_context(snapshot: Any) -> str:

@@ -491,7 +491,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert "searxng_search" not in market_tools
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is not None
-    assert runtime.specialist_tooling.order_toolbox.name == "broker_execution"
+    assert runtime.specialist_tooling.order_toolbox.name == "broker_order_actions"
     assert "Alpha Vantage" not in runtime.specialist_tooling.market_toolbox_summary
     assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
     assert "yahoo_market_context" not in runtime.toolboxes

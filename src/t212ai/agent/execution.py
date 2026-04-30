@@ -209,13 +209,16 @@ class GroupedPlanExecutor:
             forwarded_summaries=forwarded_summaries,
         )
         use_tools = bool(action.tool_name)
+        handle_kwargs: dict[str, Any] = {}
+        if use_tools:
+            handle_kwargs["toolbox"] = toolbox
+            handle_kwargs["parallel_tool_calls"] = parallel_tool_calls
         params = self.genai.handle_params(
             system_prompt,
             messages,
             model=_model_for(self.genai, invocation.task_complexity),
             temperature=0.1,
-            toolbox=toolbox if use_tools else None,
-            parallel_tool_calls=parallel_tool_calls,
+            **handle_kwargs,
         )
         try:
             response = self.genai.call_openai(
@@ -285,7 +288,6 @@ class GroupedPlanExecutor:
             messages,
             model=_model_for(self.genai, invocation.task_complexity),
             temperature=0.1,
-            parallel_tool_calls=False,
         )
         response = self.genai.call_openai(params, tools_mapping=None, toolbox=None)
         return _assistant_text(response) or "I could not synthesize a market answer."
@@ -409,6 +411,16 @@ def _summarize_tool_messages(messages: Any) -> list[dict[str, Any]]:
         data = parsed.get("data")
         if isinstance(data, dict):
             entry["data_keys"] = sorted(str(key) for key in data.keys())[:12]
+            telegram_approval = data.get("telegramApproval")
+            if isinstance(telegram_approval, dict):
+                entry["telegramApproval"] = telegram_approval
+            pending_action = data.get("pendingAction")
+            if isinstance(pending_action, dict):
+                entry["pendingAction"] = {
+                    key: pending_action.get(key)
+                    for key in ("action_id", "actionId", "kind", "status")
+                    if pending_action.get(key) is not None
+                }
         error = parsed.get("error")
         if isinstance(error, dict):
             entry["error_code"] = error.get("code")

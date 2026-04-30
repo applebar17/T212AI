@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from t212ai.app.bootstrap import ConfigAssessment
 from t212ai.app.config import AppSettings
-from t212ai.brokers.tools import build_broker_execution_toolbox
+from t212ai.brokers.tools import build_broker_order_action_toolbox
 from t212ai.genai.tools import build_market_analyst_toolbox, build_toolboxes
 from t212ai.genai.tools.base import ToolBox
 
@@ -34,7 +34,7 @@ def build_specialist_tooling(
     return SpecialistTooling(
         portfolio_toolbox_summary=_portfolio_summary(assessment),
         order_toolbox=(
-            build_broker_execution_toolbox()
+            build_broker_order_action_toolbox()
             if assessment.capabilities["broker_execution_eligibility"].available
             else None
         ),
@@ -66,8 +66,8 @@ def _order_summary(
     if assessment.capabilities["broker_execution_eligibility"].available:
         return (
             "Broker portfolio, pending orders, order lookup, instrument resolution, "
-            "preparation, direct confirmed placement/cancellation tools, plus deterministic "
-            "approval/execution through Telegram."
+            "order/cancellation preparation tools, plus deterministic approval/execution "
+            "through Telegram buttons."
         )
     return (
         "Broker order tools are unavailable because no ready broker provider is configured. "

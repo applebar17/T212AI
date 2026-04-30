@@ -606,6 +606,9 @@ def build_specialist_agents(
             proposal_service=proposal_service,
             toolbox=order_toolbox,
             toolbox_summary=order_toolbox_summary,
+            configurable_reasoner_agent=configurable_reasoner_agent,
+            configurable_planner_agent=configurable_planner_agent,
+            grouped_plan_executor=grouped_plan_executor,
         ),
         market=MarketAnalystAgent(
             reasoner,
