@@ -19,6 +19,7 @@ htmlcov/
 venv/
 
 # Local runtime data
+local/
 data/*
 !data/.gitkeep
 *.db
