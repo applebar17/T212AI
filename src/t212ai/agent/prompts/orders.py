@@ -25,6 +25,15 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     - If the user specifies a cash amount/value such as "around 200 euros" rather
       than a share count, put that value in notional_amount/notional_currency and
       leave quantity unset. Deterministic sizing will resolve the share quantity.
+    - Only set quantity, notional_amount, limit_price, or stop_price when the value
+      is already a resolved decimal-compatible number.
+    - For relative cash sizing such as "half the available cash", "25% of buying
+      power", or any amount that depends on broker state, do not put the phrase,
+      formula, or percentage in notional_amount. The agentic flow must first gather
+      broker cash, calculate the exact decimal amount, and only then prepare the
+      order with that resolved value. If this extraction step does not have the
+      broker state yet, leave notional_amount unset and explain the missing broker
+      context in reason/risks instead of inventing a value.
     - Prefer broker-native asset identifiers when known. For Trading 212 this means
       the instrument ticker from metadata, not necessarily the public exchange symbol.
     - If only a public symbol or company name is known, put the best available

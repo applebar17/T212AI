@@ -269,11 +269,42 @@ class BrokerOrderActionRequest(BrokerModel):
     order_type: str | None = None
     side: str | None = None
     ticker: str | None = None
-    quantity: str | int | float | None = None
-    notional_amount: str | int | float | None = Field(default=None, alias="notionalAmount")
-    notional_currency: str | None = Field(default=None, alias="notionalCurrency")
-    limit_price: str | int | float | None = None
-    stop_price: str | int | float | None = None
+    quantity: Decimal | None = Field(
+        default=None,
+        description=(
+            "Resolved numeric share quantity only. Must be decimal-compatible. "
+            "Do not use natural-language amounts, formulas, percentages, or broker-state "
+            "references. If the quantity must be calculated from broker state, leave null "
+            "until that state has been fetched and the calculation has been completed."
+        ),
+    )
+    notional_amount: Decimal | None = Field(
+        default=None,
+        alias="notionalAmount",
+        description=(
+            "Resolved numeric cash amount only. Must be decimal-compatible. Do not use "
+            "natural-language expressions such as 'half available cash', percentages, "
+            "formulas, or references to broker state. If the cash amount depends on "
+            "available funds or another tool result, leave null until that value has "
+            "been fetched and calculated."
+        ),
+    )
+    notional_currency: str | None = Field(
+        default=None,
+        alias="notionalCurrency",
+        description=(
+            "Currency for notional_amount, for example EUR or USD. Set only when "
+            "notional_amount is a resolved numeric cash amount."
+        ),
+    )
+    limit_price: Decimal | None = Field(
+        default=None,
+        description="Resolved numeric limit price only. Must be decimal-compatible.",
+    )
+    stop_price: Decimal | None = Field(
+        default=None,
+        description="Resolved numeric stop price only. Must be decimal-compatible.",
+    )
     time_in_force: str = Field(
         default="DAY",
         validation_alias=AliasChoices("time_in_force", "time_validity"),

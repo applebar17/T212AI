@@ -22,6 +22,7 @@ from t212ai.brokers.models import (
     PreparedBrokerOrder,
 )
 from t212ai.brokers.tools import (
+    _BROKER_ORDER_ARGUMENTS_SCHEMA,
     BrokerToolRuntime,
     broker_cancel_order,
     broker_get_order,
@@ -39,6 +40,16 @@ class FakeProviderError(RuntimeError):
         super().__init__("bad api key")
         self.status_code = 401
         self.body = '{"error":"Bad API key"}'
+
+
+def test_broker_order_tool_schema_requires_resolved_notional_amount() -> None:
+    notional_schema = _BROKER_ORDER_ARGUMENTS_SCHEMA["properties"]["notional_amount"]
+    description = notional_schema["description"]
+
+    assert notional_schema["type"] == ["number", "null"]
+    assert "Resolved numeric cash amount" in description
+    assert "half available cash" in description
+    assert "first fetch that state" in description
 
 
 class FailingBrokerReadService:

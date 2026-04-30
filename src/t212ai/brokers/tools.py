@@ -191,33 +191,42 @@ _BROKER_ORDER_ARGUMENTS_SCHEMA: dict[str, Any] = {
             ),
         },
         "quantity": {
-            "type": ["number", "string", "null"],
+            "type": ["number", "null"],
             "default": None,
             "description": (
-                "Positive share quantity before side is applied. Use null when the user "
-                "specified a cash/notional amount instead."
+                "Resolved positive share quantity before side is applied. Must be a "
+                "decimal-compatible value only, not a natural-language amount, formula, "
+                "percentage, or broker-state reference. Use null when the user specified "
+                "a resolved cash/notional amount instead."
             ),
         },
         "notional_amount": {
-            "type": ["number", "string", "null"],
+            "type": ["number", "null"],
             "default": None,
             "description": (
-                "Cash amount to convert deterministically into share quantity, for "
-                "example 200 for 'around 200 euros'."
+                "Resolved numeric cash amount to convert into share quantity, for example "
+                "200 for 'around 200 euros'. Must be decimal-compatible only. Do not pass "
+                "phrases such as 'half available cash', percentages, formulas, or broker-state "
+                "references. If the value depends on broker state, first fetch that state, "
+                "calculate the decimal amount, then call this tool with the resolved value."
             ),
         },
         "notional_currency": {
             "type": ["string", "null"],
             "default": None,
-            "description": "Currency of notional_amount, for example EUR or USD.",
+            "description": (
+                "Currency of a resolved numeric notional_amount, for example EUR or USD."
+            ),
         },
         "limit_price": {
-            "type": ["number", "string", "null"],
+            "type": ["number", "null"],
             "default": None,
+            "description": "Resolved numeric limit price only. Must be decimal-compatible.",
         },
         "stop_price": {
-            "type": ["number", "string", "null"],
+            "type": ["number", "null"],
             "default": None,
+            "description": "Resolved numeric stop price only. Must be decimal-compatible.",
         },
         "time_in_force": {
             "type": "string",

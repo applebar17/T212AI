@@ -6,6 +6,7 @@ from decimal import Decimal
 from t212ai.agent import AgentReasoner, OrderAgent
 from t212ai.agent.intents import AgentIntent, IntentKind
 from t212ai.agent.planner import AgentPlan, StructuredAgentPlan
+from t212ai.agent.prompts.orders import ORDER_ACTION_REQUEST_SYSTEM_PROMPT
 from t212ai.agent.schemas import AgentRequest
 from t212ai.brokers.trading212.models import (
     AccountSummary,
@@ -86,6 +87,7 @@ class FakeTrading212Api:
 class ProposalGenAIClient:
     def __init__(self, *, valid_submit: bool = True) -> None:
         self.valid_submit = valid_submit
+        self.last_chat_message: object | None = None
 
     def chat_model_for(self, purpose: str | None = None) -> str:
         return f"{purpose or 'default'}-model"
@@ -100,7 +102,8 @@ class ProposalGenAIClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> object:
-        del system_prompt, chat_message, model, temperature, max_tokens
+        del system_prompt, model, temperature, max_tokens
+        self.last_chat_message = chat_message
         if schema in {AgentPlan, StructuredAgentPlan}:
             return StructuredAgentPlan(
                 intent={
@@ -352,6 +355,59 @@ def test_broker_order_action_request_schema_forbids_additional_properties() -> N
 
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
+
+
+def test_broker_order_action_request_schema_rejects_unresolved_notional_language() -> None:
+    description = BrokerOrderActionRequest.model_json_schema()["properties"][
+        "notionalAmount"
+    ]["description"]
+
+    assert "Resolved numeric cash amount only" in description
+    assert "half available cash" in description
+    assert "broker state" in description
+
+
+def test_order_prompt_requires_broker_state_before_relative_cash_sizing() -> None:
+    assert "relative cash sizing" in ORDER_ACTION_REQUEST_SYSTEM_PROMPT
+    assert "gather broker cash" in ORDER_ACTION_REQUEST_SYSTEM_PROMPT
+    assert "resolved value" in ORDER_ACTION_REQUEST_SYSTEM_PROMPT
+
+
+def test_order_agent_provides_broker_cash_context_to_action_extraction(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'cash-context-proposals.db'}")
+    ensure_schema(engine)
+    session_factory = build_session_factory(engine)
+    broker_service = Trading212BrokerService(FakeTrading212Api())
+    proposal_service = ProposalService(session_factory)
+    pending_action_service = PendingActionService(
+        session_factory,
+        broker_service=broker_service,
+    )
+    genai = ProposalGenAIClient()
+    agent = OrderAgent(
+        AgentReasoner(genai),  # type: ignore[arg-type]
+        broker_service=broker_service,
+        pending_action_service=pending_action_service,
+        proposal_service=proposal_service,
+    )
+
+    agent.handle(
+        AgentRequest(
+            user_message="Prepare a market buy using half the available cash",
+            chat_id="123",
+            metadata={"telegram_user_id": "456"},
+        ),
+        intent=AgentIntent(kind=IntentKind.PROPOSE_TRADE),
+    )
+
+    assert isinstance(genai.last_chat_message, list)
+    context_messages = [
+        str(message.get("content", ""))
+        for message in genai.last_chat_message
+        if isinstance(message, dict)
+    ]
+    assert any("available_to_trade=1000" in message for message in context_messages)
+    assert any("calculate any relative order sizing" in message for message in context_messages)
 
 
 def test_order_agent_liquidation_resolves_full_position_quantity(tmp_path) -> None:

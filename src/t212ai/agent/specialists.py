@@ -331,6 +331,9 @@ class OrderAgent(BaseAgent):
         messages = []
         if request.history:
             messages.extend(request.history.to_llm_messages())
+        broker_context = self._broker_state_context_for_order_request()
+        if broker_context:
+            messages.append({"role": "assistant", "content": broker_context})
         messages.append(
             {
                 "role": "user",
@@ -349,6 +352,18 @@ class OrderAgent(BaseAgent):
             temperature=0.0,
         )
         return BrokerOrderActionRequest.model_validate(result)
+
+    def _broker_state_context_for_order_request(self) -> str | None:
+        if self.broker_read_service is None:
+            return None
+        try:
+            snapshot = self.broker_read_service.get_portfolio_snapshot()
+        except Exception as exc:
+            return (
+                "Broker state context could not be loaded before order reasoning. "
+                f"Do not infer broker cash, holdings, or available quantities. Error: {exc}"
+            )
+        return _broker_snapshot_order_context(snapshot)
 
     def _execute_action_request(
         self,
@@ -1065,6 +1080,56 @@ def _compact_tool_error_details(details: dict[str, Any] | None) -> str | None:
         if raw:
             parts.append(f"{key}={raw}")
     return "; ".join(parts) if parts else None
+
+
+def _broker_snapshot_order_context(snapshot: Any) -> str:
+    account = getattr(snapshot, "account", None)
+    cash = getattr(account, "cash", None) if account is not None else None
+    currency = getattr(account, "currency", None)
+    lines = [
+        "Broker state context for order reasoning. Use these values only as current "
+        "broker-provided context; calculate any relative order sizing before filling "
+        "numeric order fields."
+    ]
+    if account is not None:
+        lines.append(
+            "Account: "
+            f"currency={_context_value(currency)}, "
+            f"total_value={_context_value(getattr(account, 'total_value', None))}."
+        )
+    if cash is not None:
+        lines.append(
+            "Cash: "
+            f"available_to_trade={_context_value(getattr(cash, 'available_to_trade', None))}, "
+            f"reserved_for_orders={_context_value(getattr(cash, 'reserved_for_orders', None))}, "
+            f"in_pies={_context_value(getattr(cash, 'in_pies', None))}."
+        )
+    positions = list(getattr(snapshot, "positions", []) or [])
+    if positions:
+        summarized_positions = []
+        for position in positions[:8]:
+            instrument = getattr(position, "instrument", None)
+            ticker = getattr(instrument, "ticker", None) if instrument is not None else None
+            summarized_positions.append(
+                "{ticker}: quantity={quantity}, available={available}".format(
+                    ticker=_context_value(ticker or getattr(position, "ticker", None)),
+                    quantity=_context_value(getattr(position, "quantity", None)),
+                    available=_context_value(
+                        getattr(position, "quantity_available_for_trading", None)
+                    ),
+                )
+            )
+        lines.append("Positions: " + "; ".join(summarized_positions) + ".")
+    pending_orders = list(getattr(snapshot, "pending_orders", []) or [])
+    lines.append(f"Pending orders count: {len(pending_orders)}.")
+    return "\n".join(lines)
+
+
+def _context_value(value: Any) -> str:
+    if value is None:
+        return "unknown"
+    raw = str(value).strip()
+    return raw if raw else "unknown"
 
 
 def _match_position_for_liquidation(
