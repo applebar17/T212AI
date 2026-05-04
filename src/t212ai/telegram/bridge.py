@@ -14,8 +14,6 @@ from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
 from t212ai.agent.schemas import AgentRequest
 from t212ai.app.runtime import AppRuntime, build_runtime
 from t212ai.genai.tracing import (
-    _trace_telegram_update_inputs,
-    _trace_telegram_update_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

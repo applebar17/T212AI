@@ -11,8 +11,6 @@ from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadServ
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
-    _trace_tool_function_inputs,
-    _trace_tool_function_outputs,
     set_trace_metadata,
     traceable,
 )
@@ -643,8 +641,6 @@ def broker_list_historical_orders(
 @traceable(
     name="broker_get_instrument_snapshot",
     run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
 )
 def broker_get_instrument_snapshot(
     *,

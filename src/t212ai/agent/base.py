@@ -7,10 +7,6 @@ from typing import TYPE_CHECKING
 
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
-    _trace_agent_execute_inputs,
-    _trace_agent_handle_inputs,
-    _trace_agent_plan_outputs,
-    _trace_agent_response_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

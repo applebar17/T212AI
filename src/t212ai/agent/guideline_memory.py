@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from t212ai.genai.models import ToolResult
 from t212ai.genai.tracing import (
-    _trace_agent_action_inputs,
-    _trace_agent_action_outputs,
-    _trace_agent_handle_inputs,
-    _trace_agent_response_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

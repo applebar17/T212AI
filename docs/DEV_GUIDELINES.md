@@ -19,7 +19,6 @@ This project uses LangSmith tracing for execution-level observability across age
 The baseline follows LangSmith manual instrumentation guidance:
 - prefer `@traceable` for application-level instrumentation
 - use precise `run_type` values so LangSmith renders runs correctly
-- keep traces compact and safe by summarizing inputs/outputs instead of logging full raw payloads
 - add trace metadata for routing, model choice, approval state, provider, and tool category
 
 ### Core Tracing Contract
@@ -32,12 +31,13 @@ Rules:
 - construct OpenAI/Azure clients through `wrap_openai(...)` when tracing is
   enabled, and do not also wrap the same raw LLM provider call with
   `run_type="llm"`; avoid duplicate LLM spans
-- use `process_inputs` and `process_outputs` for large or sensitive payloads
-  such as docs, embeddings, tool args, account snapshots, and provider payloads
+- do not add custom `process_inputs` or `process_outputs` functions unless the
+  user explicitly approves that specific case; tracing must rely on the
+  LangSmith SDK default capture plus lightweight metadata
 - for chat sessions, attach `session_id` and any request identifiers with
   `set_trace_metadata(...)` on the root span
 - every LLM-related step, method, or function must be traced with a name,
-  `run_type`, and input/output summarizers that match the logic behind the step
+  `run_type`, and metadata that match the logic behind the step
 - keep run names stable and operational, for example `order_agent.reason`,
   `order_agent.plan`, `order_agent.execute.<action_id>`, and
   `order_agent.return`
@@ -59,15 +59,18 @@ Required environment variables:
 Recommended:
 - `LANGSMITH_PROJECT=T212AI`
 
-By design, our local tracing wrapper fails open. If LangSmith is not installed or tracing is disabled, the application still runs.
+If remote traces are missing, first verify that `LANGSMITH_TRACING=true` is set
+in the runtime environment. `@traceable` will not upload runs when tracing is
+disabled.
 
 ### Repo Rule
 
 Always import tracing helpers from `t212ai.genai.tracing`, not directly from `langsmith`.
 
 Reason:
-- it keeps LangSmith optional
-- it centralizes sanitization and summary logic
+- `traceable` is the original LangSmith SDK decorator, re-exported without a
+  custom wrapper
+- it centralizes tiny metadata/name helpers
 - it gives one place to evolve tracing behavior without touching all call sites
 
 Use:
@@ -117,14 +120,15 @@ Use these conventions:
 
 ### Input And Output Policy
 
-Do not rely on default argument capture for agent and tool code. Use `process_inputs` and `process_outputs` to summarize payloads.
+Do not add repo-local input/output processing functions by default.
 
 Current tracing policy:
-- user requests: log length, sanitized preview, trigger type, chat id, history counts
-- history: log counts and roles, not full conversation dumps
-- plans: log counts for required context, risks, missing inputs, tool steps, and approval requirement
-- agent responses: log selected agent, answer length, plan/critique presence
-- tool runs: log sanitized arguments, status, output preview, error code, and top-level data keys
+- rely on LangSmith SDK default input/output capture
+- add small metadata with `set_trace_metadata(...)` for operational filtering
+- keep the traced method boundaries meaningful, so raw captured inputs/outputs
+  are interpretable without additional processors
+- if a payload is too large or sensitive, fix the method boundary or payload
+  shape before adding custom processors
 
 Never log:
 - API keys, secrets, auth headers

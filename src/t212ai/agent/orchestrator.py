@@ -11,12 +11,6 @@ from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadServ
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
-    _trace_agent_action_inputs,
-    _trace_agent_action_outputs,
-    _trace_agent_handle_inputs,
-    _trace_agent_response_outputs,
-    _trace_tool_function_inputs,
-    _trace_tool_function_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

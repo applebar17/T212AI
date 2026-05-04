@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from t212ai.genai.tracing import (
-    _trace_agent_critique_outputs,
-    _trace_agent_plan_outputs,
-    _trace_reasoner_build_plan_inputs,
-    _trace_reasoner_critique_inputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

@@ -17,12 +17,6 @@ from .models import ToolError, ToolResult, ToolSpec
 from .tokenizer import TokenCounter
 from .tools import ToolBox, build_chat_toolbox, build_tool_mapping
 from .tracing import (
-    _trace_execute_tool_inputs,
-    _trace_execute_tool_outputs,
-    _trace_generate_structured_inputs,
-    _trace_generate_structured_outputs,
-    _trace_handle_params_inputs,
-    _trace_handle_params_outputs,
     traceable,
 )
 

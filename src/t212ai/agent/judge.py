@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from t212ai.genai.tracing import (
-    _trace_agent_critique_outputs,
-    _trace_agent_review_inputs,
     set_trace_metadata,
     set_trace_name,
     traceable,

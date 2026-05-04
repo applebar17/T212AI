@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from t212ai.app.bootstrap import ConfigAssessment, assess_settings
 from t212ai.app.config import AppSettings, get_app_settings
 from t212ai.genai.tracing import (
-    _trace_tool_function_inputs,
-    _trace_tool_function_outputs,
     traceable,
 )
 from ..models import ToolError, ToolResult, ToolSpec

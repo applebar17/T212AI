@@ -22,11 +22,6 @@ from t212ai.genai.models import ToolError, ToolResult
 from t212ai.genai.tools import build_tool_mapping_for
 from t212ai.genai.tools.base import ToolBox, render_tool_descriptions
 from t212ai.genai.tracing import (
-    _trace_agent_action_inputs,
-    _trace_agent_action_outputs,
-    _trace_agent_execute_inputs,
-    _trace_agent_handle_inputs,
-    _trace_agent_response_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,
