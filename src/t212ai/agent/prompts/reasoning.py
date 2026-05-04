@@ -208,6 +208,12 @@ def build_plan_action_system_prompt(
         compact assistant message that captures the essential result, source
         caveats, and any failure. Do not dump raw tool JSON.
 
+        If a tool returns status=error, read its output, code, hint, and
+        structured details before deciding whether to retry, stop, or ask for
+        clarification. For broker order preparation failures, explicitly state
+        whether an order was prepared, whether approval was created, and what
+        corrected broker-native input is needed.
+
         This action result will become high-level context for later actions, so
         keep it self-contained and coherent.
 

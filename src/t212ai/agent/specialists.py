@@ -727,9 +727,9 @@ class OrderAgent(BaseAgent):
 
         error = result.error
         message = (
-            _render_tool_error_message(error)
-            if error is not None
-            else (result.output or "Order action failed.")
+            result.output
+            or (_render_tool_error_message(error) if error is not None else None)
+            or "Order action failed."
         )
         if error is not None:
             metadata["error_code"] = error.code or "tool_error"
@@ -1204,19 +1204,20 @@ def _order_action_summary(action_request: BrokerOrderActionRequest) -> str:
 
 
 def _order_intent_payload(action_request: BrokerOrderActionRequest) -> dict[str, Any]:
-        return {
-            "action": action_request.action.value,
-            "order_type": action_request.order_type,
-            "side": action_request.side,
-            "ticker": action_request.ticker,
-            "quantity": action_request.quantity,
-            "notional_amount": action_request.notional_amount,
-            "notional_currency": action_request.notional_currency,
-            "limit_price": action_request.limit_price,
-        "stop_price": action_request.stop_price,
-        "time_in_force": action_request.time_in_force,
-        "extended_hours": action_request.extended_hours,
-        "use_full_position_size": action_request.use_full_position_size,
+    payload = action_request.model_dump(mode="json")
+    return {
+        "action": action_request.action.value,
+        "order_type": payload.get("order_type"),
+        "side": payload.get("side"),
+        "ticker": payload.get("ticker"),
+        "quantity": payload.get("quantity"),
+        "notional_amount": payload.get("notional_amount"),
+        "notional_currency": payload.get("notional_currency"),
+        "limit_price": payload.get("limit_price"),
+        "stop_price": payload.get("stop_price"),
+        "time_in_force": payload.get("time_in_force"),
+        "extended_hours": payload.get("extended_hours"),
+        "use_full_position_size": payload.get("use_full_position_size"),
     }
 
 
@@ -1281,7 +1282,11 @@ def _approval_payload_from_grouped_execution(execution_result: Any) -> dict[str,
 def _broker_order_reasoning_guidelines() -> list[str]:
     return [
         "Treat broker reads as the only authority for cash, positions, pending orders, and order references.",
+        "Treat user-supplied public symbols, company names, and ISINs as unverified for broker execution "
+        "until broker_resolve_instrument or broker portfolio context confirms the broker-native instrument.",
         "Detect broker-state dependent values such as available-cash fractions, full-position exits, and protective orders that depend on a prior fill.",
+        "Record unresolved or ambiguous broker instruments as required evidence, not assumptions; "
+        "do not let market-data symbols substitute for broker-native tradable identifiers.",
         "Do not resolve approvals from natural-language messages; approval and rejection are Telegram callback-button events only.",
         "Numeric broker fields must be resolved decimal values before order preparation.",
     ]
@@ -1290,7 +1295,15 @@ def _broker_order_reasoning_guidelines() -> list[str]:
 def _broker_order_planning_guidelines() -> list[str]:
     return [
         "Use broker_get_portfolio_snapshot before preparing orders that depend on cash, holdings, or available quantities.",
-        "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker or company name that may need a broker-native ticker.",
+        "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker, "
+        "company name, ISIN, or any identifier not already confirmed as broker-native by broker data.",
+        "Do not force an instrument-resolution action when a prior broker tool output already provides the exact "
+        "broker-native ticker; depend on that output instead.",
+        "If broker_resolve_instrument returns ambiguous or not_found, stop before order preparation and ask for "
+        "confirmation or a more precise ticker/exchange/currency rather than guessing.",
+        "If broker_prepare_order_action returns an instrument-resolution error, use the tool output as the final "
+        "failure explanation: no order was prepared, no approval was created, and the user must choose or provide "
+        "a broker-native ticker.",
         "Add no-tool calculation actions for simple arithmetic from prior tool outputs, then pass the resolved decimal value into broker_prepare_order_action.",
         "Use broker_prepare_order_action or broker_prepare_cancel_action for Telegram flows; do not plan broker_place_order for natural-language requests.",
         "State-changing broker preparation actions must be sequential and dependent on all broker reads/calculations they require.",
@@ -1305,6 +1318,12 @@ def _broker_order_reasoning_examples() -> list[str]:
             "Reasoning context should note that the notional amount is broker-state dependent, "
             "available cash must be read from broker_get_portfolio_snapshot, and notional_amount "
             "must remain unset until half of available_to_trade is calculated."
+        ),
+        (
+            "User asks: 'Buy GOOGL.' Reasoning context should note that the public "
+            "symbol may not be the broker-native tradable ticker, so broker instrument "
+            "resolution is required before order preparation unless broker context "
+            "already confirmed the ticker."
         )
     ]
 
@@ -1319,6 +1338,14 @@ def _broker_order_planning_examples() -> list[str]:
             "group 3 sequential action broker_resolve_instrument if needed; "
             "group 4 sequential action broker_prepare_order_action depending on the cash calculation "
             "and instrument resolution, passing notional_amount as a concrete decimal number."
+        ),
+        (
+            "Example grouped plan for public-symbol buy: "
+            "group 1 sequential action broker_resolve_instrument with query set to the "
+            "user-provided symbol/name and output_key=instrument_resolution; "
+            "group 2 sequential action broker_prepare_order_action depending on "
+            "instrument_resolution, using resolvedTicker only when resolution.status is resolved. "
+            "If resolution is ambiguous or not_found, do not prepare an order; ask for confirmation."
         )
     ]
 

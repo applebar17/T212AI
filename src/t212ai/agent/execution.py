@@ -425,6 +425,8 @@ def _summarize_tool_messages(messages: Any) -> list[dict[str, Any]]:
         if isinstance(error, dict):
             entry["error_code"] = error.get("code")
             entry["error_message"] = error.get("message")
+            if error.get("hint"):
+                entry["error_hint"] = _trim(str(error.get("hint")))
         output = parsed.get("output")
         if isinstance(output, str) and output.strip():
             entry["output_preview"] = _trim(output)

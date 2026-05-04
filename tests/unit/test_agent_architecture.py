@@ -1040,7 +1040,10 @@ def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> 
     assert "broker_get_portfolio_snapshot" in (executor.invocation.tool_descriptions or "")
     assert "broker_prepare_order_action" in (executor.invocation.tool_descriptions or "")
     assert any("available-cash fractions" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("broker-native instrument" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("not_found" in item for item in executor.invocation.planning_guidelines)
     assert any("cash-relative buy" in item for item in executor.invocation.planning_examples)
+    assert any("public-symbol buy" in item for item in executor.invocation.planning_examples)
 
     reasoning_prompt = fake.calls[0]["system_prompt"]
     planner_prompt = fake.calls[1]["system_prompt"]

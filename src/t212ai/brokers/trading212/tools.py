@@ -641,7 +641,7 @@ def t212_cancel_order(
 def _instrument_resolution_tool_error(exc: BrokerInstrumentResolutionError) -> ToolResult:
     return _tool_error(
         str(exc),
-        code="invalid_order_request",
+        code="instrument_resolution_failed",
         hint=(
             "Use one of error.details.resolution.candidates[].ticker values "
             "and prepare the order again."
@@ -659,6 +659,12 @@ def _tool_error(
 ) -> ToolResult:
     return ToolResult(
         status="error",
+        output=_format_tool_error_output(
+            message,
+            code=code,
+            hint=hint,
+            details=details,
+        ),
         error=ToolError(
             message=message,
             code=code,
@@ -667,6 +673,32 @@ def _tool_error(
             details=details,
         ),
     )
+
+
+def _format_tool_error_output(
+    message: str,
+    *,
+    code: str,
+    hint: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> str:
+    lines = [str(message or "Tool execution failed.").strip()]
+    if code:
+        lines.append(f"Code: {code}.")
+    resolution = details.get("resolution") if isinstance(details, dict) else None
+    if isinstance(resolution, dict):
+        candidates = resolution.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            rendered = [
+                str(candidate.get("ticker"))
+                for candidate in candidates[:5]
+                if isinstance(candidate, dict) and candidate.get("ticker")
+            ]
+            if rendered:
+                lines.append("Candidate Trading 212 tickers: " + ", ".join(rendered) + ".")
+    if hint:
+        lines.append(f"Hint: {hint}")
+    return "\n".join(line for line in lines if line)
 
 
 def _tool_exception(

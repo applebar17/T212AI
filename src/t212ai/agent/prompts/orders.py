@@ -29,9 +29,9 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
       is already a resolved decimal-compatible number.
     - For relative cash sizing such as "half the available cash", "25% of buying
       power", or any amount that depends on broker state, do not put the phrase,
-      formula, or percentage in notional_amount. The agentic flow must first gather
-      broker cash, calculate the exact decimal amount, and only then prepare the
-      order with that resolved value. If this extraction step does not have the
+      formula, or percentage in notional_amount. The agentic flow must first
+      gather broker cash, calculate the exact decimal amount, and only then
+      prepare the order with that resolved value. If this extraction step does not have the
       broker state yet, leave notional_amount unset and explain the missing broker
       context in reason/risks instead of inventing a value.
     - Prefer broker-native asset identifiers when known. For Trading 212 this means

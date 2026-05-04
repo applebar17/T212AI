@@ -454,13 +454,17 @@ def test_generic_broker_prepare_order_returns_structured_resolution_error() -> N
     )
 
     assert result.status == "error"
+    assert result.output is not None
+    assert "No broker order was prepared or submitted." in result.output
+    assert "Candidate broker-native tickers" in result.output
+    assert "GOOGLE_ES_EQ" in result.output
     assert result.error is not None
-    assert result.error.code == "invalid_order_request"
+    assert result.error.code == "ambiguous_broker_instrument"
     assert result.error.details is not None
     resolution = result.error.details["resolution"]
     assert resolution["status"] == "ambiguous"
     assert resolution["candidates"][0]["ticker"] == "GOOGLE_ES_EQ"
-    assert "error.details.resolution.candidates" in (result.error.hint or "")
+    assert "Do not guess" in (result.error.hint or "")
 
 
 def test_generic_broker_prepare_order_sizes_limit_order_from_notional() -> None:
