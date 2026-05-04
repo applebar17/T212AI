@@ -101,9 +101,7 @@ class PortfolioAnalystAgent(BaseAgent):
 
     @traceable(
         name="Portfolio Analyst Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -231,9 +229,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Handle",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def handle(
         self,
@@ -294,9 +290,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Configurable Order Action",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def _handle_configurable_order_action(
         self,
@@ -419,9 +413,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -552,9 +544,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Build Action Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _build_action_request(
         self,
@@ -610,9 +600,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Execute Action Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _execute_action_request(
         self,
@@ -664,9 +652,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Resolve Position Backed Submit Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _resolve_position_backed_submit_request(
         self,
@@ -745,9 +731,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Create Submit Order Proposal",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _create_submit_order_proposal(
         self,
@@ -781,9 +765,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Response From Tool Result",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _response_from_tool_result(
         self,
@@ -903,9 +885,7 @@ class CalculatorAgent(BaseAgent):
 
     @traceable(
         name="Calculator Agent Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -971,9 +951,7 @@ class CalculatorAgent(BaseAgent):
 
     @traceable(
         name="Calculator Agent Build Calculation Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _build_calculation_request(self, request: AgentRequest) -> CalculatorRequest:
         set_trace_name(f"{self.__class__.__name__}.build_calculation_request")
@@ -1007,9 +985,7 @@ class CalculatorAgent(BaseAgent):
 
     @traceable(
         name="Calculator Agent Execute Calculation Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _execute_calculation_request(self, request: CalculatorRequest) -> ToolResult:
         set_trace_name(f"{self.__class__.__name__}.execute_calculation_request")
@@ -1114,9 +1090,7 @@ class MarketAnalystAgent(BaseAgent):
 
     @traceable(
         name="Market Analyst Handle",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def handle(
         self,
@@ -1174,9 +1148,7 @@ class MarketAnalystAgent(BaseAgent):
 
     @traceable(
         name="Market Analyst Configurable Market Analysis",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def _handle_configurable_market_analysis(
         self,
@@ -1285,9 +1257,7 @@ class MarketAnalystAgent(BaseAgent):
 
     @traceable(
         name="Market Analyst Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,

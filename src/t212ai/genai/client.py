@@ -159,9 +159,7 @@ class GenAIClient:
 
     @traceable(
         name="Structured Generation",
-        run_type="chain",
-        process_inputs=_trace_generate_structured_inputs,
-        process_outputs=_trace_generate_structured_outputs,
+        run_type="chain"
     )
     def generate_structured(
         self,
@@ -212,9 +210,7 @@ class GenAIClient:
 
     @traceable(
         name="Build Chat Params",
-        run_type="prompt",
-        process_inputs=_trace_handle_params_inputs,
-        process_outputs=_trace_handle_params_outputs,
+        run_type="prompt"
     )
     def handle_params(
         self,
@@ -445,9 +441,7 @@ class GenAIClient:
 
     @traceable(
         name="Tool Call",
-        run_type="tool",
-        process_inputs=_trace_execute_tool_inputs,
-        process_outputs=_trace_execute_tool_outputs,
+        run_type="tool"
     )
     def _execute_tool_call(
         self,

@@ -58,9 +58,7 @@ class BaseAgent:
 
     @traceable(
         name="Agent Handle",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def handle(
         self,
@@ -104,9 +102,7 @@ class BaseAgent:
 
     @traceable(
         name="Agent Plan",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_plan_outputs,
+        run_type="chain"
     )
     def plan(
         self,
@@ -140,9 +136,7 @@ class BaseAgent:
 
     @traceable(
         name="Agent Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,

@@ -38,9 +38,7 @@ class AgentReasoner:
 
     @traceable(
         name="Agent Reasoner Build Plan",
-        run_type="chain",
-        process_inputs=_trace_reasoner_build_plan_inputs,
-        process_outputs=_trace_agent_plan_outputs,
+        run_type="chain"
     )
     def build_plan(
         self,
@@ -91,9 +89,7 @@ class AgentReasoner:
 
     @traceable(
         name="Agent Reasoner Critique",
-        run_type="chain",
-        process_inputs=_trace_reasoner_critique_inputs,
-        process_outputs=_trace_agent_critique_outputs,
+        run_type="chain"
     )
     def critique(
         self,

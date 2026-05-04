@@ -165,9 +165,7 @@ class MainOrchestratorAgent(BaseAgent):
 
     @traceable(
         name="Main Orchestrator Handle",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def handle(
         self,
@@ -215,9 +213,7 @@ class MainOrchestratorAgent(BaseAgent):
 
     @traceable(
         name="Main Orchestrator Forced Order Route",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _forced_order_route_answer(
         self,
@@ -388,9 +384,7 @@ class MainOrchestratorAgent(BaseAgent):
     ):
         @traceable(
             name=tool_name,
-            run_type="tool",
-            process_inputs=_trace_tool_function_inputs,
-            process_outputs=_trace_tool_function_outputs,
+            run_type="tool"
         )
         def _delegate(
             *,
@@ -504,9 +498,7 @@ class MainOrchestratorAgent(BaseAgent):
 
     @traceable(
         name="Main Orchestrator Build Response Package",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _build_response_package(
         self,

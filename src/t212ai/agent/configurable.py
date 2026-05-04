@@ -28,11 +28,7 @@ class ConfigurableReasonerAgent:
 
     @traceable(
         name="Configurable Reasoner Reason",
-        run_type="chain",
-        process_inputs=lambda *args, **kwargs: _trace_invocation_inputs(
-            *args, **kwargs
-        ),
-        process_outputs=lambda output: _trace_reasoning_context_outputs(output),
+        run_type="chain"
     )
     def reason(self, invocation: AgentInvocationContext) -> AgentReasoningContext:
         set_trace_name(f"{invocation.agent_name}.reason")
@@ -80,11 +76,7 @@ class ConfigurablePlannerAgent:
 
     @traceable(
         name="Configurable Planner Plan",
-        run_type="chain",
-        process_inputs=lambda *args, **kwargs: _trace_planner_inputs(
-            *args, **kwargs
-        ),
-        process_outputs=lambda output: _trace_grouped_plan_outputs(output),
+        run_type="chain"
     )
     def plan(
         self,

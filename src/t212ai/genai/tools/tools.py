@@ -430,9 +430,7 @@ def _provider_unavailable_tool(
 ) -> Callable[..., ToolResult]:
     @traceable(
         name="provider_unavailable_tool",
-        run_type="tool",
-        process_inputs=_trace_tool_function_inputs,
-        process_outputs=_trace_tool_function_outputs,
+        run_type="tool"
     )
     def _tool(**_kwargs: Any) -> ToolResult:
         return ToolResult(

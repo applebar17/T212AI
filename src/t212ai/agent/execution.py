@@ -72,11 +72,7 @@ class GroupedPlanExecutor:
 
     @traceable(
         name="Grouped Plan Executor",
-        run_type="chain",
-        process_inputs=lambda *args, **kwargs: _trace_executor_inputs(
-            *args, **kwargs
-        ),
-        process_outputs=lambda output: _trace_executor_outputs(output),
+        run_type="chain"
     )
     def execute(
         self,
@@ -165,9 +161,7 @@ class GroupedPlanExecutor:
 
     @traceable(
         name="Plan Action Execution",
-        run_type="chain",
-        process_inputs=lambda *args, **kwargs: _trace_action_inputs(*args, **kwargs),
-        process_outputs=lambda output: _trace_action_outputs(output),
+        run_type="chain"
     )
     def _execute_action(
         self,
@@ -274,11 +268,7 @@ class GroupedPlanExecutor:
 
     @traceable(
         name="Final Synthesis",
-        run_type="chain",
-        process_inputs=lambda *args, **kwargs: _trace_final_synthesis_inputs(
-            *args, **kwargs
-        ),
-        process_outputs=lambda output: {"final_answer_chars": len(str(output or ""))},
+        run_type="chain"
     )
     def _run_final_synthesis(
         self,
