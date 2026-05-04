@@ -88,8 +88,8 @@ def build_reasoning_context_system_prompt(
         Available capability/toolbox summary:
         {toolbox_summary}
 
-        Available tool descriptions:
-        {tool_descriptions or "No detailed tool descriptions provided."}
+        Available high-level tool descriptions:
+        {tool_descriptions or "No high-level tool descriptions provided."}
 
         Agent-specific guidelines:
         {guidelines}
@@ -156,8 +156,8 @@ def build_grouped_plan_system_prompt(
         Available capability/toolbox summary:
         {toolbox_summary}
 
-        Available tool descriptions:
-        {tool_descriptions or "No detailed tool descriptions provided."}
+        Available high-level tool descriptions:
+        {tool_descriptions or "No high-level tool descriptions provided."}
 
         Agent-specific guidelines:
         {guidelines}

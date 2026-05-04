@@ -59,10 +59,39 @@ def test_render_tool_descriptions_softens_restrictive_phrasing() -> None:
         tools_by_name=build_tool_index([tool]),
     )
 
-    rendered = render_tool_descriptions(toolbox)
+    rendered = render_tool_descriptions(toolbox, include_parameters=True)
 
     assert "Use resolved values rather than formulas" in rendered
     assert "Do not" not in rendered
+
+
+def test_render_tool_descriptions_omits_parameters_by_default() -> None:
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "example_tool",
+            "description": "Example tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string", "description": "Verbose input detail."}
+                },
+                "required": ["value"],
+            },
+        },
+    }
+    toolbox = ToolBox(
+        name="example",
+        tools=[tool],
+        tools_by_name=build_tool_index([tool]),
+    )
+
+    rendered = render_tool_descriptions(toolbox)
+
+    assert "example_tool" in rendered
+    assert "Example tool." in rendered
+    assert "inputs:" not in rendered
+    assert "Verbose input detail" not in rendered
 
 
 def test_message_to_dict_falls_back_when_model_dump_raises() -> None:

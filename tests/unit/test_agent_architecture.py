@@ -1052,13 +1052,15 @@ def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> 
 
     reasoning_prompt = fake.calls[0]["system_prompt"]
     planner_prompt = fake.calls[1]["system_prompt"]
-    assert "Available tool descriptions" in reasoning_prompt
+    assert "Available high-level tool descriptions" in reasoning_prompt
     assert "broker_get_portfolio_snapshot" in reasoning_prompt
+    assert "inputs:" not in reasoning_prompt
     assert "Reasoning examples" in reasoning_prompt
     assert "holding-dependent" in reasoning_prompt
     assert "Planning examples" in planner_prompt
     assert "cash-relative buy" in planner_prompt
     assert "protective sell/stop-limit" in planner_prompt
+    assert "inputs:" not in planner_prompt
 
 
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:

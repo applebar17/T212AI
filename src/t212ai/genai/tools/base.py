@@ -34,7 +34,11 @@ def build_tool_index(tools: list[ToolSpec]) -> dict[str, ToolSpec]:
     return index
 
 
-def render_tool_descriptions(toolbox: ToolBox | None) -> str:
+def render_tool_descriptions(
+    toolbox: ToolBox | None,
+    *,
+    include_parameters: bool = False,
+) -> str:
     if toolbox is None or not toolbox.tools:
         return "No tools are available."
     rendered: list[str] = []
@@ -43,18 +47,26 @@ def render_tool_descriptions(toolbox: ToolBox | None) -> str:
         name = str(function.get("name") or "").strip()
         description = str(function.get("description") or "").strip()
         parameters = function.get("parameters") or {}
-        rendered.append(
-            "\n".join(
-                item
-                for item in (
-                    f"- {name}",
-                    f"  description: {description}" if description else "",
-                    f"  inputs: {_compact_parameters(parameters)}",
-                )
-                if item
-            )
-        )
+        items = [
+            f"- {name}",
+            f"  description: {description}" if description else "",
+        ]
+        if include_parameters:
+            items.append(f"  inputs: {_compact_parameters(parameters)}")
+        rendered.append("\n".join(item for item in items if item))
     return "\n".join(rendered)
+
+
+def render_tool_capability_names(toolbox: ToolBox | None) -> str:
+    if toolbox is None or not toolbox.tools:
+        return "No tools are available."
+    names: list[str] = []
+    for tool in toolbox.tools:
+        function = tool.get("function") or {}
+        name = str(function.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return ", ".join(names) if names else "No tools are available."
 
 
 def _compact_parameters(parameters: Any) -> str:
