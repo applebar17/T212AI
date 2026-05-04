@@ -288,9 +288,7 @@ def build_calculator_tool_mapping(
 
 @traceable(
     name="calc_evaluate_formula",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_evaluate_formula(*, expression: str, runtime: CalculatorToolRuntime) -> ToolResult:
     set_trace_metadata(provider="calculator", tool_name="calc_evaluate_formula")
@@ -302,9 +300,7 @@ def calc_evaluate_formula(*, expression: str, runtime: CalculatorToolRuntime) ->
 
 @traceable(
     name="calc_sum",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_sum(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolResult:
     set_trace_metadata(provider="calculator", tool_name="calc_sum")
@@ -316,9 +312,7 @@ def calc_sum(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolResu
 
 @traceable(
     name="calc_subtract",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_subtract(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolResult:
     set_trace_metadata(provider="calculator", tool_name="calc_subtract")
@@ -330,9 +324,7 @@ def calc_subtract(*, operands: list[Any], runtime: CalculatorToolRuntime) -> Too
 
 @traceable(
     name="calc_multiply",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_multiply(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolResult:
     set_trace_metadata(provider="calculator", tool_name="calc_multiply")
@@ -344,9 +336,7 @@ def calc_multiply(*, operands: list[Any], runtime: CalculatorToolRuntime) -> Too
 
 @traceable(
     name="calc_divide",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_divide(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolResult:
     set_trace_metadata(provider="calculator", tool_name="calc_divide")
@@ -358,9 +348,7 @@ def calc_divide(*, operands: list[Any], runtime: CalculatorToolRuntime) -> ToolR
 
 @traceable(
     name="calc_quantity_from_budget_and_price",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_quantity_from_budget_and_price(
     *,
@@ -377,9 +365,7 @@ def calc_quantity_from_budget_and_price(
 
 @traceable(
     name="calc_notional_from_quantity_and_price",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_notional_from_quantity_and_price(
     *,
@@ -399,9 +385,7 @@ def calc_notional_from_quantity_and_price(
 
 @traceable(
     name="calc_position_weight",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_position_weight(
     *,
@@ -421,9 +405,7 @@ def calc_position_weight(
 
 @traceable(
     name="calc_rebalance_delta",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_rebalance_delta(
     *,
@@ -445,9 +427,7 @@ def calc_rebalance_delta(
 
 @traceable(
     name="calc_pnl_amount",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_pnl_amount(
     *,
@@ -471,9 +451,7 @@ def calc_pnl_amount(
 
 @traceable(
     name="calc_pnl_percent",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def calc_pnl_percent(
     *,

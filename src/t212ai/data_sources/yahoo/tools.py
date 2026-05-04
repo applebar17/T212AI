@@ -303,9 +303,7 @@ def build_yahoo_tool_mapping(
 
 @traceable(
     name="yahoo_price_history",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_price_history(
     *,
@@ -352,9 +350,7 @@ def yahoo_price_history(
 
 @traceable(
     name="yahoo_price_summary",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_price_summary(
     *,
@@ -394,9 +390,7 @@ def yahoo_price_summary(
 
 @traceable(
     name="yahoo_price_summary_with_chart_refs",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_price_summary_with_chart_refs(
     *,
@@ -449,9 +443,7 @@ def yahoo_price_summary_with_chart_refs(
 
 @traceable(
     name="yahoo_symbol_search",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_symbol_search(
     *,
@@ -484,9 +476,7 @@ def yahoo_symbol_search(
 
 @traceable(
     name="yahoo_quote_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_quote_snapshot(
     *,
@@ -511,9 +501,7 @@ def yahoo_quote_snapshot(
 
 @traceable(
     name="yahoo_market_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_market_snapshot(
     *,
@@ -563,9 +551,7 @@ def yahoo_market_snapshot(
 
 @traceable(
     name="yahoo_volume_monitor",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_volume_monitor(
     *,
@@ -618,9 +604,7 @@ def yahoo_volume_monitor(
 
 @traceable(
     name="yahoo_options_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_options_snapshot(
     *,
@@ -645,9 +629,7 @@ def yahoo_options_snapshot(
 
 @traceable(
     name="yahoo_analyst_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def yahoo_analyst_snapshot(
     *,

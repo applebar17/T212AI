@@ -112,9 +112,7 @@ def build_sec_edgar_tool_mapping(
 
 @traceable(
     name="edgar_recent_ownership_activity",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def edgar_recent_ownership_activity(
     *,
@@ -135,9 +133,7 @@ def edgar_recent_ownership_activity(
 
 @traceable(
     name="edgar_recent_major_stake_activity",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def edgar_recent_major_stake_activity(
     *,
@@ -158,9 +154,7 @@ def edgar_recent_major_stake_activity(
 
 @traceable(
     name="edgar_company_disclosure_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def edgar_company_disclosure_snapshot(
     *,

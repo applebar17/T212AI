@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from t212ai.app.bootstrap import ConfigAssessment, assess_settings
 from t212ai.app.config import AppSettings, get_app_settings
+from t212ai.genai.tracing import (
+    _trace_tool_function_inputs,
+    _trace_tool_function_outputs,
+    traceable,
+)
 from ..models import ToolError, ToolResult, ToolSpec
 from .base import ToolBox, build_tool_index
 from .market_data import (
@@ -423,6 +428,12 @@ def _provider_unavailable_tool(
     tool_name: str,
     message: str,
 ) -> Callable[..., ToolResult]:
+    @traceable(
+        name="provider_unavailable_tool",
+        run_type="tool",
+        process_inputs=_trace_tool_function_inputs,
+        process_outputs=_trace_tool_function_outputs,
+    )
     def _tool(**_kwargs: Any) -> ToolResult:
         return ToolResult(
             status="error",

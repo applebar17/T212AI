@@ -280,9 +280,7 @@ def build_alpha_vantage_intelligence_tool_mapping(
 
 @traceable(
     name="alpha_vantage_news_sentiment",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_news_sentiment(
     *,
@@ -313,9 +311,7 @@ def alpha_vantage_news_sentiment(
 
 @traceable(
     name="alpha_vantage_earnings_call_transcript",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_earnings_call_transcript(
     *,
@@ -338,9 +334,7 @@ def alpha_vantage_earnings_call_transcript(
 
 @traceable(
     name="alpha_vantage_top_gainers_losers",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_top_gainers_losers(
     *,
@@ -361,9 +355,7 @@ def alpha_vantage_top_gainers_losers(
 
 @traceable(
     name="alpha_vantage_most_actively_traded",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_most_actively_traded(
     *,
@@ -438,9 +430,7 @@ def alpha_vantage_most_actively_traded(
 
 @traceable(
     name="alpha_vantage_insider_transactions",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_insider_transactions(
     *,
@@ -461,9 +451,7 @@ def alpha_vantage_insider_transactions(
 
 @traceable(
     name="alpha_vantage_institutional_holdings",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_institutional_holdings(
     *,
@@ -484,9 +472,7 @@ def alpha_vantage_institutional_holdings(
 
 @traceable(
     name="alpha_vantage_analytics_fixed_window",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_analytics_fixed_window(
     *,
@@ -515,9 +501,7 @@ def alpha_vantage_analytics_fixed_window(
 
 @traceable(
     name="alpha_vantage_analytics_sliding_window",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def alpha_vantage_analytics_sliding_window(
     *,

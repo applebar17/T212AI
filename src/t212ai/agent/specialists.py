@@ -22,6 +22,9 @@ from t212ai.genai.models import ToolError, ToolResult
 from t212ai.genai.tools import build_tool_mapping_for
 from t212ai.genai.tools.base import ToolBox, render_tool_descriptions
 from t212ai.genai.tracing import (
+    _trace_agent_action_inputs,
+    _trace_agent_action_outputs,
+    _trace_agent_execute_inputs,
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
     set_trace_metadata,
@@ -96,6 +99,12 @@ class PortfolioAnalystAgent(BaseAgent):
             return TaskComplexity.COMPLEX
         return TaskComplexity.EASY
 
+    @traceable(
+        name="Portfolio Analyst Execute",
+        run_type="chain",
+        process_inputs=_trace_agent_execute_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def execute(
         self,
         request: AgentRequest,
@@ -104,7 +113,16 @@ class PortfolioAnalystAgent(BaseAgent):
         task_complexity: TaskComplexity,
         plan,
     ) -> AgentResponse | None:
-        del request, task_complexity
+        del request
+        set_trace_name(f"{self.__class__.__name__}.execute")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute",
+            step_kind="execute",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="portfolio_summary",
+        )
         if (
             intent.kind != IntentKind.PORTFOLIO_SUMMARY
             or self.portfolio_summary_workflow is None
@@ -274,6 +292,12 @@ class OrderAgent(BaseAgent):
             task_complexity=task_complexity,
         )
 
+    @traceable(
+        name="Order Agent Configurable Order Action",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def _handle_configurable_order_action(
         self,
         request: AgentRequest,
@@ -281,6 +305,16 @@ class OrderAgent(BaseAgent):
         intent: AgentIntent,
         task_complexity: TaskComplexity,
     ) -> AgentResponse:
+        set_trace_name(f"{self.__class__.__name__}.configurable_order_action")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="configurable_order_action",
+            step_kind="agentic_flow",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="order_action",
+            execution_mode="grouped_plan",
+        )
         invocation = AgentInvocationContext(
             user_request=request.user_message,
             chat_history=self._history_for_prompt(request.history),
@@ -383,6 +417,12 @@ class OrderAgent(BaseAgent):
             and bool(self.profile.toolbox.tools)
         )
 
+    @traceable(
+        name="Order Agent Execute",
+        run_type="chain",
+        process_inputs=_trace_agent_execute_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def execute(
         self,
         request: AgentRequest,
@@ -391,7 +431,16 @@ class OrderAgent(BaseAgent):
         task_complexity: TaskComplexity,
         plan,
     ) -> AgentResponse | None:
-        del task_complexity
+        set_trace_name(f"{self.__class__.__name__}.execute")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute",
+            step_kind="execute",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="order_action",
+            execution_mode="direct_action",
+        )
         if intent.kind == IntentKind.REVIEW_PENDING_ORDERS:
             if self.pending_orders_review_workflow is None:
                 return None
@@ -501,12 +550,26 @@ class OrderAgent(BaseAgent):
             proposal_id=proposal.proposal_id if proposal is not None else None,
         )
 
+    @traceable(
+        name="Order Agent Build Action Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _build_action_request(
         self,
         request: AgentRequest,
         *,
         intent: AgentIntent,
     ) -> BrokerOrderActionRequest:
+        set_trace_name(f"{self.__class__.__name__}.build_action_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="build_action_request",
+            step_kind="action_request_extraction",
+            intent_kind=intent.kind.value,
+            workflow="order_action",
+        )
         system_prompt = ORDER_ACTION_REQUEST_SYSTEM_PROMPT
         messages = []
         if request.history:
@@ -545,11 +608,25 @@ class OrderAgent(BaseAgent):
             )
         return _broker_snapshot_order_context(snapshot)
 
+    @traceable(
+        name="Order Agent Execute Action Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _execute_action_request(
         self,
         request: AgentRequest,
         action_request: BrokerOrderActionRequest,
     ) -> ToolResult:
+        set_trace_name(f"{self.__class__.__name__}.execute_action_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute_action_request",
+            step_kind="tool_dispatch",
+            workflow="order_action",
+            action=action_request.action.value,
+        )
         runtime = BrokerToolRuntime(
             broker_read_service=self.broker_read_service,
             broker_execution_service=self.broker_execution_service,
@@ -585,6 +662,12 @@ class OrderAgent(BaseAgent):
             extended_hours=action_request.extended_hours,
         )
 
+    @traceable(
+        name="Order Agent Resolve Position Backed Submit Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _resolve_position_backed_submit_request(
         self,
         request: AgentRequest,
@@ -592,6 +675,15 @@ class OrderAgent(BaseAgent):
         action_request: BrokerOrderActionRequest,
         intent: AgentIntent,
     ) -> BrokerOrderActionRequest | ToolResult:
+        set_trace_name(f"{self.__class__.__name__}.resolve_position_backed_submit_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="resolve_position_backed_submit_request",
+            step_kind="broker_state_resolution",
+            workflow="order_action",
+            action=action_request.action.value,
+            intent_kind=intent.kind.value,
+        )
         if action_request.action != BrokerOrderAction.PREPARE_SUBMIT_ORDER:
             return action_request
         side = str(action_request.side or "").strip().upper()
@@ -651,6 +743,12 @@ class OrderAgent(BaseAgent):
             updates["use_full_position_size"] = True
         return action_request.model_copy(update=updates)
 
+    @traceable(
+        name="Order Agent Create Submit Order Proposal",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _create_submit_order_proposal(
         self,
         request: AgentRequest,
@@ -658,6 +756,15 @@ class OrderAgent(BaseAgent):
         intent: AgentIntent,
         action_request: BrokerOrderActionRequest,
     ):
+        set_trace_name(f"{self.__class__.__name__}.create_submit_order_proposal")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="create_submit_order_proposal",
+            step_kind="proposal_persistence",
+            workflow="order_action",
+            action=action_request.action.value,
+            intent_kind=intent.kind.value,
+        )
         if self.proposal_service is None:
             return None
         return self.proposal_service.create_submit_order_proposal(
@@ -672,6 +779,12 @@ class OrderAgent(BaseAgent):
             confidence=action_request.confidence,
         )
 
+    @traceable(
+        name="Order Agent Response From Tool Result",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _response_from_tool_result(
         self,
         *,
@@ -680,6 +793,15 @@ class OrderAgent(BaseAgent):
         result: ToolResult,
         proposal_id: str | None,
     ) -> AgentResponse:
+        set_trace_name(f"{self.__class__.__name__}.response_from_tool_result")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="response_from_tool_result",
+            step_kind="return",
+            workflow="order_action",
+            action=action_request.action.value,
+            tool_status=result.status,
+        )
         metadata = {
             "workflow": "order_action",
             "workflow_status": result.status,
@@ -779,6 +901,12 @@ class CalculatorAgent(BaseAgent):
         )
         self.calculator_service = calculator_service or CalculatorService()
 
+    @traceable(
+        name="Calculator Agent Execute",
+        run_type="chain",
+        process_inputs=_trace_agent_execute_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def execute(
         self,
         request: AgentRequest,
@@ -787,7 +915,15 @@ class CalculatorAgent(BaseAgent):
         task_complexity: TaskComplexity,
         plan,
     ) -> AgentResponse | None:
-        del task_complexity
+        set_trace_name(f"{self.__class__.__name__}.execute")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute",
+            step_kind="execute",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="calculator",
+        )
         if intent.kind != IntentKind.CALCULATE:
             return None
         try:
@@ -833,7 +969,20 @@ class CalculatorAgent(BaseAgent):
             },
         )
 
+    @traceable(
+        name="Calculator Agent Build Calculation Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _build_calculation_request(self, request: AgentRequest) -> CalculatorRequest:
+        set_trace_name(f"{self.__class__.__name__}.build_calculation_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="build_calculation_request",
+            step_kind="action_request_extraction",
+            workflow="calculator",
+        )
         system_prompt = CALCULATOR_REQUEST_SYSTEM_PROMPT
         messages = []
         if request.history:
@@ -856,7 +1005,21 @@ class CalculatorAgent(BaseAgent):
         )
         return CalculatorRequest.model_validate(result)
 
+    @traceable(
+        name="Calculator Agent Execute Calculation Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _execute_calculation_request(self, request: CalculatorRequest) -> ToolResult:
+        set_trace_name(f"{self.__class__.__name__}.execute_calculation_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute_calculation_request",
+            step_kind="tool_dispatch",
+            workflow="calculator",
+            operation=request.operation.value,
+        )
         runtime = CalculatorToolRuntime(service=self.calculator_service)
         tool_mapping = build_calculator_tool_mapping(runtime)
         operation = request.operation.value
@@ -1009,6 +1172,12 @@ class MarketAnalystAgent(BaseAgent):
                 },
             )
 
+    @traceable(
+        name="Market Analyst Configurable Market Analysis",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def _handle_configurable_market_analysis(
         self,
         request: AgentRequest,
@@ -1016,6 +1185,16 @@ class MarketAnalystAgent(BaseAgent):
         intent: AgentIntent,
         task_complexity: TaskComplexity,
     ) -> AgentResponse:
+        set_trace_name(f"{self.__class__.__name__}.configurable_market_analysis")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="configurable_market_analysis",
+            step_kind="agentic_flow",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="market_analysis",
+            execution_mode="grouped_plan",
+        )
         invocation = AgentInvocationContext(
             user_request=request.user_message,
             chat_history=self._history_for_prompt(request.history),
@@ -1104,6 +1283,12 @@ class MarketAnalystAgent(BaseAgent):
             and bool(self.profile.toolbox.tools)
         )
 
+    @traceable(
+        name="Market Analyst Execute",
+        run_type="chain",
+        process_inputs=_trace_agent_execute_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def execute(
         self,
         request: AgentRequest,
@@ -1112,7 +1297,16 @@ class MarketAnalystAgent(BaseAgent):
         task_complexity: TaskComplexity,
         plan,
     ) -> AgentResponse | None:
-        del intent, task_complexity
+        set_trace_name(f"{self.__class__.__name__}.execute")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute",
+            step_kind="execute",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+            workflow="market_analysis",
+            execution_mode="tool_orchestration",
+        )
         if self.profile.toolbox is None or not self.profile.toolbox.tools:
             return None
 

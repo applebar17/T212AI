@@ -296,9 +296,7 @@ def build_trading212_tool_mapping(
 
 @traceable(
     name="t212_get_portfolio_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult:
     set_trace_metadata(provider="trading212", tool_name="t212_get_portfolio_snapshot")
@@ -326,9 +324,7 @@ def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult
 
 @traceable(
     name="t212_list_pending_orders",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_list_pending_orders(*, runtime: Trading212ToolRuntime) -> ToolResult:
     set_trace_metadata(provider="trading212", tool_name="t212_list_pending_orders")
@@ -342,9 +338,7 @@ def t212_list_pending_orders(*, runtime: Trading212ToolRuntime) -> ToolResult:
 
 @traceable(
     name="t212_get_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_get_order(*, order_id: int, runtime: Trading212ToolRuntime) -> ToolResult:
     set_trace_metadata(provider="trading212", tool_name="t212_get_order")
@@ -358,9 +352,7 @@ def t212_get_order(*, order_id: int, runtime: Trading212ToolRuntime) -> ToolResu
 
 @traceable(
     name="t212_prepare_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_prepare_order(
     *,
@@ -407,9 +399,7 @@ def t212_prepare_order(
 
 @traceable(
     name="t212_prepare_order_action",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_prepare_order_action(
     *,
@@ -474,9 +464,7 @@ def t212_prepare_order_action(
 
 @traceable(
     name="t212_prepare_cancel_action",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_prepare_cancel_action(
     *,
@@ -533,9 +521,7 @@ def t212_prepare_cancel_action(
 
 @traceable(
     name="t212_place_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_place_order(
     *,
@@ -601,9 +587,7 @@ def t212_place_order(
 
 @traceable(
     name="t212_cancel_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def t212_cancel_order(
     *,

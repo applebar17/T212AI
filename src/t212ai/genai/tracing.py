@@ -862,6 +862,10 @@ def _summarize_agent_request(request: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _looks_like_agent_request(value: Any) -> bool:
+    return hasattr(value, "user_message") and hasattr(value, "chat_id")
+
+
 def _summarize_agent_plan(plan: Any) -> dict[str, Any] | None:
     if plan is None:
         return None
@@ -902,6 +906,33 @@ def _summarize_agent_response(response: Any) -> dict[str, Any]:
     return summary
 
 
+def _summarize_model_payload(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, ToolResult):
+        return _trace_tool_function_outputs(value)
+    if isinstance(value, BaseModel):
+        payload = value.model_dump(mode="json", exclude_none=True)
+        return {
+            "model_type": value.__class__.__name__,
+            "payload": _sanitize_trace_value(payload),
+        }
+    if isinstance(value, dict):
+        return {
+            "model_type": "dict",
+            "payload": _sanitize_trace_value(value),
+        }
+    if isinstance(value, (list, tuple)):
+        return {
+            "model_type": type(value).__name__,
+            "items": _safe_len(value),
+            "preview": _sanitize_trace_value(list(value[:TRACE_COLLECTION_LIMIT])),
+        }
+    if isinstance(value, (str, int, float, bool)):
+        return {"model_type": type(value).__name__, "value": _sanitize_trace_value(value)}
+    return {"model_type": type(value).__name__}
+
+
 def _trace_agent_handle_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
     try:
         pos_args = list(args)
@@ -926,10 +957,119 @@ def _trace_agent_handle_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
         }
 
 
+def _trace_agent_execute_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        pos_args = list(args)
+        agent = None
+        if pos_args and not isinstance(pos_args[0], (str, dict, list)):
+            agent = pos_args.pop(0)
+        request = kwargs.get("request")
+        if request is None and pos_args:
+            request = pos_args[0]
+        intent = kwargs.get("intent")
+        task_complexity = kwargs.get("task_complexity")
+        plan = kwargs.get("plan")
+        return {
+            "agent_name": getattr(getattr(agent, "profile", None), "name", None),
+            "request": _summarize_agent_request(request),
+            "intent": _summarize_intent(intent),
+            "task_complexity": getattr(task_complexity, "value", task_complexity),
+            "plan": _summarize_agent_plan(plan),
+        }
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_agent_action_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        pos_args = list(args)
+        agent = None
+        if pos_args and not isinstance(pos_args[0], (str, dict, list)):
+            agent = pos_args.pop(0)
+        request = kwargs.get("request")
+        primary_payload = None
+        if request is None and pos_args:
+            if _looks_like_agent_request(pos_args[0]):
+                request = pos_args[0]
+            else:
+                primary_payload = pos_args[0]
+
+        summary: dict[str, Any] = {
+            "agent_name": getattr(getattr(agent, "profile", None), "name", None),
+            "request": _summarize_agent_request(request),
+        }
+        if primary_payload is not None:
+            summary["primary_payload"] = _summarize_model_payload(primary_payload)
+        intent = kwargs.get("intent")
+        if intent is not None:
+            summary["intent"] = _summarize_intent(intent)
+        plan = kwargs.get("plan")
+        if plan is not None:
+            summary["plan"] = _summarize_agent_plan(plan)
+
+        for key in (
+            "action_request",
+            "calculation_request",
+            "mutation_request",
+            "result",
+            "proposal_id",
+        ):
+            if key in kwargs:
+                summary[key] = _summarize_model_payload(kwargs.get(key))
+
+        if len(pos_args) > 1:
+            summary["positional_payloads"] = [
+                _summarize_model_payload(value)
+                for value in pos_args[1:TRACE_COLLECTION_LIMIT]
+            ]
+        extra_keys = sorted(
+            key
+            for key in kwargs.keys()
+            if key
+            not in {
+                "request",
+                "intent",
+                "plan",
+                "action_request",
+                "calculation_request",
+                "mutation_request",
+                "result",
+                "proposal_id",
+            }
+        )
+        if extra_keys:
+            summary["extra_params"] = extra_keys[:TRACE_TOOL_NAME_LIMIT]
+        return summary
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
 def _trace_agent_response_outputs(output: Any) -> dict[str, Any]:
     if output is None:
         return {"output_type": None}
     return _summarize_agent_response(output)
+
+
+def _trace_agent_action_outputs(output: Any) -> dict[str, Any]:
+    if output is None:
+        return {"output_type": None}
+    if getattr(output, "final_answer", None) is not None:
+        return _summarize_agent_response(output)
+    if isinstance(output, ToolResult):
+        summary = _trace_tool_function_outputs(output)
+        summary["output_type"] = "ToolResult"
+        return summary
+    return _summarize_model_payload(output) or {"output_type": type(output).__name__}
 
 
 def _trace_agent_plan_outputs(output: Any) -> dict[str, Any]:

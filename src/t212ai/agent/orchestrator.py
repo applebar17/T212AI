@@ -11,8 +11,12 @@ from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadServ
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
 from t212ai.genai.tracing import (
+    _trace_agent_action_inputs,
+    _trace_agent_action_outputs,
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
+    _trace_tool_function_inputs,
+    _trace_tool_function_outputs,
     set_trace_metadata,
     set_trace_name,
     traceable,
@@ -209,11 +213,23 @@ class MainOrchestratorAgent(BaseAgent):
             artifacts=artifacts,
         )
 
+    @traceable(
+        name="Main Orchestrator Forced Order Route",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _forced_order_route_answer(
         self,
         request: AgentRequest,
         tool_runs: list[SpecialistToolRun],
     ) -> str | None:
+        set_trace_name(f"{self.__class__.__name__}.forced_order_route")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="forced_order_route",
+            step_kind="routing",
+        )
         inferred_intent = classify_message(request.user_message)
         if inferred_intent.kind not in {
             IntentKind.PLACE_ORDER,
@@ -370,6 +386,12 @@ class MainOrchestratorAgent(BaseAgent):
         specialist: BaseAgent,
         allowed_intents: tuple[IntentKind, ...],
     ):
+        @traceable(
+            name=tool_name,
+            run_type="tool",
+            process_inputs=_trace_tool_function_inputs,
+            process_outputs=_trace_tool_function_outputs,
+        )
         def _delegate(
             *,
             task_brief: str,
@@ -377,6 +399,16 @@ class MainOrchestratorAgent(BaseAgent):
             intent_kind: str,
             entities: list[dict[str, str]] | None = None,
         ) -> ToolResult:
+            set_trace_name(tool_name)
+            set_trace_metadata(
+                agent_name=self.name,
+                agent_step="delegate_to_specialist",
+                step_kind="tool",
+                tool_name=tool_name,
+                specialist_key=specialist_key,
+                specialist_name=specialist.name,
+                intent_kind=intent_kind,
+            )
             try:
                 delegation = OrchestratorDelegationRequest.model_validate(
                     {
@@ -470,10 +502,23 @@ class MainOrchestratorAgent(BaseAgent):
             return f"{existing}\n\n{guidance}"
         return guidance
 
+    @traceable(
+        name="Main Orchestrator Build Response Package",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _build_response_package(
         self,
         tool_runs: list[SpecialistToolRun],
     ) -> tuple[dict[str, str], dict[str, Any], Any, Any]:
+        set_trace_name(f"{self.__class__.__name__}.build_response_package")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="build_response_package",
+            step_kind="return",
+            tool_run_count=len(tool_runs),
+        )
         if not tool_runs:
             return (
                 {"route": "direct", "orchestrator": self.name},

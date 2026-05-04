@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from t212ai.genai.models import ToolResult
 from t212ai.genai.tracing import (
+    _trace_agent_action_inputs,
+    _trace_agent_action_outputs,
     _trace_agent_handle_inputs,
     _trace_agent_response_outputs,
     set_trace_metadata,
@@ -96,12 +98,26 @@ class GuidelineMemoryAgent(BaseAgent):
             },
         )
 
+    @traceable(
+        name="Guideline Memory Agent Build Mutation Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _build_mutation_request(
         self,
         request: AgentRequest,
         *,
         intent: AgentIntent,
     ) -> GuidelineMutationRequest:
+        set_trace_name(f"{self.__class__.__name__}.build_mutation_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="build_mutation_request",
+            step_kind="action_request_extraction",
+            intent_kind=intent.kind.value,
+            workflow="guideline_memory",
+        )
         operation = intent.entities.get("operation")
         system_prompt = GUIDELINE_MUTATION_SYSTEM_PROMPT
         messages = []
@@ -126,10 +142,24 @@ class GuidelineMemoryAgent(BaseAgent):
         )
         return GuidelineMutationRequest.model_validate(result)
 
+    @traceable(
+        name="Guideline Memory Agent Execute Mutation Request",
+        run_type="chain",
+        process_inputs=_trace_agent_action_inputs,
+        process_outputs=_trace_agent_action_outputs,
+    )
     def _execute_mutation_request(
         self,
         request: GuidelineMutationRequest,
     ) -> ToolResult:
+        set_trace_name(f"{self.__class__.__name__}.execute_mutation_request")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute_mutation_request",
+            step_kind="tool_dispatch",
+            workflow="guideline_memory",
+            action=request.action.value,
+        )
         if request.action == GuidelineMutationAction.CREATE:
             return self._tool_mapping["guideline_create_node"](
                 category=request.category.value if request.category else None,

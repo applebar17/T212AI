@@ -214,9 +214,7 @@ def build_reddit_tool_mapping(
 
 @traceable(
     name="reddit_search_posts",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def reddit_search_posts(
     *,
@@ -247,9 +245,7 @@ def reddit_search_posts(
 
 @traceable(
     name="reddit_subreddit_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def reddit_subreddit_snapshot(
     *,
@@ -278,9 +274,7 @@ def reddit_subreddit_snapshot(
 
 @traceable(
     name="reddit_thread_digest",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def reddit_thread_digest(
     *,
@@ -309,9 +303,7 @@ def reddit_thread_digest(
 
 @traceable(
     name="reddit_company_discussion_scan",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def reddit_company_discussion_scan(
     *,

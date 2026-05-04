@@ -458,9 +458,7 @@ def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[
 
 @traceable(
     name="broker_get_portfolio_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
     set_trace_metadata(provider=runtime.broker_provider, tool_name="broker_get_portfolio_snapshot")
@@ -494,9 +492,7 @@ def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
 
 @traceable(
     name="broker_list_pending_orders",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_list_pending_orders(*, runtime: BrokerToolRuntime) -> ToolResult:
     set_trace_metadata(provider=runtime.broker_provider, tool_name="broker_list_pending_orders")
@@ -526,9 +522,7 @@ def broker_list_pending_orders(*, runtime: BrokerToolRuntime) -> ToolResult:
 
 @traceable(
     name="broker_get_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_get_order(*, order_ref: str, runtime: BrokerToolRuntime) -> ToolResult:
     set_trace_metadata(provider=runtime.broker_provider, tool_name="broker_get_order")
@@ -575,9 +569,7 @@ def broker_get_order(*, order_ref: str, runtime: BrokerToolRuntime) -> ToolResul
 
 @traceable(
     name="broker_list_historical_orders",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_list_historical_orders(
     *,
@@ -620,9 +612,7 @@ def broker_list_historical_orders(
 
 @traceable(
     name="broker_resolve_instrument",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_resolve_instrument(
     *,
@@ -700,9 +690,7 @@ def broker_resolve_instrument(
 
 @traceable(
     name="broker_prepare_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_prepare_order(
     *,
@@ -753,9 +741,7 @@ def broker_prepare_order(
 
 @traceable(
     name="broker_prepare_order_action",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_prepare_order_action(
     *,
@@ -822,9 +808,7 @@ def broker_prepare_order_action(
 
 @traceable(
     name="broker_prepare_cancel_action",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_prepare_cancel_action(
     *,
@@ -898,9 +882,7 @@ def broker_prepare_cancel_action(
 
 @traceable(
     name="broker_place_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_place_order(
     *,
@@ -973,9 +955,7 @@ def broker_place_order(
 
 @traceable(
     name="broker_cancel_order",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def broker_cancel_order(
     *,

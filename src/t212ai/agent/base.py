@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
+    _trace_agent_execute_inputs,
     _trace_agent_handle_inputs,
     _trace_agent_plan_outputs,
     _trace_agent_response_outputs,
@@ -137,6 +138,12 @@ class BaseAgent:
         del message
         return self.profile.task_complexity
 
+    @traceable(
+        name="Agent Execute",
+        run_type="chain",
+        process_inputs=_trace_agent_execute_inputs,
+        process_outputs=_trace_agent_response_outputs,
+    )
     def execute(
         self,
         request: AgentRequest,
@@ -145,7 +152,15 @@ class BaseAgent:
         task_complexity: TaskComplexity,
         plan: AgentPlan,
     ) -> AgentResponse | None:
-        del request, intent, task_complexity, plan
+        set_trace_name(f"{self.__class__.__name__}.execute")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_step="execute",
+            step_kind="execute",
+            intent_kind=intent.kind.value,
+            task_complexity=task_complexity.value,
+        )
+        del request, plan
         return None
 
     def _history_for_prompt(

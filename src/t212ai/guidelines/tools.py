@@ -218,9 +218,7 @@ def build_guideline_tool_mapping(
 
 @traceable(
     name="guideline_list_nodes",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_list_nodes(
     *,
@@ -257,9 +255,7 @@ def guideline_list_nodes(
 
 @traceable(
     name="guideline_render_preview",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_render_preview(
     *,
@@ -296,9 +292,7 @@ def guideline_render_preview(
 
 @traceable(
     name="guideline_create_node",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_create_node(
     *,
@@ -333,9 +327,7 @@ def guideline_create_node(
 
 @traceable(
     name="guideline_update_node",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_update_node(
     *,
@@ -372,9 +364,7 @@ def guideline_update_node(
 
 @traceable(
     name="guideline_archive_node",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_archive_node(
     *,
@@ -396,9 +386,7 @@ def guideline_archive_node(
 
 @traceable(
     name="guideline_delete_node",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def guideline_delete_node(
     *,

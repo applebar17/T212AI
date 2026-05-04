@@ -208,9 +208,7 @@ def build_market_data_tool_mapping(
 
 @traceable(
     name="market_search_symbol",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_search_symbol(
     *,
@@ -251,9 +249,7 @@ def market_search_symbol(
 
 @traceable(
     name="market_get_quote",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_get_quote(
     *,
@@ -290,9 +286,7 @@ def market_get_quote(
 
 @traceable(
     name="market_get_bars",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_get_bars(
     *,
@@ -347,9 +341,7 @@ def market_get_bars(
 
 @traceable(
     name="market_get_volume_monitor",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_get_volume_monitor(
     *,
@@ -404,9 +396,7 @@ def market_get_volume_monitor(
 
 @traceable(
     name="market_get_market_snapshot",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_get_market_snapshot(
     *,
@@ -465,9 +455,7 @@ def market_get_market_snapshot(
 
 @traceable(
     name="market_get_chart_context",
-    run_type="tool",
-    process_inputs=_trace_tool_function_inputs,
-    process_outputs=_trace_tool_function_outputs,
+    run_type="tool"
 )
 def market_get_chart_context(
     *,
