@@ -162,6 +162,22 @@ Rules:
 - raw provider/tool details should stay summarized to status, tool names, top-level data keys, errors, and short previews unless a debugging path explicitly needs more
 - deterministic execution boundaries such as broker actions, approvals, and calculator execution must keep their existing safety gates even when later migrated into the common loop
 
+## LLM-Actionable Tool Results
+
+Scope:
+- tools
+- agents
+- prompts
+- docs
+
+Rules:
+- LLM-facing tools must return verbose-enough `ToolResult.output` text for both success and error paths so the model can decide whether to retry, stop, or ask for clarification
+- error results should include a machine-readable `ToolError.code`, a concrete `ToolError.hint`, and compact structured `details` when those details can guide the next tool call
+- do not rely only on exception text for recoverable validation failures; translate provider/domain failures into deterministic codes and actionable hints
+- avoid raw payload dumps; include only the fields the LLM needs to repair the next call, such as candidate broker-native tickers, required parameters, accepted enum values, or provider readiness context
+- broker order tools must explicitly state whether an order was prepared, whether approval was created, and what corrected input is needed when validation fails before approval
+- instrument-resolution failures should surface candidate broker-native tickers when available and must tell the agent not to guess when the result is ambiguous
+
 ## Telegram Error Diagnostics
 
 Scope:

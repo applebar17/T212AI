@@ -162,6 +162,30 @@ The model should be guided by typed structured fields and field descriptions.
 Application code may validate that a tool argument is coherent, but it should not
 replace the agent's reasoning with phrase-specific sizing logic.
 
+### Broker Instrument Resolution
+
+Broker order preparation must use broker-authoritative tradable identifiers.
+Public market symbols, company names, and ISINs are useful hints, but they are
+not sufficient proof that the active broker can trade the instrument or that the
+symbol is the broker-native order identifier.
+
+Correct flow:
+
+- reason that a user-supplied symbol/name may need broker-native resolution
+- plan `broker_resolve_instrument` before order preparation unless prior broker
+  context already confirmed the exact broker-native ticker
+- execute the resolver and pass only the compact resolution summary to the next
+  action
+- call `broker_prepare_order_action` only when the resolution is unique or a
+  prior broker read already supplied the exact ticker
+- if resolution is ambiguous or not found, stop before preparation and ask for
+  user confirmation or a more precise ticker/exchange/currency
+
+If the planner skips resolution, the broker preparation tool remains the final
+deterministic guardrail. A preparation failure should return an actionable tool
+error explaining that no order was prepared, no approval was created, which
+instrument query failed, and which broker-native candidates are available.
+
 ## Step 4: Judge
 
 The judge step reviews the draft result and execution trace.
