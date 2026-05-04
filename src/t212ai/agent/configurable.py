@@ -35,9 +35,11 @@ class ConfigurableReasonerAgent:
         process_outputs=lambda output: _trace_reasoning_context_outputs(output),
     )
     def reason(self, invocation: AgentInvocationContext) -> AgentReasoningContext:
-        set_trace_name(f"{self.__class__.__name__}.reason")
+        set_trace_name(f"{invocation.agent_name}.reason")
         set_trace_metadata(
             agent_name=invocation.agent_name,
+            agent_step="reason",
+            step_kind="reason",
             task_complexity=invocation.task_complexity.value,
             intent_kind=invocation.intent.kind.value,
         )
@@ -90,9 +92,11 @@ class ConfigurablePlannerAgent:
         *,
         reasoning_context: AgentReasoningContext,
     ) -> GroupedAgentPlan:
-        set_trace_name(f"{self.__class__.__name__}.plan")
+        set_trace_name(f"{invocation.agent_name}.plan")
         set_trace_metadata(
             agent_name=invocation.agent_name,
+            agent_step="plan",
+            step_kind="plan",
             task_complexity=invocation.task_complexity.value,
             intent_kind=invocation.intent.kind.value,
         )

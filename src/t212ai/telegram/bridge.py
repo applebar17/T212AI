@@ -13,6 +13,13 @@ from t212ai.agent.intents import IntentKind
 from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
 from t212ai.agent.schemas import AgentRequest
 from t212ai.app.runtime import AppRuntime, build_runtime
+from t212ai.genai.tracing import (
+    _trace_telegram_update_inputs,
+    _trace_telegram_update_outputs,
+    set_trace_metadata,
+    set_trace_name,
+    traceable,
+)
 from t212ai.pending_actions import (
     PendingActionDecisionResult,
     PendingActionDecisionStatus,
@@ -59,11 +66,36 @@ class TelegramUpdateRouter:
     pending_action_service: PendingActionService | None = None
     proposal_service: ProposalService | None = None
 
+    @traceable(
+        name="telegram.request",
+        run_type="chain",
+        process_inputs=_trace_telegram_update_inputs,
+        process_outputs=_trace_telegram_update_outputs,
+    )
     async def handle_update(self, update: Any, context: Any) -> None:
         await _acknowledge_callback(update)
         inbound = inbound_from_update(update)
         if inbound is None:
+            set_trace_name("telegram.request.ignored")
+            set_trace_metadata(
+                agent_step="telegram_request",
+                step_kind="chain",
+                route="ignored",
+            )
             return
+        set_trace_name("telegram.request")
+        set_trace_metadata(
+            agent_step="telegram_request",
+            step_kind="chain",
+            route="telegram",
+            session_id=f"telegram:{inbound.chat_id}",
+            thread_id=f"telegram:{inbound.chat_id}",
+            conversation_id=f"telegram:{inbound.chat_id}",
+            chat_id=str(inbound.chat_id),
+            user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+            message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+            is_callback=bool(inbound.callback_data),
+        )
         messenger = TelegramMessenger(context.bot)
         if not self.access_policy.is_allowed(inbound.chat_id, inbound.user_id):
             if not self.access_policy.silent_unauthorized:

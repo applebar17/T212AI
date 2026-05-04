@@ -90,6 +90,8 @@ class GroupedPlanExecutor:
         set_trace_name(f"{invocation.agent_name}.grouped_execute")
         set_trace_metadata(
             agent_name=invocation.agent_name,
+            agent_step="execute",
+            step_kind="execute",
             task_complexity=invocation.task_complexity.value,
             intent_kind=invocation.intent.kind.value,
             group_count=len(grouped_plan.action_groups),
@@ -161,6 +163,12 @@ class GroupedPlanExecutor:
             group_executions=group_executions,
         )
 
+    @traceable(
+        name="Plan Action Execution",
+        run_type="chain",
+        process_inputs=lambda *args, **kwargs: _trace_action_inputs(*args, **kwargs),
+        process_outputs=lambda output: _trace_action_outputs(output),
+    )
     def _execute_action(
         self,
         *,
@@ -174,6 +182,17 @@ class GroupedPlanExecutor:
         forwarded_summaries: list[str],
         completed_by_id: dict[str, PlanActionExecution],
     ) -> PlanActionExecution:
+        set_trace_name(f"{invocation.agent_name}.execute.{action.action_id}")
+        set_trace_metadata(
+            agent_name=invocation.agent_name,
+            agent_step="execute_action",
+            step_kind="execute_action",
+            action_id=action.action_id,
+            group_id=group.group_id,
+            tool_name=action.tool_name,
+            risk_class=action.risk_class,
+            execution_mode=group.execution_mode.value,
+        )
         parallel_tool_calls = _parallel_tool_calls_for(group=group, action=action)
         if action.tool_name and action.tool_name not in toolbox.tools_by_name:
             message = f"Planned tool '{action.tool_name}' is not available."
@@ -253,6 +272,14 @@ class GroupedPlanExecutor:
                 tool_calls=_summarize_tool_messages(params.get("messages")),
             )
 
+    @traceable(
+        name="Final Synthesis",
+        run_type="chain",
+        process_inputs=lambda *args, **kwargs: _trace_final_synthesis_inputs(
+            *args, **kwargs
+        ),
+        process_outputs=lambda output: {"final_answer_chars": len(str(output or ""))},
+    )
     def _run_final_synthesis(
         self,
         *,
@@ -261,6 +288,15 @@ class GroupedPlanExecutor:
         grouped_plan: GroupedAgentPlan,
         forwarded_summaries: list[str],
     ) -> str:
+        set_trace_name(f"{invocation.agent_name}.return")
+        set_trace_metadata(
+            agent_name=invocation.agent_name,
+            agent_step="return",
+            step_kind="return",
+            task_complexity=invocation.task_complexity.value,
+            intent_kind=invocation.intent.kind.value,
+            action_summary_count=len(forwarded_summaries),
+        )
         system_prompt = build_final_synthesis_system_prompt(
             agent_name=invocation.agent_name,
             purpose=invocation.purpose,
@@ -510,4 +546,51 @@ def _trace_executor_outputs(output: Any) -> dict[str, Any]:
         "final_answer_chars": len(getattr(output, "final_answer", "") or ""),
         "group_count": len(getattr(output, "group_executions", []) or []),
         "action_count": getattr(output, "action_count", None),
+    }
+
+
+def _trace_action_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    invocation = kwargs.get("invocation")
+    group = kwargs.get("group")
+    action = kwargs.get("action")
+    forwarded_summaries = kwargs.get("forwarded_summaries") or []
+    completed_by_id = kwargs.get("completed_by_id") or {}
+    return {
+        "agent_name": getattr(invocation, "agent_name", None),
+        "intent_kind": getattr(getattr(invocation, "intent", None), "kind", None),
+        "group_id": getattr(group, "group_id", None),
+        "execution_mode": getattr(getattr(group, "execution_mode", None), "value", None),
+        "action_id": getattr(action, "action_id", None),
+        "tool_name": getattr(action, "tool_name", None),
+        "risk_class": getattr(action, "risk_class", None),
+        "dependency_count": len(getattr(action, "depends_on", []) or []),
+        "forwarded_summary_count": len(forwarded_summaries),
+        "completed_action_count": len(completed_by_id),
+    }
+
+
+def _trace_action_outputs(output: Any) -> dict[str, Any]:
+    if output is None:
+        return {"output_type": None}
+    return {
+        "action_id": getattr(output, "action_id", None),
+        "group_id": getattr(output, "group_id", None),
+        "tool_name": getattr(output, "tool_name", None),
+        "status": getattr(output, "status", None),
+        "parallel_tool_calls": getattr(output, "parallel_tool_calls", None),
+        "output_summary_chars": len(getattr(output, "output_summary", "") or ""),
+        "tool_call_count": len(getattr(output, "tool_calls", []) or []),
+        "has_error": bool(getattr(output, "error_message", None)),
+    }
+
+
+def _trace_final_synthesis_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    invocation = kwargs.get("invocation")
+    grouped_plan = kwargs.get("grouped_plan")
+    forwarded_summaries = kwargs.get("forwarded_summaries") or []
+    return {
+        "agent_name": getattr(invocation, "agent_name", None),
+        "intent_kind": getattr(getattr(invocation, "intent", None), "kind", None),
+        "group_count": len(getattr(grouped_plan, "action_groups", []) or []),
+        "action_summary_count": len(forwarded_summaries),
     }

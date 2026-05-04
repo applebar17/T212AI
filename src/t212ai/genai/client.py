@@ -19,13 +19,15 @@ from .tools import ToolBox, build_chat_toolbox, build_tool_mapping
 from .tracing import (
     _trace_execute_tool_inputs,
     _trace_execute_tool_outputs,
+    _trace_generate_structured_inputs,
+    _trace_generate_structured_outputs,
     _trace_handle_params_inputs,
     _trace_handle_params_outputs,
     traceable,
 )
 
 try:
-    from langsmith.integrations.openai_agents_sdk import wrap_openai  # type: ignore
+    from langsmith.wrappers import wrap_openai  # type: ignore
 except Exception:  # pragma: no cover - tracing is optional
     wrap_openai = None  # type: ignore
 
@@ -155,6 +157,12 @@ class GenAIClient:
         self._tool_mapping: dict[str, Callable[..., Any]] | None = None
         self._log_configuration()
 
+    @traceable(
+        name="Structured Generation",
+        run_type="chain",
+        process_inputs=_trace_generate_structured_inputs,
+        process_outputs=_trace_generate_structured_outputs,
+    )
     def generate_structured(
         self,
         schema: type[BaseModel],
@@ -700,7 +708,6 @@ class GenAIClient:
             )
         return serialized
 
-    @traceable(name="LLM Call", run_type="llm")
     def _call_with_retries(self, params: dict[str, Any]):
         adjusted_for_temperature = False
         adjusted_for_max_tokens = False

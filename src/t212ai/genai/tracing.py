@@ -1092,3 +1092,60 @@ def _trace_tool_function_outputs(output: Any) -> dict[str, Any]:
     elif isinstance(data, list):
         summary["data_items"] = len(data)
     return summary
+
+
+def _trace_telegram_update_inputs(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        update = kwargs.get("update")
+        if update is None:
+            pos_args = list(args)
+            if pos_args and not _looks_like_telegram_update(pos_args[0]):
+                pos_args.pop(0)
+            update = pos_args[0] if pos_args else None
+        inbound = _summarize_telegram_inbound(update)
+        return {"telegram": inbound}
+    except Exception as exc:  # pragma: no cover - defensive tracing
+        return {
+            "trace_warning": "trace_inputs_failed",
+            "error": str(exc),
+            "arg_count": len(args),
+            "kw_keys": sorted(kwargs.keys())[:10],
+        }
+
+
+def _trace_telegram_update_outputs(output: Any) -> dict[str, Any]:
+    return {
+        "output_type": type(output).__name__ if output is not None else None,
+        "status": "completed",
+    }
+
+
+def _looks_like_telegram_update(value: Any) -> bool:
+    return any(
+        hasattr(value, attr)
+        for attr in ("effective_chat", "effective_user", "effective_message", "callback_query")
+    )
+
+
+def _summarize_telegram_inbound(update: Any) -> dict[str, Any] | None:
+    if update is None:
+        return None
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    message = getattr(update, "effective_message", None)
+    callback_query = getattr(update, "callback_query", None)
+    callback_data = getattr(callback_query, "data", None) if callback_query else None
+    text = callback_data or getattr(message, "text", None) or ""
+    chat_id = getattr(chat, "id", None)
+    user_id = getattr(user, "id", None)
+    message_id = getattr(message, "message_id", None)
+    summary: dict[str, Any] = {
+        "chat_id": _sanitize_trace_value(str(chat_id)) if chat_id is not None else None,
+        "user_id": _sanitize_trace_value(str(user_id)) if user_id is not None else None,
+        "message_id": message_id,
+        "is_callback": bool(callback_data),
+    }
+    if isinstance(text, str):
+        summary["text_chars"] = len(text)
+        summary["text_preview"] = _trim_text(text, TRACE_MESSAGE_PREVIEW_CHARS)
+    return summary
