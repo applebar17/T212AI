@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import re
 from typing import Any
 
-from langsmith import traceable
-from langsmith.run_helpers import get_current_run_tree, tracing_context
+try:
+    from langsmith import traceable
+    from langsmith.run_helpers import get_current_run_tree, tracing_context
+except ModuleNotFoundError:  # pragma: no cover - protects stale/minimal containers
+    def traceable(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if args and callable(args[0]) and len(args) == 1 and not kwargs:
+            return args[0]
+
+        def decorator(fn):  # type: ignore[no-untyped-def]
+            return fn
+
+        return decorator
+
+    def get_current_run_tree() -> None:
+        return None
+
+    def tracing_context(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return nullcontext()
 
 TRACE_COLLECTION_LIMIT = 20
 
