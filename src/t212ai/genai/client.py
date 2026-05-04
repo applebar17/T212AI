@@ -224,7 +224,7 @@ class GenAIClient:
         params: dict[str, Any] = {
             "model": model or self._default_chat_model(),
             "messages": messages,
-            "temperature": temperature,
+            # "temperature": temperature,       # OpenAI models 5> do not support well this parameter
         }
 
         if max_tokens is not None:
