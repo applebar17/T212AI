@@ -162,6 +162,26 @@ Agent tracing should show:
 
 Agent traces must not expose hidden reasoning. The plan and critique models are the observable artifacts.
 
+## Prompt Context Budget
+
+Scope:
+- agents
+- prompts
+- tools
+
+Rules:
+- build configurable reasoner and planner prompts from contextual, high-level
+  information only
+- reasoner/planner prompts should describe available capabilities by tool name
+  and short purpose, not full JSON parameter schemas
+- full tool schemas belong in the execution step where tools are attached to
+  the model and exact arguments are required
+- agent-specific guidelines should explain decision logic and ordering
+  constraints, not duplicate every tool field or provider implementation detail
+- examples should be few, targeted, and reusable across similar agents
+- when adding prompt content, prefer a compact rule that changes behavior over a
+  verbose description that merely repeats the tool schema
+
 ## Orchestrator Model
 
 Scope:
