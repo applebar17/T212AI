@@ -102,9 +102,7 @@ class BaseAgent:
 
     @traceable(
         name="Agent Plan",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_plan_outputs,
+        run_type="chain"
     )
     def plan(
         self,

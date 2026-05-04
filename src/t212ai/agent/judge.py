@@ -22,9 +22,7 @@ class AgentJudge:
 
     @traceable(
         name="Agent Judge Review",
-        run_type="chain",
-        process_inputs=_trace_agent_review_inputs,
-        process_outputs=_trace_agent_critique_outputs,
+        run_type="chain"
     )
     def review(
         self,

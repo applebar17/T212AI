@@ -98,9 +98,7 @@ class GuidelineMemoryAgent(BaseAgent):
 
     @traceable(
         name="Guideline Memory Agent Build Mutation Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _build_mutation_request(
         self,
@@ -142,9 +140,7 @@ class GuidelineMemoryAgent(BaseAgent):
 
     @traceable(
         name="Guideline Memory Agent Execute Mutation Request",
-        run_type="chain",
-        process_inputs=_trace_agent_action_inputs,
-        process_outputs=_trace_agent_action_outputs,
+        run_type="chain"
     )
     def _execute_mutation_request(
         self,

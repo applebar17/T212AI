@@ -68,9 +68,7 @@ class TelegramUpdateRouter:
 
     @traceable(
         name="telegram.request",
-        run_type="chain",
-        process_inputs=_trace_telegram_update_inputs,
-        process_outputs=_trace_telegram_update_outputs,
+        run_type="chain"
     )
     async def handle_update(self, update: Any, context: Any) -> None:
         await _acknowledge_callback(update)
