@@ -868,8 +868,8 @@ class GenAIClient:
             "messages": messages,
             "response_format": schema,
         }
-        if temperature is not None:
-            params["temperature"] = temperature
+        # if temperature is not None:               # in some OpenAI 5> models temperature is not supported anymore
+        #     params["temperature"] = temperature
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
         if max_completion_tokens is not None:
