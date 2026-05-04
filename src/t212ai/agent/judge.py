@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from t212ai.genai.tr startupacing import (
+from t212ai.genai.tracing import (
     set_trace_metadata,
     set_trace_name,
     traceable,
