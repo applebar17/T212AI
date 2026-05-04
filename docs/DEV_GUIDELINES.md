@@ -22,6 +22,26 @@ The baseline follows LangSmith manual instrumentation guidance:
 - keep traces compact and safe by summarizing inputs/outputs instead of logging full raw payloads
 - add trace metadata for routing, model choice, approval state, provider, and tool category
 
+### Core Tracing Contract
+
+Rules:
+- add exactly one root `@traceable(..., run_type="chain")` span on each
+  request or job entrypoint so all child runs nest under a single trace
+- use the shared helpers in `t212ai.genai.tracing`; do not re-implement tracing
+  utilities elsewhere
+- construct OpenAI/Azure clients through `wrap_openai(...)` when tracing is
+  enabled, and do not also wrap the same raw LLM provider call with
+  `run_type="llm"`; avoid duplicate LLM spans
+- use `process_inputs` and `process_outputs` for large or sensitive payloads
+  such as docs, embeddings, tool args, account snapshots, and provider payloads
+- for chat sessions, attach `session_id` and any request identifiers with
+  `set_trace_metadata(...)` on the root span
+- every LLM-related step, method, or function must be traced with a name,
+  `run_type`, and input/output summarizers that match the logic behind the step
+- keep run names stable and operational, for example `order_agent.reason`,
+  `order_agent.plan`, `order_agent.execute.<action_id>`, and
+  `order_agent.return`
+
 Official references:
 - Custom instrumentation: https://docs.langchain.com/langsmith/annotate-code
 - Observability concepts: https://docs.langchain.com/langsmith/observability-concepts
@@ -74,14 +94,26 @@ Usually do not trace:
 
 ### Run Types
 
-Use these conventions:
-- `run_type="chain"`: orchestrator steps, specialist agent steps, planning, critique
-- `run_type="tool"`: LLM-callable tool entrypoints
-- `run_type="llm"`: raw model calls
-- `run_type="parser"`: structured parsing / schema conversion
-- `run_type="embedding"`: embedding generation
+`run_type` must be one of:
+- `tool`
+- `chain`
+- `llm`
+- `retriever`
+- `embedding`
+- `prompt`
+- `parser`
 
-Reserve `run_type="retriever"` for future retrieval/RAG flows so LangSmith can render retrieval traces properly.
+Use these conventions:
+- `run_type="chain"`: request/job roots, orchestration, specialist agent steps,
+  reason/plan/execute/return spans, critique, and workflow coordination
+- `run_type="prompt"`: message/prompt construction and chat parameter assembly
+- `run_type="tool"`: LLM-callable tool entrypoints and external action tools
+- `run_type="parser"`: structured parsing, schema conversion, and structured
+  response handling
+- `run_type="embedding"`: embedding generation
+- `run_type="retriever"`: retrieval/RAG flows
+- `run_type="llm"`: direct raw model calls only when they are not already traced
+  through `wrap_openai(...)`
 
 ### Input And Output Policy
 
