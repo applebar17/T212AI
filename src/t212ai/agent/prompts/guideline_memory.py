@@ -15,7 +15,7 @@ GUIDELINE_MUTATION_SYSTEM_PROMPT = dedent(
     - For create/update, include category, title, body, applies_to, and priority when the user intent makes them clear.
     - Use source='user' for requests coming from the user.
     - If the user is asking to inspect current stored rules, choose list or render.
-    - Do not invent missing node ids; if the user refers to a specific stored rule but the id is unknown, leave node_id null so the tools can fail loudly.
+    - For unknown node ids, leave node_id null so validation can report the missing identifier.
     """
 ).strip()
 

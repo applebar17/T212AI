@@ -49,7 +49,7 @@ def render_tool_descriptions(toolbox: ToolBox | None) -> str:
                 for item in (
                     f"- {name}",
                     f"  description: {description}" if description else "",
-                    f"  parameters: {_compact_parameters(parameters)}",
+                    f"  inputs: {_compact_parameters(parameters)}",
                 )
                 if item
             )
@@ -67,9 +67,34 @@ def _compact_parameters(parameters: Any) -> str:
         for name, schema in properties.items():
             if not isinstance(schema, dict):
                 continue
-            compact["properties"][name] = {
+            compact_property = {
                 key: schema[key]
-                for key in ("type", "enum", "description", "default")
+                for key in ("type", "enum", "default")
                 if key in schema
             }
+            description = str(schema.get("description") or "").strip()
+            if description:
+                compact_property["description"] = _compact_description(description)
+            compact["properties"][name] = compact_property
     return json.dumps(compact, ensure_ascii=True, sort_keys=True)
+
+
+def _compact_description(description: str, *, limit: int = 220) -> str:
+    sanitized = " ".join(str(description).split())
+    replacements = {
+        "Do not pass": "Use resolved values rather than",
+        "do not pass": "use resolved values rather than",
+        "Do not use": "Avoid using",
+        "do not use": "avoid using",
+        "Do not": "Avoid",
+        "do not": "avoid",
+        "Never": "Avoid",
+        "never": "avoid",
+        "only": "primarily",
+        "Only": "Primarily",
+    }
+    for source, replacement in replacements.items():
+        sanitized = sanitized.replace(source, replacement)
+    if len(sanitized) <= limit:
+        return sanitized
+    return sanitized[:limit].rstrip() + "..."

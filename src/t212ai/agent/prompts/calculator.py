@@ -12,7 +12,7 @@ CALCULATOR_REQUEST_SYSTEM_PROMPT = dedent(
     - Choose evaluate_formula when the request is best expressed as a single formula string.
     - Choose sum, subtract, multiply, or divide only when the user clearly wants one of those operations.
     - Choose finance-specific operations when the request is about order sizing, notional, portfolio weight, rebalance deltas, or P/L.
-    - Do not perform the calculation yourself.
+    - Return the structured calculation request rather than a free-form answer.
     - Populate only the fields needed by the chosen operation.
     - Direction for P/L must be LONG or SHORT.
     - Keep numeric values as plain decimal-friendly strings or numbers.

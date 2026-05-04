@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from t212ai.genai.client import GenAIClient, GenAISettings
+from t212ai.genai.tools.base import ToolBox, build_tool_index, render_tool_descriptions
 
 
 def test_chat_model_for_falls_back_to_default_when_optional_models_are_blank() -> None:
@@ -31,6 +32,37 @@ def test_handle_params_strips_parallel_tool_calls_without_tools() -> None:
 
     assert "tools" not in params
     assert "parallel_tool_calls" not in params
+
+
+def test_render_tool_descriptions_softens_restrictive_phrasing() -> None:
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "example_tool",
+            "description": "Example tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "string",
+                        "description": "Do not pass formulas. Only resolved values.",
+                    }
+                },
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        },
+    }
+    toolbox = ToolBox(
+        name="example",
+        tools=[tool],
+        tools_by_name=build_tool_index([tool]),
+    )
+
+    rendered = render_tool_descriptions(toolbox)
+
+    assert "Use resolved values rather than formulas" in rendered
+    assert "Do not" not in rendered
 
 
 def test_message_to_dict_falls_back_when_model_dump_raises() -> None:

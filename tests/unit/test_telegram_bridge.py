@@ -208,6 +208,35 @@ def test_router_sends_response_for_authorized_chat() -> None:
     assert bot.sent_messages[0]["reply_to_message_id"] == 99
 
 
+def test_router_sends_concise_content_filter_error() -> None:
+    class ContentFilterError(Exception):
+        code = "content_filter"
+
+        def __str__(self) -> str:
+            return "ResponsibleAIPolicyViolation contentfilter"
+
+    async def message_handler(_message: object) -> str:
+        raise ContentFilterError()
+
+    bot = FakeBot()
+    router = TelegramUpdateRouter(
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=message_handler,  # type: ignore[arg-type]
+    )
+    update = FakeUpdate(
+        effective_chat=FakeChat(123),
+        effective_user=FakeUser(1),
+        effective_message=FakeMessage("market scan"),
+    )
+
+    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+
+    assert len(bot.sent_messages) == 1
+    text = str(bot.sent_messages[0]["text"])
+    assert "LLM provider blocked this request" in text
+    assert "ResponsibleAIPolicyViolation" not in text
+
+
 def test_normalize_telegram_text_removes_common_markdown() -> None:
     text = """### General Help
 

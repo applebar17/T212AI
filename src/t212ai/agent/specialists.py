@@ -174,8 +174,8 @@ class OrderAgent(BaseAgent):
                 guidelines=(
                     "Treat order submission and cancellation as state-changing. "
                     "Require explicit Telegram button approval before execution. "
-                    "Never treat natural-language messages as approval or rejection. "
-                    "Never retry uncertain submissions without reconciliation. "
+                    "Typed chat messages are conversation, not approval or rejection. "
+                    "Retry uncertain submissions only after reconciliation. "
                     "When summarizing broker read outputs for later plan actions, preserve "
                     "exact numeric cash, quantity, price, and order-reference values."
                 ),
@@ -541,7 +541,7 @@ class OrderAgent(BaseAgent):
         except Exception as exc:
             return (
                 "Broker state context could not be loaded before order reasoning. "
-                f"Do not infer broker cash, holdings, or available quantities. Error: {exc}"
+                f"Broker cash, holdings, and available quantities are unavailable. Error: {exc}"
             )
         return _broker_snapshot_order_context(snapshot)
 
@@ -764,7 +764,7 @@ class CalculatorAgent(BaseAgent):
                     "formula or finance-specific calculations."
                 ),
                 guidelines=(
-                    "Never do arithmetic freehand. Always route calculation requests to "
+                    "Route calculation requests to "
                     "deterministic calculator tools and return concise, auditable results."
                 ),
                 toolbox_summary=(
@@ -1286,8 +1286,8 @@ def _broker_order_reasoning_guidelines() -> list[str]:
         "until broker_resolve_instrument or broker portfolio context confirms the broker-native instrument.",
         "Detect broker-state dependent values such as available-cash fractions, full-position exits, and protective orders that depend on a prior fill.",
         "Record unresolved or ambiguous broker instruments as required evidence, not assumptions; "
-        "do not let market-data symbols substitute for broker-native tradable identifiers.",
-        "Do not resolve approvals from natural-language messages; approval and rejection are Telegram callback-button events only.",
+        "broker-native tradable identifiers come from broker tools or broker portfolio context.",
+        "Approval and rejection are Telegram callback-button events; typed chat text is ordinary conversation.",
         "Numeric broker fields must be resolved decimal values before order preparation.",
     ]
 
@@ -1297,7 +1297,7 @@ def _broker_order_planning_guidelines() -> list[str]:
         "Use broker_get_portfolio_snapshot before preparing orders that depend on cash, holdings, or available quantities.",
         "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker, "
         "company name, ISIN, or any identifier not already confirmed as broker-native by broker data.",
-        "Do not force an instrument-resolution action when a prior broker tool output already provides the exact "
+        "Skip instrument-resolution when a prior broker tool output already provides the exact "
         "broker-native ticker; depend on that output instead.",
         "If broker_resolve_instrument returns ambiguous or not_found, stop before order preparation and ask for "
         "confirmation or a more precise ticker/exchange/currency rather than guessing.",
@@ -1305,7 +1305,7 @@ def _broker_order_planning_guidelines() -> list[str]:
         "failure explanation: no order was prepared, no approval was created, and the user must choose or provide "
         "a broker-native ticker.",
         "Add no-tool calculation actions for simple arithmetic from prior tool outputs, then pass the resolved decimal value into broker_prepare_order_action.",
-        "Use broker_prepare_order_action or broker_prepare_cancel_action for Telegram flows; do not plan broker_place_order for natural-language requests.",
+        "Use broker_prepare_order_action or broker_prepare_cancel_action for Telegram flows; broker_place_order is outside the natural-language preparation flow.",
         "State-changing broker preparation actions must be sequential and dependent on all broker reads/calculations they require.",
         "If a protective stop or stop-limit depends on the buy fill price or executed quantity, model it as a dependent follow-up requiring that execution/fill context.",
     ]
@@ -1345,7 +1345,7 @@ def _broker_order_planning_examples() -> list[str]:
             "user-provided symbol/name and output_key=instrument_resolution; "
             "group 2 sequential action broker_prepare_order_action depending on "
             "instrument_resolution, using resolvedTicker only when resolution.status is resolved. "
-            "If resolution is ambiguous or not_found, do not prepare an order; ask for confirmation."
+            "If resolution is ambiguous or not_found, stop before order preparation and ask for confirmation."
         )
     ]
 

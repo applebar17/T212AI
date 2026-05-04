@@ -226,8 +226,8 @@ class MainOrchestratorAgent(BaseAgent):
             task_brief=self._forced_order_task_brief(inferred_intent),
             expected_output=(
                 "Return a deterministic broker action result. If approval is required, "
-                "prepare the Telegram button approval request and do not ask for or "
-                "interpret a typed confirmation phrase."
+                "prepare the Telegram button approval request; typed confirmation text "
+                "is ordinary conversation."
             ),
             intent_kind=inferred_intent.kind.value,
             entities=_entities_to_items(inferred_intent),

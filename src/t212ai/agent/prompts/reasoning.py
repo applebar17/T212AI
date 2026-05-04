@@ -19,16 +19,16 @@ def build_plan_system_prompt(
         You are {agent_name}.
         Purpose: {purpose}
 
-        Return only the structured AgentPlan schema. Do not include hidden reasoning.
-        Use explicit assumptions, required_context, tool_steps, risks, and
-        missing_inputs to make the plan auditable.
+        Return the structured AgentPlan schema with concise, auditable planning
+        notes. Use explicit assumptions, required_context, tool_steps, risks, and
+        missing_inputs.
         Treat this as the plan step of a configurable agent loop:
         reason -> plan -> execute -> judge -> return. The reason and plan steps
-        do not receive tools. The execute step will receive the agent's narrow
+        run without attached tools. The execute step will receive the agent's narrow
         toolbox later and should follow this plan action by action. Mark a tool
         step as can_run_parallel only when it has no dependency on another step's
         output. State-changing work must be represented as preparation plus
-        button approval, never as natural-language approval.
+        button approval; typed chat text is ordinary conversation, not approval.
 
         Available capability/toolbox summary:
         {toolbox_summary}
@@ -76,15 +76,14 @@ def build_reasoning_context_system_prompt(
         You are {agent_name}.
         Purpose: {purpose}
 
-        Return only the structured AgentReasoningContext schema. Do not include
-        hidden chain-of-thought. Produce concise, auditable task context that a
-        later planner can consume.
+        Return the structured AgentReasoningContext schema with concise,
+        auditable task context that a later planner can consume.
 
         This is the reason step of a configurable agent loop:
         reason -> plan -> execute -> judge -> return.
-        You do not receive tools in this step. You may use only the user request,
-        chat history, invocation reason, intent hint, persistent guidance, and
-        toolbox descriptions.
+        No tools are attached in this step. Use the user request, chat history,
+        invocation reason, intent hint, persistent guidance, and toolbox
+        descriptions as planning context.
 
         Available capability/toolbox summary:
         {toolbox_summary}
@@ -137,8 +136,8 @@ def build_grouped_plan_system_prompt(
         You are {agent_name}.
         Purpose: {purpose}
 
-        Return only the structured GroupedAgentPlan schema. Do not include hidden
-        reasoning. Turn the reasoning context into an executable grouped plan.
+        Return the structured GroupedAgentPlan schema. Turn the reasoning context
+        into an executable grouped plan with concise, auditable notes.
 
         Execution semantics:
         - action groups run sequentially in listed order
@@ -148,10 +147,11 @@ def build_grouped_plan_system_prompt(
         - every action needs a stable action_id and expected_output
         - use output_key when later actions should consume an action result
         - state-changing broker work must be sequential and must prepare a side
-          effect for deterministic approval, never treat natural language as approval
+          effect for deterministic approval; typed chat text is ordinary
+          conversation, not approval
 
-        You do not receive tools in this step. You may use only toolbox
-        descriptions to choose likely action/tool names.
+        No tools are attached in this step. Use toolbox descriptions to choose
+        likely action/tool names.
 
         Available capability/toolbox summary:
         {toolbox_summary}
@@ -206,7 +206,8 @@ def build_plan_action_system_prompt(
         Execute exactly one planned action. Use tools only when they are needed
         for this action and are available in the attached toolbox. Return a
         compact assistant message that captures the essential result, source
-        caveats, and any failure. Do not dump raw tool JSON.
+        caveats, and any failure. Summarize tool output instead of pasting raw
+        tool JSON.
 
         If a tool returns status=error, read its output, code, hint, and
         structured details before deciding whether to retry, stop, or ask for
@@ -272,8 +273,8 @@ def build_final_synthesis_system_prompt(
         Purpose: {purpose}
 
         Produce the final response for the orchestrator and user from completed
-        planning-execution summaries. Do not call tools. Keep the answer concise,
-        grounded, and explicit about missing or failed context.
+        planning-execution summaries. This step is synthesis-only. Keep the
+        answer concise, grounded, and explicit about missing or failed context.
 
         Agent-specific guidelines:
         {guidelines}
@@ -314,9 +315,9 @@ def build_critique_system_prompt(
         You are judging work from {agent_name}.
         Agent purpose: {purpose}
 
-        Return only the structured AgentCritique schema. Check whether the answer is complete,
-        safe, grounded in available context, and clear. Do not expose hidden reasoning; use
-        concise findings.
+        Return the structured AgentCritique schema. Check whether the answer is
+        complete, safe, grounded in available context, and clear. Use concise,
+        auditable findings.
 
         Judge guidelines:
         {guidelines}

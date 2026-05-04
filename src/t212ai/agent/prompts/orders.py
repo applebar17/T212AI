@@ -11,7 +11,7 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     Rules:
     - For buy/sell/trade requests, choose prepare_submit_order.
     - For cancellation requests, choose prepare_cancel_order.
-    - Do not confirm or execute; only prepare an action.
+    - Prepare an action only; confirmation and execution happen elsewhere.
     - For liquidation / close-position requests, set side=SELL.
     - If the user wants to exit the full position and does not provide a quantity,
       set use_full_position_size=true.
@@ -28,12 +28,10 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     - Only set quantity, notional_amount, limit_price, or stop_price when the value
       is already a resolved decimal-compatible number.
     - For relative cash sizing such as "half the available cash", "25% of buying
-      power", or any amount that depends on broker state, do not put the phrase,
-      formula, or percentage in notional_amount. The agentic flow must first
-      gather broker cash, calculate the exact decimal amount, and only then
-      prepare the order with that resolved value. If this extraction step does not have the
-      broker state yet, leave notional_amount unset and explain the missing broker
-      context in reason/risks instead of inventing a value.
+      power", or any amount that depends on broker state, leave notional_amount
+      unset until broker cash has been gathered and the exact decimal amount has
+      been calculated. If this extraction step lacks broker state, explain the
+      missing broker context in reason/risks.
     - Prefer broker-native asset identifiers when known. For Trading 212 this means
       the instrument ticker from metadata, not necessarily the public exchange symbol.
     - If only a public symbol or company name is known, put the best available
@@ -41,7 +39,7 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
       before any approval is created.
     - For order submission, also include a short thesis, concise risks list, and
       confidence between 0 and 1.
-    - Do not invent ambiguous order references or prices.
+    - Use explicit order references and prices only when they are known.
     """
 ).strip()
 

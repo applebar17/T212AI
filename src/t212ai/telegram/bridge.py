@@ -86,6 +86,19 @@ class TelegramUpdateRouter:
         try:
             response = await _resolve_response(self.message_handler(inbound))
         except Exception as exc:  # pragma: no cover - safety net
+            if _is_content_filter_error(exc):
+                await messenger.send_error(
+                    inbound.chat_id,
+                    (
+                        "The LLM provider blocked this request while checking the "
+                        "prompt. No broker action was taken."
+                    ),
+                    hint=(
+                        "Retry with a shorter market-data request. If it repeats, "
+                        "inspect the agent prompt logs for Azure content-filter triggers."
+                    ),
+                )
+                return
             await messenger.send_error(
                 inbound.chat_id,
                 (
@@ -405,6 +418,18 @@ async def _resolve_response(
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _is_content_filter_error(exc: Exception) -> bool:
+    values = [
+        getattr(exc, "code", None),
+        getattr(exc, "status_code", None),
+        getattr(exc, "body", None),
+        getattr(exc, "message", None),
+        str(exc),
+    ]
+    text = " ".join(str(value).lower() for value in values if value is not None)
+    return "contentfilter" in text or "responsibleaipolicyviolation" in text
 
 
 async def _acknowledge_callback(update: Any) -> None:
