@@ -1041,17 +1041,24 @@ def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> 
     assert "broker_prepare_order_action" in (executor.invocation.tool_descriptions or "")
     assert any("available-cash fractions" in item for item in executor.invocation.reasoning_guidelines)
     assert any("broker-native instrument" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("holding-dependent" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("buy being submitted and filled" in item for item in executor.invocation.reasoning_guidelines)
     assert any("not_found" in item for item in executor.invocation.planning_guidelines)
+    assert any("positive quantityAvailableForTrading" in item for item in executor.invocation.planning_guidelines)
+    assert any("refreshed portfolio snapshot" in item for item in executor.invocation.planning_guidelines)
     assert any("cash-relative buy" in item for item in executor.invocation.planning_examples)
     assert any("public-symbol buy" in item for item in executor.invocation.planning_examples)
+    assert any("protective sell/stop-limit" in item for item in executor.invocation.planning_examples)
 
     reasoning_prompt = fake.calls[0]["system_prompt"]
     planner_prompt = fake.calls[1]["system_prompt"]
     assert "Available tool descriptions" in reasoning_prompt
     assert "broker_get_portfolio_snapshot" in reasoning_prompt
     assert "Reasoning examples" in reasoning_prompt
+    assert "holding-dependent" in reasoning_prompt
     assert "Planning examples" in planner_prompt
     assert "cash-relative buy" in planner_prompt
+    assert "protective sell/stop-limit" in planner_prompt
 
 
 def test_portfolio_agent_executes_summary_workflow_when_available() -> None:
