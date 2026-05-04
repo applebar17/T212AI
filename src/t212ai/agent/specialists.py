@@ -101,9 +101,7 @@ class PortfolioAnalystAgent(BaseAgent):
 
     @traceable(
         name="Portfolio Analyst Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -417,9 +415,7 @@ class OrderAgent(BaseAgent):
 
     @traceable(
         name="Order Agent Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -901,9 +897,7 @@ class CalculatorAgent(BaseAgent):
 
     @traceable(
         name="Calculator Agent Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
@@ -1281,9 +1275,7 @@ class MarketAnalystAgent(BaseAgent):
 
     @traceable(
         name="Market Analyst Execute",
-        run_type="chain",
-        process_inputs=_trace_agent_execute_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def execute(
         self,
