@@ -18,6 +18,7 @@ from t212ai.brokers.models import (
     BrokerOrderActionResult,
     PreparedBrokerOrder,
 )
+from t212ai.brokers.provider_errors import provider_execution_error_message
 from t212ai.capabilities.protocols import BrokerExecutionService
 
 from .models import (
@@ -299,7 +300,11 @@ class PendingActionService:
                 broker_result = self._execute_row(row, broker_service=broker_service)
             except Exception as exc:
                 row.state = PendingActionState.FAILED.value
-                row.error_message = _execution_error_message(exc)
+                row.error_message = _execution_error_message(
+                    exc,
+                    provider=row.broker_provider,
+                    operation=row.kind,
+                )
                 row.updated_at = _utc_now()
                 LOGGER.exception(
                     "Pending action execution failed action_id=%s provider=%s kind=%s summary=%s",
@@ -310,13 +315,18 @@ class PendingActionService:
                 )
                 session.flush()
                 action = _to_model(row)
+                failure_message = _execution_error_message(
+                    exc,
+                    provider=row.broker_provider,
+                    operation=row.kind,
+                )
                 return PendingActionDecisionResult(
                     status=PendingActionDecisionStatus.FAILED,
-                    message=f"Execution failed: {_execution_error_message(exc)}",
+                    message=f"Execution failed: {failure_message}",
                     action=action,
                     edit_text=_finalized_text(
                         action,
-                        f"Execution failed: {_execution_error_message(exc)}",
+                        f"Execution failed: {failure_message}",
                     ),
                 )
 
@@ -572,7 +582,19 @@ def _display_broker_name(provider: str) -> str:
     return str(provider or "broker").replace("_", " ").strip().title() or "Broker"
 
 
-def _execution_error_message(exc: Exception) -> str:
+def _execution_error_message(
+    exc: Exception,
+    *,
+    provider: str = "broker",
+    operation: str = "execute_pending_action",
+) -> str:
+    semantic_message = provider_execution_error_message(
+        exc,
+        provider=provider,
+        operation=operation,
+    )
+    if semantic_message:
+        return semantic_message
     parts = [f"{exc.__class__.__name__}: {exc}"]
     status_code = getattr(exc, "status_code", None)
     if status_code is not None and str(status_code).strip():

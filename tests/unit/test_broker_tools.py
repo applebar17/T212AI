@@ -30,6 +30,7 @@ from t212ai.brokers.tools import (
     broker_get_instrument_snapshot,
     broker_get_portfolio_snapshot,
     broker_list_pending_orders,
+    broker_place_order,
     broker_prepare_cancel_action,
     broker_prepare_order,
     broker_resolve_instrument,
@@ -236,6 +237,19 @@ class EchoPreparingExecutionService:
             request_payload=payload,
             order_fingerprint="echo",
         )
+
+
+class CloseOnlyExecutionService(EchoPreparingExecutionService):
+    def submit_prepared_order(self, prepared_order: PreparedBrokerOrder):
+        del prepared_order
+        error = RuntimeError("Trading 212 API request failed with HTTP 400.")
+        error.status_code = 400
+        error.body = (
+            '{"type":"/api-errors/instrument-close-only-mode",'
+            '"title":"Error while placing the order","status":400,'
+            '"detail":"Close only mode","traceId":"trace-close-only"}'
+        )
+        raise error
 
 
 class PortfolioWithAppleReadService(WorkingBrokerReadService):
@@ -538,6 +552,39 @@ def test_generic_broker_prepare_order_sizes_limit_order_from_notional() -> None:
     assert prepared["requestedNotionalCurrency"] == "USD"
     assert prepared["sizingPrice"] == 20.0
     assert prepared["sizingPriceSource"] == "explicit_limit_price"
+
+
+def test_generic_broker_place_order_returns_semantic_close_only_error() -> None:
+    runtime = BrokerToolRuntime(
+        broker_execution_service=CloseOnlyExecutionService(),
+        broker_provider="trading212",
+        allow_state_changes=True,
+    )
+
+    result = broker_place_order(
+        order_type="LIMIT",
+        side="BUY",
+        ticker="CHSNUSEQ",
+        quantity="3389",
+        notional_amount=None,
+        notional_currency=None,
+        limit_price="0.0295",
+        stop_price=None,
+        time_in_force="GOOD_TILL_CANCEL",
+        extended_hours=True,
+        confirmed=True,
+        confirmation_reference="echo",
+        runtime=runtime,
+    )
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "instrument_temporarily_not_tradable"
+    assert result.error.retryable is False
+    assert "close-only mode" in result.error.message
+    assert "temporarily not tradable" in (result.error.hint or "")
+    assert result.error.details is not None
+    assert result.error.details["provider_error_type"] == "/api-errors/instrument-close-only-mode"
 
 
 def test_generic_broker_prepare_sell_market_order_sizes_from_portfolio_price() -> None:

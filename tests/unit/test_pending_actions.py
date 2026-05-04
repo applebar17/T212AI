@@ -45,6 +45,19 @@ class FakeExecutionBroker:
         )
 
 
+class CloseOnlyExecutionBroker(FakeExecutionBroker):
+    def submit_prepared_order(self, prepared_order: PreparedOrder) -> OrderActionResult:
+        del prepared_order
+        error = RuntimeError("Trading 212 API request failed with HTTP 400.")
+        error.status_code = 400
+        error.body = (
+            '{"type":"/api-errors/instrument-close-only-mode",'
+            '"title":"Error while placing the order","status":400,'
+            '"detail":"Close only mode","traceId":"trace-close-only"}'
+        )
+        raise error
+
+
 def _service(tmp_path):
     engine = build_engine(f"sqlite:///{tmp_path / 'pending-actions.db'}")
     ensure_schema(engine)
@@ -89,6 +102,32 @@ def test_pending_action_service_creates_and_executes_submit_action(tmp_path) -> 
     assert broker.submitted_orders[0].ticker == "TSLA_US_EQ"
     assert finalized is not None
     assert finalized.state == PendingActionState.SUBMITTED
+
+
+def test_pending_action_service_reports_close_only_execution_failure(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'pending-actions-close-only.db'}")
+    ensure_schema(engine)
+    broker = CloseOnlyExecutionBroker()
+    service = PendingActionService(build_session_factory(engine), broker_service=broker)
+    action = service.create_submit_action(
+        chat_id="123",
+        user_id=456,
+        prepared_order=_prepared_order(),
+        original_user_message="buy suspended stock",
+        summary_text="Prepared suspended-stock order.",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        broker_provider="trading212",
+    )
+
+    result = service.approve_and_execute(action.action_id, chat_id="123", user_id=456)
+    finalized = service.get_action(action.action_id)
+
+    assert result.status == PendingActionDecisionStatus.FAILED
+    assert "close-only mode" in result.message
+    assert "temporarily not allowed" in result.message
+    assert "HTTP 400" not in result.message
+    assert finalized is not None
+    assert finalized.state == PendingActionState.FAILED
 
 
 def test_pending_action_service_rejects_cancel_action_and_is_idempotent(tmp_path) -> None:

@@ -18,6 +18,7 @@ from t212ai.pending_actions import PendingActionKind, PendingActionService, appr
 
 from .exceptions import BrokerInstrumentResolutionError
 from .models import BrokerOrder, PreparedBrokerOrder
+from .provider_errors import classify_broker_provider_error
 from .references import (
     BrokerReferenceKind,
     BrokerReferenceMap,
@@ -1032,7 +1033,15 @@ def broker_place_order(
             code="fingerprint_mismatch",
             details={"expected_fingerprint": prepared.order_fingerprint},
         )
-    result = runtime.broker_execution_service.submit_prepared_order(prepared)
+    try:
+        result = runtime.broker_execution_service.submit_prepared_order(prepared)
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="place_order",
+            message="Broker order submission failed.",
+        )
     return ToolResult(
         status="ok",
         output=result.message or f"Order submitted to { _display_broker_name(runtime.broker_provider) }.",
@@ -1661,6 +1670,30 @@ def _tool_exception(
             for key, value in rate_limit.__dict__.items()
             if value is not None
         }
+    classification = classify_broker_provider_error(
+        exc,
+        provider=runtime.broker_provider,
+        operation=operation,
+    )
+    if classification is not None:
+        details.update(classification.details)
+        return ToolResult(
+            status="error",
+            output=_format_tool_error_output(
+                classification.message,
+                code=classification.code,
+                hint=classification.hint,
+                details=details,
+            ),
+            error=ToolError(
+                message=classification.message,
+                code=classification.code,
+                type=exc.__class__.__name__,
+                hint=classification.hint,
+                retryable=classification.retryable,
+                details=details,
+            ),
+        )
 
     return ToolResult(
         status="error",
