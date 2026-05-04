@@ -138,6 +138,31 @@ BROKER_LIST_HISTORICAL_ORDERS_TOOL: ToolSpec = {
     },
 }
 
+BROKER_GET_INSTRUMENT_SNAPSHOT_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "broker_get_instrument_snapshot",
+        "description": (
+            "Read-only broker-authoritative instrument metadata snapshot for a "
+            "ticker, symbol, ISIN, or company name. Use this when order planning "
+            "needs tradability, broker-native ticker, currency, instrument type, "
+            "or provider-specific instrument constraints."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Ticker, broker-native ticker, ISIN, or instrument/company name.",
+                },
+            },
+            "required": ["ticker"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 BROKER_RESOLVE_INSTRUMENT_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -381,6 +406,7 @@ def build_broker_read_toolbox() -> ToolBox:
         BROKER_LIST_PENDING_ORDERS_TOOL,
         BROKER_GET_ORDER_TOOL,
         BROKER_LIST_HISTORICAL_ORDERS_TOOL,
+        BROKER_GET_INSTRUMENT_SNAPSHOT_TOOL,
         BROKER_RESOLVE_INSTRUMENT_TOOL,
     ]
     return ToolBox(
@@ -437,6 +463,10 @@ def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[
         "broker_list_historical_orders": lambda **kwargs: broker_list_historical_orders(
             runtime=runtime,
             **kwargs,
+        ),
+        "broker_get_instrument_snapshot": lambda ticker: broker_get_instrument_snapshot(
+            ticker=ticker,
+            runtime=runtime,
         ),
         "broker_resolve_instrument": lambda **kwargs: broker_resolve_instrument(
             runtime=runtime,
@@ -606,6 +636,70 @@ def broker_list_historical_orders(
         data={
             "provider": runtime.broker_provider,
             "page": page.model_dump(by_alias=True, exclude_none=True, mode="json"),
+        },
+    )
+
+
+@traceable(
+    name="broker_get_instrument_snapshot",
+    run_type="tool",
+    process_inputs=_trace_tool_function_inputs,
+    process_outputs=_trace_tool_function_outputs,
+)
+def broker_get_instrument_snapshot(
+    *,
+    ticker: str,
+    runtime: BrokerToolRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider=runtime.broker_provider,
+        tool_name="broker_get_instrument_snapshot",
+    )
+    if runtime.broker_read_service is None:
+        return _tool_error(
+            "Broker read service is not configured.",
+            code="broker_not_configured",
+        )
+    snapshotter = getattr(runtime.broker_read_service, "get_instrument_snapshot", None)
+    if not callable(snapshotter):
+        return _tool_error(
+            "The configured broker does not expose instrument snapshots.",
+            code="instrument_snapshot_unavailable",
+            hint=(
+                "Use broker_resolve_instrument for broker-native ticker resolution, "
+                "or configure a broker adapter with instrument metadata support."
+            ),
+            details={"provider": runtime.broker_provider},
+        )
+    resolved_ticker = str(ticker or "").strip()
+    if not resolved_ticker:
+        return _tool_error(
+            "ticker is required and cannot be empty.",
+            code="missing_ticker",
+            hint="Provide a ticker, broker-native ticker, ISIN, or instrument name.",
+        )
+    try:
+        snapshot = snapshotter(resolved_ticker)
+    except Exception as exc:
+        return _tool_exception(
+            exc,
+            runtime=runtime,
+            operation="get_instrument_snapshot",
+            message="Unable to retrieve broker instrument snapshot.",
+        )
+    return ToolResult(
+        status="ok",
+        output=_format_instrument_snapshot_output(
+            snapshot,
+            provider=runtime.broker_provider,
+        ),
+        data={
+            "provider": runtime.broker_provider,
+            "snapshot": snapshot.model_dump(
+                by_alias=True,
+                exclude_none=True,
+                mode="json",
+            ),
         },
     )
 
@@ -1822,6 +1916,57 @@ def _format_pending_orders_output(
             f"status={_format_value(order.status)}, "
             f"quantity={_format_value(order.quantity)}"
         )
+    return "\n".join(lines)
+
+
+def _format_instrument_snapshot_output(snapshot: Any, *, provider: str) -> str:
+    provider_name = _display_broker_name(provider)
+    instrument = getattr(snapshot, "instrument", None)
+    resolution = getattr(snapshot, "resolution", None)
+    lines = [
+        (
+            f"{provider_name} instrument snapshot for "
+            f"{_format_value(getattr(snapshot, 'query', None))}."
+        ),
+        f"Resolution status: {_enum_value(getattr(snapshot, 'status', None)) or 'unknown'}.",
+    ]
+    if instrument is not None:
+        lines.append(
+            "Instrument: "
+            f"ticker={_format_value(getattr(instrument, 'ticker', None))}, "
+            f"name={_format_value(getattr(instrument, 'name', None))}, "
+            f"currency={_format_value(getattr(instrument, 'currency', None))}, "
+            f"isin={_format_value(getattr(instrument, 'isin', None))}."
+        )
+    else:
+        lines.append("Instrument: no unique broker instrument snapshot was returned.")
+    lines.append(
+        "Tradability: "
+        f"tradable={_format_value(getattr(snapshot, 'tradable', None))}, "
+        f"orderable={_format_value(getattr(snapshot, 'orderable', None))}, "
+        f"fractional={_format_value(getattr(snapshot, 'fractional', None))}, "
+        f"shortable={_format_value(getattr(snapshot, 'shortable', None))}, "
+        f"extended_hours={_format_value(getattr(snapshot, 'extended_hours', None))}."
+    )
+    lines.append(
+        "Metadata: "
+        f"asset_class={_format_value(getattr(snapshot, 'asset_class', None))}, "
+        f"exchange={_format_value(getattr(snapshot, 'exchange', None))}, "
+        f"broker_status={_format_value(getattr(snapshot, 'broker_status', None))}, "
+        f"source={_format_value(getattr(snapshot, 'snapshot_source', None))}."
+    )
+    if resolution is not None and getattr(resolution, "candidates", None):
+        candidates = []
+        for candidate in resolution.candidates[:5]:
+            candidates.append(
+                f"{candidate.ticker}"
+                f"({_format_value(candidate.currency)}, "
+                f"score={_format_value(candidate.score)})"
+            )
+        if candidates:
+            lines.append("Candidates: " + "; ".join(candidates) + ".")
+    if getattr(snapshot, "hint", None):
+        lines.append(f"Hint: {snapshot.hint}")
     return "\n".join(lines)
 
 

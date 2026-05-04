@@ -15,6 +15,7 @@ from t212ai.brokers.trading212.models import (
     AccountSummary,
     Cash,
     Instrument,
+    InstrumentType,
     Investments,
     LimitRequest,
     MarketRequest,
@@ -81,6 +82,8 @@ class FakeTrading212Api:
                 short_name="Apple",
                 isin="US0378331005",
                 currency_code="USD",
+                extended_hours=False,
+                type=InstrumentType.STOCK,
             ),
             TradableInstrument(
                 ticker="GOOGLE_ES_EQ",
@@ -88,6 +91,8 @@ class FakeTrading212Api:
                 short_name="Google",
                 isin="US02079K3059",
                 currency_code="EUR",
+                extended_hours=False,
+                type=InstrumentType.STOCK,
             ),
         ]
 
@@ -246,6 +251,24 @@ def test_prepare_order_resolves_public_symbol_to_trading212_instrument() -> None
     assert "googl -> GOOGLE_ES_EQ" in prepared.warnings[0]
     assert prepared.request_payload["ticker"] == "GOOGLE_ES_EQ"
     assert api.list_instruments_calls == 1
+
+
+def test_trading212_instrument_snapshot_uses_metadata_instruments() -> None:
+    api = FakeTrading212Api()
+    service = Trading212BrokerService(api)
+
+    snapshot = service.get_instrument_snapshot("googl")
+
+    assert snapshot.status.value == "resolved"
+    assert snapshot.instrument is not None
+    assert snapshot.instrument.ticker == "GOOGLE_ES_EQ"
+    assert snapshot.instrument.currency == "EUR"
+    assert snapshot.tradable is True
+    assert snapshot.orderable is True
+    assert snapshot.extended_hours is False
+    assert snapshot.asset_class == "STOCK"
+    assert snapshot.raw_provider_payload is not None
+    assert snapshot.raw_provider_payload["ticker"] == "GOOGLE_ES_EQ"
 
 
 def test_prepare_order_preserves_mixed_case_trading212_instrument_ticker() -> None:

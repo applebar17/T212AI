@@ -44,6 +44,19 @@ class RecordingAlpacaBrokerClient(AlpacaBrokerClient):
             }
         if path == "/v2/orders/alpaca-order-1":
             return {"id": "alpaca-order-1", "symbol": "AAPL", "qty": "1", "side": "buy", "status": "new", "type": "limit", "time_in_force": "day"}
+        if path == "/v2/assets/AAPL":
+            return {
+                "id": "asset-aapl",
+                "class": "us_equity",
+                "exchange": "NASDAQ",
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "status": "active",
+                "tradable": True,
+                "marginable": True,
+                "shortable": True,
+                "fractionable": True,
+            }
         return None
 
 
@@ -119,6 +132,21 @@ class FakeAlpacaBrokerApi:
             "time_in_force": "day",
         }
 
+    def get_asset(self, symbol_or_asset_id: str):
+        assert symbol_or_asset_id == "AAPL"
+        return {
+            "id": "asset-aapl",
+            "class": "us_equity",
+            "exchange": "NASDAQ",
+            "symbol": "AAPL",
+            "name": "Apple Inc.",
+            "status": "active",
+            "tradable": True,
+            "marginable": True,
+            "shortable": True,
+            "fractionable": True,
+        }
+
     def place_order(self, payload):
         self.submitted_payloads.append(dict(payload))
         return {
@@ -148,13 +176,15 @@ def test_alpaca_broker_client_uses_trading_endpoints() -> None:
     client.list_positions()
     client.list_orders(status="open", limit=10)
     client.get_order("alpaca-order-1")
+    client.get_asset("AAPL")
     client.place_order({"symbol": "AAPL", "qty": "1", "side": "buy", "type": "limit", "time_in_force": "day"})
     client.cancel_order("alpaca-order-1")
 
     assert client.calls[0]["base_url"] == client.trading_base_url
     assert client.calls[0]["path"] == "/v2/account"
-    assert client.calls[4]["method"] == "POST"
-    assert client.calls[5]["method"] == "DELETE"
+    assert client.calls[4]["path"] == "/v2/assets/AAPL"
+    assert client.calls[5]["method"] == "POST"
+    assert client.calls[6]["method"] == "DELETE"
 
 
 def test_alpaca_broker_service_maps_snapshot_and_history() -> None:
@@ -172,6 +202,25 @@ def test_alpaca_broker_service_maps_snapshot_and_history() -> None:
     assert pending[0].status == BrokerOrderStatus.NEW
     assert history.items[0].order is not None
     assert history.items[0].order.status == BrokerOrderStatus.FILLED
+
+
+def test_alpaca_broker_service_returns_asset_backed_instrument_snapshot() -> None:
+    service = AlpacaBrokerService(FakeAlpacaBrokerApi())  # type: ignore[arg-type]
+
+    snapshot = service.get_instrument_snapshot("aapl")
+
+    assert snapshot.status.value == "resolved"
+    assert snapshot.instrument is not None
+    assert snapshot.instrument.ticker == "AAPL"
+    assert snapshot.instrument.name == "Apple Inc."
+    assert snapshot.tradable is True
+    assert snapshot.orderable is True
+    assert snapshot.fractional is True
+    assert snapshot.shortable is True
+    assert snapshot.exchange == "NASDAQ"
+    assert snapshot.asset_class == "us_equity"
+    assert snapshot.raw_provider_payload is not None
+    assert snapshot.raw_provider_payload["id"] == "asset-aapl"
 
 
 def test_alpaca_broker_service_prepare_submit_and_cancel() -> None:

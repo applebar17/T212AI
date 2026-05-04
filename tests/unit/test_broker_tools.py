@@ -10,6 +10,7 @@ from t212ai.brokers.models import (
     BrokerInstrumentCandidate,
     BrokerInstrumentResolution,
     BrokerInstrumentResolutionStatus,
+    BrokerInstrumentSnapshot,
     BrokerOrder,
     BrokerOrderActionResult,
     BrokerOrderSide,
@@ -26,6 +27,7 @@ from t212ai.brokers.tools import (
     BrokerToolRuntime,
     broker_cancel_order,
     broker_get_order,
+    broker_get_instrument_snapshot,
     broker_get_portfolio_snapshot,
     broker_list_pending_orders,
     broker_prepare_cancel_action,
@@ -89,6 +91,27 @@ class WorkingBrokerReadService:
                 )
             ],
             hint="Use broker-native ticker AAPL_US_EQ.",
+        )
+
+    def get_instrument_snapshot(self, ticker: str):
+        resolution = self.resolve_instrument(ticker)
+        return BrokerInstrumentSnapshot(
+            provider="trading212",
+            query=ticker,
+            status=BrokerInstrumentResolutionStatus.RESOLVED,
+            instrument=BrokerInstrument(
+                ticker="AAPL_US_EQ",
+                name="Apple Inc.",
+                currency="USD",
+                isin="US0378331005",
+            ),
+            resolution=resolution,
+            tradable=True,
+            orderable=True,
+            fractional=None,
+            asset_class="STOCK",
+            snapshot_source="fake",
+            hint="Use AAPL_US_EQ for broker orders.",
         )
 
 
@@ -433,6 +456,27 @@ def test_generic_broker_resolve_instrument_returns_llm_ready_candidates() -> Non
     assert resolution["status"] == "resolved"
     assert resolution["resolvedTicker"] == "AAPL_US_EQ"
     assert resolution["candidates"][0]["ticker"] == "AAPL_US_EQ"
+
+
+def test_generic_broker_get_instrument_snapshot_returns_broker_metadata() -> None:
+    runtime = BrokerToolRuntime(
+        broker_read_service=WorkingBrokerReadService(),
+        broker_provider="trading212",
+    )
+
+    result = broker_get_instrument_snapshot(ticker="AAPL", runtime=runtime)
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "Trading 212 instrument snapshot" in result.output
+    assert "AAPL_US_EQ" in result.output
+    snapshot = result.data["snapshot"]
+    assert snapshot["provider"] == "trading212"
+    assert snapshot["status"] == "resolved"
+    assert snapshot["instrument"]["ticker"] == "AAPL_US_EQ"
+    assert snapshot["tradable"] is True
+    assert snapshot["orderable"] is True
+    assert snapshot["assetClass"] == "STOCK"
 
 
 def test_generic_broker_prepare_order_returns_structured_resolution_error() -> None:

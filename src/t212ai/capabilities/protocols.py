@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 from t212ai.brokers.models import (
     BrokerHistoricalOrdersPage,
     BrokerInstrumentResolution,
+    BrokerInstrumentSnapshot,
     BrokerOrder,
     BrokerOrderActionResult,
     BrokerOrderSide,
@@ -54,6 +55,8 @@ class BrokerReadService(Protocol):
         *,
         limit: int = 8,
     ) -> BrokerInstrumentResolution: ...
+
+    def get_instrument_snapshot(self, ticker: str) -> BrokerInstrumentSnapshot: ...
 
 
 @runtime_checkable

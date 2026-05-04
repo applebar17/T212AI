@@ -1491,6 +1491,8 @@ def _broker_order_planning_guidelines() -> list[str]:
         "Use broker_get_portfolio_snapshot before preparing orders that depend on cash, holdings, or available quantities.",
         "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker, "
         "company name, ISIN, or any identifier not already confirmed as broker-native by broker data.",
+        "Use broker_get_instrument_snapshot when the plan needs broker-authoritative tradability, currency, "
+        "instrument type, fractional support, shortability, or provider-specific instrument metadata.",
         "Skip instrument-resolution when a prior broker tool output already provides the exact "
         "broker-native ticker; depend on that output instead.",
         "If broker_resolve_instrument returns ambiguous or not_found, stop before order preparation and ask for "

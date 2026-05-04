@@ -140,6 +140,30 @@ class BrokerInstrumentResolution(BrokerModel):
     hint: str | None = None
 
 
+class BrokerInstrumentSnapshot(BrokerModel):
+    provider: str
+    query: str
+    status: BrokerInstrumentResolutionStatus
+    instrument: BrokerInstrument | None = None
+    resolution: BrokerInstrumentResolution | None = None
+    tradable: bool | None = None
+    orderable: bool | None = None
+    fractional: bool | None = None
+    marginable: bool | None = None
+    shortable: bool | None = None
+    extended_hours: bool | None = Field(default=None, alias="extendedHours")
+    asset_class: str | None = Field(default=None, alias="assetClass")
+    exchange: str | None = None
+    broker_status: str | None = Field(default=None, alias="brokerStatus")
+    max_open_quantity: Decimal | None = Field(default=None, alias="maxOpenQuantity")
+    snapshot_source: str | None = Field(default=None, alias="snapshotSource")
+    raw_provider_payload: dict[str, Any] | None = Field(
+        default=None,
+        alias="rawProviderPayload",
+    )
+    hint: str | None = None
+
+
 class BrokerTax(BrokerModel):
     charged_at: datetime | None = Field(default=None, alias="chargedAt")
     currency: str | None = None

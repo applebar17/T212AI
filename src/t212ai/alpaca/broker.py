@@ -16,6 +16,7 @@ from t212ai.brokers.models import (
     BrokerInstrumentCandidate,
     BrokerInstrumentResolution,
     BrokerInstrumentResolutionStatus,
+    BrokerInstrumentSnapshot,
     BrokerInvestments,
     BrokerOrder,
     BrokerOrderActionResult,
@@ -90,6 +91,15 @@ class AlpacaBrokerClient(AlpacaBaseClient):
         )
         if not isinstance(payload, dict):
             raise AlpacaApiError("Alpaca order lookup returned an unexpected payload.")
+        return payload
+
+    def get_asset(self, symbol_or_asset_id: str) -> dict[str, Any]:
+        payload = self._request_json(
+            base_url=self.trading_base_url,
+            path=f"/v2/assets/{str(symbol_or_asset_id).strip().upper()}",
+        )
+        if not isinstance(payload, dict):
+            raise AlpacaApiError("Alpaca asset lookup returned an unexpected payload.")
         return payload
 
     def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -176,6 +186,54 @@ class AlpacaBrokerService:
                 )
             ],
             hint="Alpaca order payloads use the normalized asset symbol as the ticker.",
+        )
+
+    def get_instrument_snapshot(self, ticker: str) -> BrokerInstrumentSnapshot:
+        symbol = _normalize_symbol(ticker)
+        getter = getattr(self.api, "get_asset", None)
+        if not callable(getter):
+            resolution = self.resolve_instrument(symbol, limit=1)
+            return BrokerInstrumentSnapshot(
+                provider=self.provider_name,
+                query=str(ticker or "").strip(),
+                status=BrokerInstrumentResolutionStatus.RESOLVED,
+                instrument=BrokerInstrument(ticker=symbol),
+                resolution=resolution,
+                tradable=None,
+                orderable=None,
+                snapshot_source="alpaca:symbol_normalization_only",
+                hint=(
+                    "The configured Alpaca adapter does not expose asset lookup; "
+                    "the symbol was normalized but tradability was not verified."
+                ),
+            )
+        try:
+            payload = getter(symbol)
+        except AlpacaApiError as exc:
+            if exc.status_code == 404:
+                resolution = BrokerInstrumentResolution(
+                    query=str(ticker or "").strip(),
+                    status=BrokerInstrumentResolutionStatus.NOT_FOUND,
+                    candidates=[],
+                    hint="Alpaca did not return an asset for this symbol.",
+                )
+                return BrokerInstrumentSnapshot(
+                    provider=self.provider_name,
+                    query=str(ticker or "").strip(),
+                    status=BrokerInstrumentResolutionStatus.NOT_FOUND,
+                    resolution=resolution,
+                    tradable=False,
+                    orderable=False,
+                    snapshot_source="alpaca:/v2/assets/{symbol}",
+                    hint=resolution.hint,
+                )
+            raise
+        if not isinstance(payload, dict):
+            raise AlpacaApiError("Alpaca asset lookup returned an unexpected payload.")
+        return _alpaca_instrument_snapshot(
+            payload,
+            query=str(ticker or "").strip(),
+            provider=self.provider_name,
         )
 
     def prepare_order(
@@ -298,6 +356,73 @@ class AlpacaBrokerService:
             order_id=str(order_ref),
             message="Cancellation request accepted by Alpaca.",
         )
+
+
+def _alpaca_instrument_snapshot(
+    payload: dict[str, Any],
+    *,
+    query: str,
+    provider: str,
+) -> BrokerInstrumentSnapshot:
+    symbol = _string_or_none(payload.get("symbol"))
+    tradable = _to_bool(payload.get("tradable"))
+    broker_status = _string_or_none(payload.get("status"))
+    resolution_status = (
+        BrokerInstrumentResolutionStatus.RESOLVED
+        if symbol and tradable is not False
+        else BrokerInstrumentResolutionStatus.NOT_FOUND
+    )
+    resolution = BrokerInstrumentResolution(
+        query=query,
+        status=resolution_status,
+        resolved_ticker=symbol if resolution_status == BrokerInstrumentResolutionStatus.RESOLVED else None,
+        candidates=(
+            [
+                BrokerInstrumentCandidate(
+                    ticker=symbol,
+                    name=_string_or_none(payload.get("name")),
+                    currency=_string_or_none(payload.get("currency") or "USD"),
+                    type=_string_or_none(payload.get("class")),
+                    score=100.0,
+                    match_reason="alpaca_asset_lookup",
+                )
+            ]
+            if symbol
+            else []
+        ),
+        hint=(
+            "Alpaca asset lookup is broker-authoritative for symbol tradability."
+            if resolution_status == BrokerInstrumentResolutionStatus.RESOLVED
+            else "Alpaca returned an asset record, but it is not currently tradable."
+        ),
+    )
+    return BrokerInstrumentSnapshot(
+        provider=provider,
+        query=query,
+        status=resolution_status,
+        instrument=(
+            BrokerInstrument(
+                currency=_string_or_none(payload.get("currency") or "USD"),
+                isin=None,
+                name=_string_or_none(payload.get("name")),
+                ticker=symbol,
+            )
+            if symbol
+            else None
+        ),
+        resolution=resolution,
+        tradable=tradable,
+        orderable=tradable,
+        fractional=_to_bool(payload.get("fractionable")),
+        marginable=_to_bool(payload.get("marginable")),
+        shortable=_to_bool(payload.get("shortable")),
+        asset_class=_string_or_none(payload.get("class")),
+        exchange=_string_or_none(payload.get("exchange")),
+        broker_status=broker_status,
+        snapshot_source="alpaca:/v2/assets/{symbol}",
+        raw_provider_payload=payload,
+        hint=resolution.hint,
+    )
 
 
 def _broker_account_summary(

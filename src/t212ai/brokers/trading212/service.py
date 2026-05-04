@@ -20,6 +20,7 @@ from t212ai.brokers.models import (
     BrokerInstrument,
     BrokerInstrumentResolution,
     BrokerInstrumentResolutionStatus,
+    BrokerInstrumentSnapshot,
     BrokerInvestments,
     BrokerOrder,
     BrokerOrderActionResult,
@@ -104,6 +105,65 @@ class Trading212BrokerService:
             query,
             self._list_instruments_cached(),
             limit=limit,
+        )
+
+    def get_instrument_snapshot(self, ticker: str) -> BrokerInstrumentSnapshot:
+        query = str(ticker or "").strip()
+        resolution = self.resolve_instrument(query, limit=8)
+        instrument = None
+        raw_payload = None
+        if resolution.resolved_ticker:
+            instrument = _find_tradable_instrument(
+                self._list_instruments_cached(),
+                resolution.resolved_ticker,
+            )
+        if instrument is None and resolution.candidates:
+            instrument = _find_tradable_instrument(
+                self._list_instruments_cached(),
+                resolution.candidates[0].ticker,
+            )
+        if instrument is not None:
+            raw_payload = instrument.model_dump(
+                by_alias=True,
+                exclude_none=True,
+                mode="json",
+            )
+            generic_instrument = BrokerInstrument(
+                currency=instrument.currency_code,
+                isin=instrument.isin,
+                name=instrument.name or instrument.short_name,
+                ticker=instrument.ticker,
+            )
+            return BrokerInstrumentSnapshot(
+                provider=self.provider_name,
+                query=query,
+                status=resolution.status,
+                instrument=generic_instrument,
+                resolution=resolution,
+                tradable=True,
+                orderable=True,
+                extended_hours=instrument.extended_hours,
+                asset_class=(
+                    instrument.type.value if instrument.type is not None else None
+                ),
+                broker_status="metadata_available",
+                max_open_quantity=instrument.max_open_quantity,
+                snapshot_source="trading212:/api/v0/equity/metadata/instruments",
+                raw_provider_payload=raw_payload,
+                hint=(
+                    "Trading 212 instrument metadata is broker-authoritative for "
+                    "order ticker selection."
+                ),
+            )
+        return BrokerInstrumentSnapshot(
+            provider=self.provider_name,
+            query=query,
+            status=resolution.status,
+            resolution=resolution,
+            tradable=None,
+            orderable=None,
+            snapshot_source="trading212:/api/v0/equity/metadata/instruments",
+            hint=resolution.hint,
         )
 
     def prepare_order(
@@ -410,6 +470,21 @@ def _normalize_ticker(value: str) -> str:
 def _looks_like_trading212_ticker(value: str) -> bool:
     raw = str(value or "").strip().upper()
     return bool(re.match(r"^[A-Z0-9.]+(?:_[A-Z0-9]+)+$", raw))
+
+
+def _find_tradable_instrument(
+    instruments: list[TradableInstrument],
+    ticker: str,
+) -> TradableInstrument | None:
+    requested = str(ticker or "").strip()
+    for instrument in instruments:
+        if str(instrument.ticker or "").strip() == requested:
+            return instrument
+    requested_upper = requested.upper()
+    for instrument in instruments:
+        if str(instrument.ticker or "").strip().upper() == requested_upper:
+            return instrument
+    return None
 
 
 def _prepared_order_has_confirmed_instrument(prepared_order: PreparedBrokerOrder) -> bool:

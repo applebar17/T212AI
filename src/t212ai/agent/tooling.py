@@ -65,9 +65,9 @@ def _order_summary(
     del settings
     if assessment.capabilities["broker_execution_eligibility"].available:
         return (
-            "Broker portfolio, pending orders, order lookup, instrument resolution, "
-            "order/cancellation preparation tools, plus deterministic approval/execution "
-            "through Telegram buttons."
+            "Broker portfolio, pending orders, order lookup, instrument resolution "
+            "and instrument snapshots, order/cancellation preparation tools, plus "
+            "deterministic approval/execution through Telegram buttons."
         )
     return (
         "Broker order tools are unavailable because no ready broker provider is configured. "

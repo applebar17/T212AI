@@ -174,6 +174,9 @@ Correct flow:
 - reason that a user-supplied symbol/name may need broker-native resolution
 - plan `broker_resolve_instrument` before order preparation unless prior broker
   context already confirmed the exact broker-native ticker
+- plan `broker_get_instrument_snapshot` when the task needs tradability,
+  currency, instrument type, fractional support, shortability, or other
+  broker-specific metadata before preparing an order
 - execute the resolver and pass only the compact resolution summary to the next
   action
 - call `broker_prepare_order_action` only when the resolution is unique or a
