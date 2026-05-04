@@ -165,9 +165,7 @@ class MainOrchestratorAgent(BaseAgent):
 
     @traceable(
         name="Main Orchestrator Handle",
-        run_type="chain",
-        process_inputs=_trace_agent_handle_inputs,
-        process_outputs=_trace_agent_response_outputs,
+        run_type="chain"
     )
     def handle(
         self,
