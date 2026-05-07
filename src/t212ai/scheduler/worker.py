@@ -8,7 +8,8 @@ from typing import Protocol
 
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
-from .models import ScheduledProcess, ScheduledRunStatus
+from .models import ScheduledEventType, ScheduledProcess, ScheduledRunStatus
+from .notification import SchedulerNotificationService
 from .service import ScheduledProcessService
 
 
@@ -20,6 +21,8 @@ class ScheduledAdapterResult:
     code: str | None = None
     message: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    notification_message: str | None = None
+    notification_metadata: dict[str, object] = field(default_factory=dict)
 
 
 class ScheduledProcessAdapter(Protocol):
@@ -87,9 +90,11 @@ class SchedulerWorker:
         service: ScheduledProcessService,
         *,
         adapters: dict[str, ScheduledProcessAdapter] | None = None,
+        notification_service: SchedulerNotificationService | None = None,
     ) -> None:
         self.service = service
         self.adapters = dict(adapters or {})
+        self.notification_service = notification_service
 
     @traceable(name="scheduler.run_once", run_type="chain")
     def run_once(
@@ -184,7 +189,7 @@ class SchedulerWorker:
                 metadata=dict(result.metadata),
                 now=now,
             )
-            return SchedulerProcessRunSummary(
+            summary = SchedulerProcessRunSummary(
                 process_id=process.process_id,
                 kind=process.kind.value,
                 run_id=run_id,
@@ -192,6 +197,8 @@ class SchedulerWorker:
                 code=result.code,
                 message=result.message or result.output_summary or "Completed.",
             )
+            self._send_result_notification(process, run_id, result)
+            return summary
         if result.status == ScheduledRunStatus.SKIPPED:
             code = result.code or "adapter_skipped"
             message = result.message or result.output_summary or "Skipped."
@@ -202,7 +209,7 @@ class SchedulerWorker:
                 metadata=dict(result.metadata),
                 now=now,
             )
-            return SchedulerProcessRunSummary(
+            summary = SchedulerProcessRunSummary(
                 process_id=process.process_id,
                 kind=process.kind.value,
                 run_id=run_id,
@@ -210,6 +217,8 @@ class SchedulerWorker:
                 code=skipped.error_code,
                 message=message,
             )
+            self._send_result_notification(process, run_id, result)
+            return summary
         if result.status == ScheduledRunStatus.FAILED:
             code = result.code or "adapter_failed"
             message = result.message or result.output_summary or "Failed."
@@ -220,7 +229,7 @@ class SchedulerWorker:
                 metadata=dict(result.metadata),
                 now=now,
             )
-            return SchedulerProcessRunSummary(
+            summary = SchedulerProcessRunSummary(
                 process_id=process.process_id,
                 kind=process.kind.value,
                 run_id=run_id,
@@ -228,6 +237,8 @@ class SchedulerWorker:
                 code=failed.error_code,
                 message=message,
             )
+            self._send_result_notification(process, run_id, result)
+            return summary
         message = f"Adapter returned unsupported status '{result.status.value}'."
         failed = self.service.record_run_failed(
             run_id,
@@ -244,6 +255,46 @@ class SchedulerWorker:
             code=failed.error_code,
             message=message,
         )
+
+    def _send_result_notification(
+        self,
+        process: ScheduledProcess,
+        run_id: str,
+        result: ScheduledAdapterResult,
+    ) -> None:
+        if self.notification_service is None:
+            return
+        message = str(result.notification_message or "").strip()
+        if not message:
+            return
+        metadata = {
+            "kind": process.kind.value,
+            "runStatus": result.status.value,
+            "matched": result.matched,
+            **dict(result.notification_metadata),
+        }
+        try:
+            self.notification_service.send_process_notification(
+                process_id=process.process_id,
+                run_id=run_id,
+                message=message,
+                metadata=metadata,
+            )
+        except Exception as exc:  # pragma: no cover - defensive audit fallback
+            try:
+                self.service.record_event(
+                    process.process_id,
+                    run_id=run_id,
+                    event_type=ScheduledEventType.NOTIFICATION_FAILED,
+                    message=f"Scheduler notification service failed: {exc}.",
+                    details={
+                        "errorCode": "notification_service_error",
+                        "errorType": exc.__class__.__name__,
+                        "metadata": metadata,
+                    },
+                )
+            except Exception:
+                return
 
 
 def _utc_now() -> datetime:

@@ -74,6 +74,9 @@ class ScheduledEventType(StrEnum):
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
     TRIGGER_MATCHED = "trigger_matched"
+    NOTIFICATION_QUEUED = "notification_queued"
+    NOTIFICATION_SENT = "notification_sent"
+    NOTIFICATION_FAILED = "notification_failed"
 
 
 class ScheduleSpec(SchedulerModel):

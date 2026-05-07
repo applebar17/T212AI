@@ -455,6 +455,7 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert "Configuration status: valid" in output
     assert "Run bot preflight: blocked" in output
     assert "- Scheduled processes: available" in output
+    assert "- Scheduler notifications: unavailable" in output
 
 
 def test_doctor_returns_nonzero_for_partial_reddit_config(tmp_path, capsys) -> None:

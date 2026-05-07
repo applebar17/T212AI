@@ -545,6 +545,38 @@ class ScheduledProcessService:
             )
             return [_event_model(row) for row in session.scalars(query).all()]
 
+    def record_event(
+        self,
+        process_id: str,
+        *,
+        event_type: ScheduledEventType | str,
+        message: str,
+        run_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> ScheduledProcessEvent:
+        resolved_now = _ensure_aware(now) if now is not None else _utc_now()
+        resolved_event_type = _coerce_enum(ScheduledEventType, event_type)
+        with self._session_scope() as session:
+            _required_process_row(session, process_id)
+            if run_id is not None:
+                run_row = _required_run_row(session, run_id)
+                if run_row.process_id != str(process_id):
+                    raise ValueError(
+                        f"Scheduled process run '{run_id}' does not belong to '{process_id}'."
+                    )
+            row = _add_event(
+                session,
+                process_id=str(process_id),
+                run_id=str(run_id) if run_id is not None else None,
+                event_type=resolved_event_type,
+                message=_required_text(message, "message"),
+                created_at=resolved_now,
+                details=details or {},
+            )
+            session.flush()
+            return _event_model(row)
+
     def _mark_terminal(
         self,
         process_id: str,
@@ -971,18 +1003,18 @@ def _add_event(
     created_at: datetime,
     run_id: str | None = None,
     details: dict[str, Any] | None = None,
-) -> None:
-    session.add(
-        ScheduledProcessEventRow(
-            event_id=_new_event_id(),
-            process_id=process_id,
-            run_id=run_id,
-            event_type=event_type.value,
-            message=message,
-            details_json=_json_dict(details or {}),
-            created_at=_ensure_aware(created_at),
-        )
+) -> ScheduledProcessEventRow:
+    row = ScheduledProcessEventRow(
+        event_id=_new_event_id(),
+        process_id=process_id,
+        run_id=run_id,
+        event_type=event_type.value,
+        message=message,
+        details_json=_json_dict(details or {}),
+        created_at=_ensure_aware(created_at),
     )
+    session.add(row)
+    return row
 
 
 def _completed_match_count(session: Session, process_id: str) -> int:

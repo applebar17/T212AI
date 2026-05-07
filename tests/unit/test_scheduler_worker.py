@@ -27,10 +27,30 @@ class CompletingAdapter:
         )
 
 
+class NotifyingAdapter:
+    def run(self, process: ScheduledProcess) -> ScheduledAdapterResult:
+        return ScheduledAdapterResult(
+            status=ScheduledRunStatus.COMPLETED,
+            matched=True,
+            output_summary=f"Completed {process.process_id}.",
+            notification_message="TSLA crossed the configured threshold.",
+            notification_metadata={"symbol": "TSLA"},
+        )
+
+
 class RaisingAdapter:
     def run(self, process: ScheduledProcess) -> ScheduledAdapterResult:
         del process
         raise RuntimeError("adapter exploded")
+
+
+class FakeNotificationService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def send_process_notification(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return object()
 
 
 def _service(tmp_path: Path) -> ScheduledProcessService:
@@ -70,7 +90,8 @@ def test_scheduler_worker_returns_zero_counts_without_due_processes(tmp_path: Pa
 def test_scheduler_worker_skips_due_process_without_adapter(tmp_path: Path) -> None:
     service = _service(tmp_path)
     process = _create_due_process(service)
-    worker = SchedulerWorker(service)
+    notifications = FakeNotificationService()
+    worker = SchedulerWorker(service, notification_service=notifications)
 
     result = worker.run_once(now=BASE_NOW)
     updated = service.get_process(process.process_id)
@@ -85,6 +106,7 @@ def test_scheduler_worker_skips_due_process_without_adapter(tmp_path: Path) -> N
     assert updated is not None
     assert updated.next_run_at == BASE_NOW + timedelta(seconds=60)
     assert updated.failure_count == 0
+    assert notifications.calls == []
 
 
 def test_scheduler_worker_records_completed_adapter_result(tmp_path: Path) -> None:
@@ -106,6 +128,32 @@ def test_scheduler_worker_records_completed_adapter_result(tmp_path: Path) -> No
     assert runs[0].matched is True
     assert updated is not None
     assert updated.next_run_at == BASE_NOW + timedelta(seconds=60)
+
+
+def test_scheduler_worker_sends_adapter_requested_notification(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    process = _create_due_process(service)
+    notifications = FakeNotificationService()
+    worker = SchedulerWorker(
+        service,
+        adapters={"instrument_monitor": NotifyingAdapter()},
+        notification_service=notifications,
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+
+    assert result.completed_count == 1
+    assert len(notifications.calls) == 1
+    call = notifications.calls[0]
+    assert call["process_id"] == process.process_id
+    assert call["run_id"] == result.runs[0].run_id
+    assert call["message"] == "TSLA crossed the configured threshold."
+    assert call["metadata"] == {
+        "kind": "instrument_monitor",
+        "runStatus": "completed",
+        "matched": True,
+        "symbol": "TSLA",
+    }
 
 
 def test_scheduler_worker_records_adapter_failure(tmp_path: Path) -> None:

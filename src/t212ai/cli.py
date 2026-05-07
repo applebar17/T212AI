@@ -1679,6 +1679,7 @@ def render_doctor_report(
         "persistent_guideline_memory",
         "market_signal_memory",
         "scheduled_processes",
+        "scheduler_notifications",
     ):
         capability = assessment.capabilities[key]
         lines.append(
@@ -1923,7 +1924,10 @@ def run_reconcile_worker(runtime, *, interval_seconds: int) -> int:
 def run_scheduler_once(runtime, *, limit: int = 100) -> object:
     if runtime.scheduled_process_service is None:
         raise RuntimeError("Scheduler service is not configured.")
-    worker = SchedulerWorker(runtime.scheduled_process_service)
+    worker = SchedulerWorker(
+        runtime.scheduled_process_service,
+        notification_service=getattr(runtime, "scheduler_notification_service", None),
+    )
     return worker.run_once(limit=limit)
 
 

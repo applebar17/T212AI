@@ -348,6 +348,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.proposal_service is not None
     assert runtime.market_signal_service is not None
     assert runtime.scheduled_process_service is not None
+    assert runtime.scheduler_notification_service is None
     assert runtime.calculator_service is not None
     assert runtime.market_data_service is not None
     assert isinstance(runtime.market_data_service, MarketDataService)
@@ -362,6 +363,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.capability_registry["market_data"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["scheduled_processes"].ready
+    assert not runtime.capability_registry["scheduler_notifications"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -405,9 +407,32 @@ def test_build_runtime_disables_scheduler_when_database_is_unavailable(tmp_path:
     assert runtime.db_engine is None
     assert runtime.db_session_factory is None
     assert runtime.scheduled_process_service is None
+    assert runtime.scheduler_notification_service is None
     assert not runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["scheduled_processes"].selected_provider is None
+    assert not runtime.capability_registry["scheduler_notifications"].ready
     assert "database" in runtime.component_errors
+
+
+def test_build_runtime_wires_scheduler_notifications_when_telegram_is_configured(
+    tmp_path: Path,
+) -> None:
+    settings = get_app_settings(
+        env={
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+            "TELEGRAM_BOT_TOKEN": "telegram-token",
+            "TELEGRAM_ALLOWED_CHAT_ID": "123,456",
+        }
+    )
+
+    runtime = build_runtime(settings)
+
+    assert runtime.scheduled_process_service is not None
+    assert runtime.scheduler_notification_service is not None
+    assert runtime.telegram_scheduler_notifier is not None
+    assert runtime.capability_registry["scheduler_notifications"].ready
+    assert runtime.capability_registry["scheduler_notifications"].selected_provider == "telegram"
 
 
 def test_build_runtime_wires_agent_stack_when_llm_is_configured(

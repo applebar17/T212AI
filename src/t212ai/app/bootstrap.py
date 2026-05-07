@@ -184,6 +184,15 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 "Set DATABASE_URL to enable SQL-backed scheduled processes.",
             ),
         ),
+        "scheduler_notifications": CapabilityAssessment(
+            name="scheduler_notifications",
+            label="Scheduler notifications",
+            available=bool(str(settings.database_url or "").strip())
+            and providers["telegram"].ready,
+            optional=True,
+            selected_provider="telegram" if providers["telegram"].ready else None,
+            reasons=_scheduler_notification_reasons(settings, providers["telegram"]),
+        ),
     }
 
     errors = _unique_messages(
@@ -255,6 +264,20 @@ def preflight_scheduler(
         blocking_errors=_unique_messages(errors),
         warnings=assessment.warnings,
     )
+
+
+def _scheduler_notification_reasons(
+    settings: AppSettings,
+    telegram: ProviderAssessment,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if not bool(str(settings.database_url or "").strip()):
+        reasons.append("Set DATABASE_URL to enable SQL-backed scheduler notification audit.")
+    if not telegram.ready:
+        reasons.append(
+            "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID to enable scheduler Telegram notifications."
+        )
+    return tuple(reasons)
 
 
 def ensure_runtime_directories(settings: AppSettings) -> tuple[Path, ...]:
