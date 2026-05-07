@@ -16,6 +16,8 @@ def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
     assert parser.parse_args(["doctor"]).handler is cli.command_doctor
     assert parser.parse_args(["run", "bot"]).handler is cli.command_run_bot
     assert parser.parse_args(["run", "reconcile-once"]).handler is cli.command_run_reconcile_once
+    assert parser.parse_args(["run", "scheduler-once"]).handler is cli.command_run_scheduler_once
+    assert parser.parse_args(["run", "scheduler"]).handler is cli.command_run_scheduler_worker
     assert parser.parse_args(["run", "worker"]).handler is cli.command_run_worker
 
 
@@ -452,6 +454,7 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert exit_code == 0
     assert "Configuration status: valid" in output
     assert "Run bot preflight: blocked" in output
+    assert "- Scheduled processes: available" in output
 
 
 def test_doctor_returns_nonzero_for_partial_reddit_config(tmp_path, capsys) -> None:
@@ -608,6 +611,75 @@ def test_run_worker_parses_interval_and_invokes_worker(monkeypatch, tmp_path) ->
     assert exit_code == 0
     assert isinstance(calls["runtime"], FakeRuntime)
     assert calls["interval_seconds"] == 900
+
+
+def test_run_scheduler_once_preflight_requires_database(tmp_path, capsys) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=\n", encoding="utf-8")
+
+    exit_code = cli.main(["run", "scheduler-once", "--env-file", str(env_file)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Scheduler requires DATABASE_URL" in output
+
+
+def test_run_scheduler_once_invokes_scheduler_runtime(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    class FakeResult:
+        def render_text(self) -> str:
+            return "scheduler ran"
+
+    class FakeRuntime:
+        scheduled_process_service = object()
+
+    monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
+
+    def fake_run_scheduler_once(runtime):
+        calls["runtime"] = runtime
+        return FakeResult()
+
+    monkeypatch.setattr(cli, "run_scheduler_once", fake_run_scheduler_once)
+
+    exit_code = cli.main(["run", "scheduler-once", "--env-file", str(env_file)])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert output.strip() == "scheduler ran"
+    assert isinstance(calls["runtime"], FakeRuntime)
+
+
+def test_run_scheduler_parses_interval_and_invokes_worker(monkeypatch, tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    class FakeRuntime:
+        scheduled_process_service = object()
+
+    monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
+
+    def fake_run_scheduler_worker(runtime, *, poll_every_seconds: int) -> int:
+        calls["runtime"] = runtime
+        calls["poll_every_seconds"] = poll_every_seconds
+        return 0
+
+    monkeypatch.setattr(cli, "run_scheduler_worker", fake_run_scheduler_worker)
+
+    exit_code = cli.main(
+        ["run", "scheduler", "--env-file", str(env_file), "--poll-every", "15m"]
+    )
+
+    assert exit_code == 0
+    assert isinstance(calls["runtime"], FakeRuntime)
+    assert calls["poll_every_seconds"] == 900
 
 
 def test_parse_duration_to_seconds_supports_compact_forms() -> None:

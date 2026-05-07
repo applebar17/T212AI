@@ -50,6 +50,7 @@ from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.proposals import ProposalService
 from t212ai.reconciliation import ReconciliationService
+from t212ai.scheduler import ScheduledProcessService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 try:
@@ -86,6 +87,7 @@ class AppRuntime:
     pending_action_service: PendingActionService | None = None
     proposal_service: ProposalService | None = None
     market_signal_service: MarketSignalService | None = None
+    scheduled_process_service: ScheduledProcessService | None = None
     reconciliation_service: ReconciliationService | None = None
     calculator_service: CalculatorService | None = None
     genai_client: GenAIClient | None = None
@@ -181,6 +183,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_genai_stack(runtime)
     _build_database_stack(runtime)
     _build_market_signal_stack(runtime)
+    _build_scheduler_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
     _build_capability_stack(runtime)
@@ -251,6 +254,12 @@ def _build_market_signal_stack(runtime: AppRuntime) -> None:
     if runtime.db_session_factory is None:
         return
     runtime.market_signal_service = MarketSignalService(runtime.db_session_factory)
+
+
+def _build_scheduler_stack(runtime: AppRuntime) -> None:
+    if runtime.db_session_factory is None:
+        return
+    runtime.scheduled_process_service = ScheduledProcessService(runtime.db_session_factory)
 
 
 def _build_data_source_stack(runtime: AppRuntime) -> None:
@@ -399,6 +408,12 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             selected_provider=_capability_provider(runtime, "market_signal_memory"),
             ready=runtime.market_signal_service is not None,
             implementation=runtime.market_signal_service,
+        ),
+        "scheduled_processes": CapabilityBinding(
+            capability="scheduled_processes",
+            selected_provider=_capability_provider(runtime, "scheduled_processes"),
+            ready=runtime.scheduled_process_service is not None,
+            implementation=runtime.scheduled_process_service,
         ),
     }
 

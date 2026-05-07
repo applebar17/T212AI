@@ -173,6 +173,17 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 "Set DATABASE_URL to enable SQL-backed market signal memory.",
             ),
         ),
+        "scheduled_processes": CapabilityAssessment(
+            name="scheduled_processes",
+            label="Scheduled processes",
+            available=bool(str(settings.database_url or "").strip()),
+            optional=True,
+            selected_provider="sql" if str(settings.database_url or "").strip() else None,
+            reasons=_reasons_for_capability(
+                bool(str(settings.database_url or "").strip()),
+                "Set DATABASE_URL to enable SQL-backed scheduled processes.",
+            ),
+        ),
     }
 
     errors = _unique_messages(
@@ -225,6 +236,20 @@ def preflight_reconcile(
         )
     if not bool(str(settings.database_url or "").strip()):
         errors.append("Reconciliation requires DATABASE_URL.")
+    return StartupPreflight(
+        ok=not errors,
+        blocking_errors=_unique_messages(errors),
+        warnings=assessment.warnings,
+    )
+
+
+def preflight_scheduler(
+    assessment: ConfigAssessment,
+    settings: AppSettings,
+) -> StartupPreflight:
+    errors: list[str] = []
+    if not bool(str(settings.database_url or "").strip()):
+        errors.append("Scheduler requires DATABASE_URL.")
     return StartupPreflight(
         ok=not errors,
         blocking_errors=_unique_messages(errors),

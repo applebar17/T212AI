@@ -15,6 +15,7 @@ from .app.bootstrap import (
     ensure_runtime_directories,
     preflight_reconcile,
     preflight_run_bot,
+    preflight_scheduler,
     run_provider_smoke_tests,
 )
 from .app.config import (
@@ -32,6 +33,7 @@ from .genai.context import (
     ModelContextRegistry,
     parse_context_token_value,
 )
+from .scheduler import SchedulerWorker
 
 
 LLM_PROVIDER_OPTIONS = (
@@ -453,6 +455,32 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         help="Optional .env file to load before running reconciliation.",
     )
     run_reconcile_parser.set_defaults(handler=command_run_reconcile_once)
+    run_scheduler_once_parser = run_subparsers.add_parser(
+        "scheduler-once",
+        help="Run one scheduler worker pass.",
+    )
+    run_scheduler_once_parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional .env file to load before running the scheduler.",
+    )
+    run_scheduler_once_parser.set_defaults(handler=command_run_scheduler_once)
+
+    run_scheduler_parser = run_subparsers.add_parser(
+        "scheduler",
+        help="Run the scheduler worker loop.",
+    )
+    run_scheduler_parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional .env file to load before running the scheduler.",
+    )
+    run_scheduler_parser.add_argument(
+        "--poll-every",
+        default="1m",
+        help="Scheduler polling interval such as 30s, 1m, 15m, or 1h.",
+    )
+    run_scheduler_parser.set_defaults(handler=command_run_scheduler_worker)
 
     run_worker_parser = run_subparsers.add_parser(
         "worker",
@@ -613,6 +641,60 @@ def command_run_worker(args: argparse.Namespace) -> int:
         return 0
     except Exception as exc:  # pragma: no cover - startup safety net
         print(f"brokerai run worker failed: {exc}")
+        return 1
+
+
+def command_run_scheduler_once(args: argparse.Namespace) -> int:
+    settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    assessment = assess_settings(settings)
+    preflight = preflight_scheduler(assessment, settings)
+    if not preflight.ok:
+        print(render_scheduler_failure(preflight))
+        return 1
+    if args.env_file is not None:
+        load_env_file(args.env_file, override=True)
+    ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
+    if runtime.scheduled_process_service is None:
+        print("brokerai run scheduler-once failed: scheduler runtime is not available.")
+        return 1
+    try:
+        result = run_scheduler_once(runtime)
+    except Exception as exc:  # pragma: no cover - startup safety net
+        print(f"brokerai run scheduler-once failed: {exc}")
+        return 1
+    print(result.render_text())
+    return 0
+
+
+def command_run_scheduler_worker(args: argparse.Namespace) -> int:
+    settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    assessment = assess_settings(settings)
+    preflight = preflight_scheduler(assessment, settings)
+    if not preflight.ok:
+        print(render_scheduler_failure(preflight))
+        return 1
+    try:
+        poll_every_seconds = parse_duration_to_seconds(args.poll_every)
+    except ValueError as exc:
+        print(f"brokerai run scheduler failed: {exc}")
+        return 1
+    if args.env_file is not None:
+        load_env_file(args.env_file, override=True)
+    ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
+    if runtime.scheduled_process_service is None:
+        print("brokerai run scheduler failed: scheduler runtime is not available.")
+        return 1
+    try:
+        return run_scheduler_worker(runtime, poll_every_seconds=poll_every_seconds)
+    except KeyboardInterrupt:
+        print("brokerai scheduler stopped.")
+        return 0
+    except Exception as exc:  # pragma: no cover - startup safety net
+        print(f"brokerai run scheduler failed: {exc}")
         return 1
 
 
@@ -1596,6 +1678,7 @@ def render_doctor_report(
         "search",
         "persistent_guideline_memory",
         "market_signal_memory",
+        "scheduled_processes",
     ):
         capability = assessment.capabilities[key]
         lines.append(
@@ -1658,6 +1741,19 @@ def render_run_bot_failure(preflight) -> str:
 
 def render_reconcile_failure(preflight) -> str:
     lines = ["brokerai reconciliation cannot start.", ""]
+    lines.append("Blocking issues:")
+    for error in preflight.blocking_errors:
+        lines.append(f"- {error}")
+    if preflight.warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        for warning in preflight.warnings:
+            lines.append(f"- {warning}")
+    return "\n".join(lines)
+
+
+def render_scheduler_failure(preflight) -> str:
+    lines = ["brokerai scheduler cannot start.", ""]
     lines.append("Blocking issues:")
     for error in preflight.blocking_errors:
         lines.append(f"- {error}")
@@ -1822,3 +1918,19 @@ def run_reconcile_worker(runtime, *, interval_seconds: int) -> int:
         result = run_reconcile_once(runtime)
         print(result.render_text())
         time.sleep(interval_seconds)
+
+
+def run_scheduler_once(runtime, *, limit: int = 100) -> object:
+    if runtime.scheduled_process_service is None:
+        raise RuntimeError("Scheduler service is not configured.")
+    worker = SchedulerWorker(runtime.scheduled_process_service)
+    return worker.run_once(limit=limit)
+
+
+def run_scheduler_worker(runtime, *, poll_every_seconds: int) -> int:
+    if poll_every_seconds <= 0:
+        raise ValueError("poll_every_seconds must be greater than zero.")
+    while True:
+        result = run_scheduler_once(runtime)
+        print(result.render_text())
+        time.sleep(poll_every_seconds)

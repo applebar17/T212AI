@@ -347,6 +347,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.market_signal_service is not None
+    assert runtime.scheduled_process_service is not None
     assert runtime.calculator_service is not None
     assert runtime.market_data_service is not None
     assert isinstance(runtime.market_data_service, MarketDataService)
@@ -360,6 +361,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.capability_registry["market_data"].selected_provider == "yahoo"
     assert runtime.capability_registry["market_data"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
+    assert runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -388,6 +390,24 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.main_orchestrator is None
     assert "genai_client" in runtime.component_errors
     assert not runtime.has_agent_runtime
+
+
+def test_build_runtime_disables_scheduler_when_database_is_unavailable(tmp_path: Path) -> None:
+    settings = get_app_settings(
+        env={
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": "",
+        }
+    )
+
+    runtime = build_runtime(settings)
+
+    assert runtime.db_engine is None
+    assert runtime.db_session_factory is None
+    assert runtime.scheduled_process_service is None
+    assert not runtime.capability_registry["scheduled_processes"].ready
+    assert runtime.capability_registry["scheduled_processes"].selected_provider is None
+    assert "database" in runtime.component_errors
 
 
 def test_build_runtime_wires_agent_stack_when_llm_is_configured(
@@ -420,6 +440,7 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.market_signal_service is not None
+    assert runtime.scheduled_process_service is not None
     assert runtime.calculator_service is not None
     assert runtime.calculator_agent is not None
     assert runtime.market_data_service is not None
@@ -471,6 +492,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
     assert runtime.market_signal_service is not None
+    assert runtime.scheduled_process_service is not None
     assert runtime.reconciliation_service is not None
     assert runtime.portfolio_summary_workflow is not None
     assert runtime.pending_orders_review_workflow is not None
@@ -492,6 +514,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["broker_execution"].ready
     assert runtime.capability_registry["market_intelligence"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
+    assert runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
