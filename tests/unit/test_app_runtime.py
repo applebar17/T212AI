@@ -369,6 +369,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert not runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert not runtime.capability_registry["scheduler_market_regime_monitor"].ready
     assert not runtime.capability_registry["scheduler_market_signal_capture"].ready
+    assert not runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -425,6 +426,7 @@ def test_build_runtime_disables_scheduler_when_database_is_unavailable(tmp_path:
     assert not runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert not runtime.capability_registry["scheduler_market_regime_monitor"].ready
     assert not runtime.capability_registry["scheduler_market_signal_capture"].ready
+    assert not runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.scheduler_agent is None
     assert "database" in runtime.component_errors
 
@@ -496,6 +498,7 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.capability_registry["scheduler_market_regime_monitor"].ready
     assert runtime.capability_registry["scheduler_market_signal_capture"].ready
+    assert not runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.component_errors == {}
 
 
@@ -524,6 +527,8 @@ def test_build_runtime_builds_optional_provider_stacks(
             "REDDIT_CLIENT_SECRET": "reddit-secret",
             "REDDIT_REFRESH_TOKEN": "refresh-token",
             "REDDIT_USER_AGENT": "server:t212ai:test (by /u/tester)",
+            "TELEGRAM_BOT_TOKEN": "telegram-token",
+            "TELEGRAM_ALLOWED_CHAT_ID": "123",
             "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
             "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
         }
@@ -568,6 +573,8 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.capability_registry["scheduler_market_regime_monitor"].ready
     assert runtime.capability_registry["scheduler_market_signal_capture"].ready
+    assert runtime.capability_registry["scheduler_notifications"].ready
+    assert runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name

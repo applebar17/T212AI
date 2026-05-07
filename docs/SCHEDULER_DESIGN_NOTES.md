@@ -1244,33 +1244,42 @@ Scope:
 
 Design details:
 
-- Broker execution remains unavailable to the scheduler.
-- The only order-adjacent action is creating a pending proposal through existing guarded services.
-- The process spec must explicitly allow proposal creation.
-- The adapter should include position/portfolio context and risk context when available.
-- The LLM may reason about setup quality, but deterministic services create and enforce pending-action state.
+- The scheduler never submits broker orders directly. It may call broker order preparation only after a deterministic trigger, LLM analysis, and deterministic risk-policy validation.
+- Proposal creation is disabled by default and must be explicitly enabled through `action.proposalCreationAllowed=true`.
+- Proposal-capable specs require allowed symbols, allowed sides, allowed order types, max notional or max quantity caps, and exactly one approval chat target.
+- The adapter reuses Wave 3 instrument triggers: price below/above, percent change below/above, period low breakdown, and period high breakout.
+- If the deterministic trigger does not match, the adapter does not call the LLM and creates no proposal.
+- If the trigger matches, the adapter gathers compact market-data evidence, broker portfolio/position context, market-signal memory, and task guidelines before calling the market analyst.
+- The LLM may propose order terms, but deterministic policy gates reject unsupported symbols, sides, order types, missing size fields, oversized orders, and disallowed extended-hours orders before pending-action creation.
+- Safe proposals create a proposal record, prepare the broker order locally, create a pending submit action, attach the pending action id to the proposal, and emit a Telegram approval payload using the existing `pa:approve:<id>` / `pa:reject:<id>` callback path.
+- Notification text must include the setup reason, proposed order terms, risk caps applied, proposal id, pending action id, and a clear statement that nothing has been executed yet.
+- Scheduler-agent creation is private through `scheduler_trade_setup_monitor_create`; the main orchestrator still only delegates to the scheduler agent.
 
 Expected outputs:
 
 - `TradeSetupMonitorAdapter`
-- Setup trigger evaluator
-- Proposal creation action through existing pending action/proposal services
-- Telegram approval notification integration
-- Tests for no-proposal default, explicit proposal creation, approval flow compatibility, and safety rejection
+- `TradeSetupAnalysis` and `TradeSetupProposedOrder` structured schemas
+- Private scheduler tool `scheduler_trade_setup_monitor_create`
+- Scheduler worker approval-payload propagation
+- Telegram scheduler notifier support for approval buttons and pending-action message id attachment
+- Capability `scheduler_trade_setup_monitor`
+- Tests for no-trigger/no-LLM behavior, LLM rejection, safe proposal creation, safety rejection, missing runtime services, approval notification delivery, scheduler-agent creation, and runtime/doctor wiring
 
 Integrations:
 
 - Market data service
 - Broker read service
+- Broker order-preparation service
 - Pending action service
 - Proposal service
 - Market signal service
-- Order specialist or order-planning prompt
+- Market analyst specialist and structured-output synthesizer
 - Telegram approval flow
 
 Shipping criteria:
 
-- User can configure a setup monitor that creates a pending order proposal only after a deterministic trigger and LLM-assisted rationale, with explicit Telegram approval still required.
+- User can configure a setup monitor that creates a pending order proposal only after a deterministic trigger and LLM-assisted rationale, with deterministic risk caps enforced and explicit Telegram button approval still required.
+- No autonomous broker execution, composite triggers, arbitrary scheduled prompts, or recurring repeated proposal generation are added in this wave.
 
 ### Wave 9: Hardening, Operations, And Process Catalog
 

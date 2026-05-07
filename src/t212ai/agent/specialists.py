@@ -1332,10 +1332,10 @@ class SchedulerAgent(BaseAgent):
                 ),
                 guidelines=(
                     "Use only the private scheduler tools. Create only supported "
-                    "instrument_monitor, company_event_analyst, and "
-                    "market_regime_monitor, and market_signal_capture jobs; "
-                    "do not create trade-setup or "
-                    "unsupported process kinds. "
+                    "instrument_monitor, company_event_analyst, "
+                    "market_regime_monitor, market_signal_capture, and "
+                    "trade_setup_monitor jobs; do not create unsupported process "
+                    "kinds. "
                     "Instrument monitors must use deterministic polling schedules. "
                     "Company-event analyst jobs must use llm_assisted one-shot or "
                     "recurring schedules and notify-only action. Market-regime "
@@ -1347,24 +1347,31 @@ class SchedulerAgent(BaseAgent):
                     "llm_assisted recurring or polling schedules, notify-only action, "
                     "and a bounded scan scope from query, symbols, sectors, or tags; "
                     "captured signals are advisory memory only, not fresh market data "
-                    "or broker-authoritative state. Ask one concise clarification question if "
-                    "symbol, schedule, market/proxy target, trigger direction, or "
-                    "required threshold value, or market-signal capture scope is "
-                    "missing or ambiguous. Set "
+                    "or broker-authoritative state. Trade-setup monitors must evaluate "
+                    "a deterministic instrument trigger first; proposal creation is "
+                    "disabled unless explicitly requested, requires allowed symbols, "
+                    "sides, order types, max notional or quantity caps, and one "
+                    "approval chat target, and still never submits an order. Ask one "
+                    "concise clarification question if symbol, schedule, market/proxy "
+                    "target, setup trigger, proposal permission, risk caps, trigger "
+                    "direction, required threshold value, or market-signal capture "
+                    "scope is missing or ambiguous. Set "
                     "includeMarketAnalyst only when the user asks for broader market "
                     "impact, reaction, or context. Pause, resume, and archive require "
                     "an exact process_id; if the user refers by symbol or title, list "
                     "candidates and ask the user to choose. Never configure broker "
-                    "actions, order proposals, autonomous execution, or deletion. "
+                    "actions, autonomous execution, direct broker submission, or deletion. "
                     "Responses must state the action result, process_id when created or "
                     "changed, schedule/lifecycle summary, and that no broker action was "
-                    "configured."
+                    "configured. For trade-setup monitors, also state whether pending "
+                    "proposal creation is enabled and that future execution requires "
+                    "Telegram button approval."
                 ),
                 toolbox_summary=(
                     "Private scheduler tools: create deterministic instrument monitors, "
                     "create LLM-assisted company-event analyst jobs, create "
                     "conditional market-regime stress monitors, create market-signal "
-                    "capture scans, list scheduled "
+                    "capture scans, create guarded trade setup monitors, list scheduled "
                     "processes, pause/resume/archive exact process ids. "
                     + render_tool_descriptions(SCHEDULER_AGENT_TOOLBOX)
                 ),
@@ -1422,6 +1429,8 @@ class SchedulerAgent(BaseAgent):
                 self.scheduled_process_service,
                 default_timezone=self.default_timezone,
                 default_poll_every_seconds=self.default_poll_every_seconds,
+                chat_id=request.chat_id,
+                user_id=_metadata_user_id(request.metadata),
             ),
             chat_history=self._history_for_prompt(request.history),
             persistent_guidance=self._persistent_guidance(),

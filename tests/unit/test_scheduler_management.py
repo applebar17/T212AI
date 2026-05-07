@@ -19,6 +19,7 @@ from t212ai.scheduler import (
     scheduler_market_regime_monitor_create,
     scheduler_pause_process,
     scheduler_resume_process,
+    scheduler_trade_setup_monitor_create,
 )
 
 
@@ -671,6 +672,150 @@ def test_scheduler_market_signal_capture_create_rejects_invalid_inputs(
         assert result.error.code == "invalid_market_signal_capture_spec"
 
 
+def test_scheduler_trade_setup_monitor_create_defaults_to_notify_only(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+
+    result = scheduler_trade_setup_monitor_create(
+        title=None,
+        description="Evaluate a setup after the threshold.",
+        symbol="tsla",
+        trigger_type="below_price",
+        value=180,
+        lookback_period="1mo",
+        lookback_interval="1d",
+        auto_adjust=False,
+        proposal_creation_allowed=False,
+        allowed_symbols=[],
+        allowed_sides=[],
+        allowed_order_types=[],
+        max_notional_amount=None,
+        notional_currency=None,
+        max_quantity=None,
+        allow_extended_hours=False,
+        approval_chat_id=None,
+        approval_user_id=None,
+        poll_every_seconds=None,
+        timezone=None,
+        expires_at=None,
+        task_guidelines="Assess setup quality before proposing anything.",
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = result.data["process"]
+    assert process["kind"] == "trade_setup_monitor"
+    assert process["executionMode"] == "llm_assisted"
+    assert process["action"] == {
+        "type": "notify_or_propose",
+        "proposalCreationAllowed": False,
+    }
+    assert process["schedule"]["pollEverySeconds"] == 300
+    assert process["safety"]["brokerActionsAllowed"] is False
+    assert "Telegram button approval" in result.output
+
+
+def test_scheduler_trade_setup_monitor_create_with_proposal_caps_and_chat_context(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(
+        service=_service(tmp_path),
+        chat_id="98765",
+        user_id=321,
+    )
+
+    result = scheduler_trade_setup_monitor_create(
+        title="TSLA guarded setup",
+        description="Evaluate after threshold.",
+        symbol="TSLA",
+        trigger_type="below_price",
+        value=180,
+        lookback_period="1mo",
+        lookback_interval="1d",
+        auto_adjust=False,
+        proposal_creation_allowed=True,
+        allowed_symbols=[],
+        allowed_sides=["buy"],
+        allowed_order_types=["market", "limit"],
+        max_notional_amount=1000,
+        notional_currency="usd",
+        max_quantity=None,
+        allow_extended_hours=False,
+        approval_chat_id=None,
+        approval_user_id=None,
+        poll_every_seconds=600,
+        timezone="UTC",
+        expires_at=None,
+        task_guidelines="Only propose if risk/reward is attractive.",
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    action = result.data["process"]["action"]
+    assert action["proposalCreationAllowed"] is True
+    assert action["orderPolicy"]["allowedSymbols"] == ["TSLA"]
+    assert action["orderPolicy"]["allowedSides"] == ["BUY"]
+    assert action["orderPolicy"]["allowedOrderTypes"] == ["MARKET", "LIMIT"]
+    assert action["orderPolicy"]["maxNotionalAmount"] == "1000"
+    assert action["orderPolicy"]["notionalCurrency"] == "USD"
+    assert action["approval"] == {"chatId": 98765, "userId": 321}
+
+
+def test_scheduler_trade_setup_monitor_create_rejects_missing_caps_or_unsafe_policy(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+    base = {
+        "title": None,
+        "description": "",
+        "symbol": "TSLA",
+        "trigger_type": "below_price",
+        "value": 180,
+        "lookback_period": "1mo",
+        "lookback_interval": "1d",
+        "auto_adjust": False,
+        "proposal_creation_allowed": True,
+        "allowed_symbols": ["TSLA"],
+        "allowed_sides": ["BUY"],
+        "allowed_order_types": ["MARKET"],
+        "max_notional_amount": None,
+        "notional_currency": None,
+        "max_quantity": None,
+        "allow_extended_hours": False,
+        "approval_chat_id": 123,
+        "approval_user_id": None,
+        "poll_every_seconds": None,
+        "timezone": None,
+        "expires_at": None,
+        "task_guidelines": "",
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    missing_cap = scheduler_trade_setup_monitor_create(**base)
+    missing_value = scheduler_trade_setup_monitor_create(**{**base, "value": None})
+    unsafe = scheduler_trade_setup_monitor_create(
+        **{**base, "broker_actions_allowed": True}
+    )
+    unsupported_side = scheduler_trade_setup_monitor_create(
+        **{**base, "allowed_sides": ["HOLD"], "max_quantity": 1}
+    )
+    missing_chat = scheduler_trade_setup_monitor_create(
+        **{**base, "max_quantity": 1, "approval_chat_id": None}
+    )
+
+    for result in (missing_cap, missing_value, unsafe, unsupported_side, missing_chat):
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error.code == "invalid_trade_setup_monitor_spec"
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 
@@ -679,6 +824,7 @@ def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
         "scheduler_company_event_analyst_create",
         "scheduler_market_regime_monitor_create",
         "scheduler_market_signal_capture_create",
+        "scheduler_trade_setup_monitor_create",
         "scheduler_list_processes",
         "scheduler_pause_process",
         "scheduler_resume_process",

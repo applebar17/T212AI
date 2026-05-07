@@ -25,6 +25,7 @@ from .management import (
     SCHEDULER_MANAGEMENT_TOOLS,
     SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL,
     SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL,
+    SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL,
     SchedulerManagementRuntime,
     build_scheduler_agent_tool_mapping,
     build_scheduler_management_tool_mapping,
@@ -37,6 +38,7 @@ from .management import (
     scheduler_market_regime_monitor_create,
     scheduler_pause_process,
     scheduler_resume_process,
+    scheduler_trade_setup_monitor_create,
 )
 from .notification import (
     SchedulerNotificationRequest,
@@ -65,6 +67,12 @@ from .market_signal_capture import (
     MarketSignalCaptureAdapter,
     MarketSignalCaptureAnalysis,
 )
+from .trade_setup_monitor import (
+    TradeSetupAnalysis,
+    TradeSetupMonitorAdapter,
+    TradeSetupProposedOrder,
+    TradeSetupQuality,
+)
 from .worker import (
     ScheduledAdapterResult,
     ScheduledProcessAdapter,
@@ -90,6 +98,10 @@ __all__ = [
     "CapturedMarketSignal",
     "MarketSignalCaptureAdapter",
     "MarketSignalCaptureAnalysis",
+    "TradeSetupAnalysis",
+    "TradeSetupMonitorAdapter",
+    "TradeSetupProposedOrder",
+    "TradeSetupQuality",
     "ScheduledEventType",
     "ScheduledExecutionMode",
     "ScheduledProcess",
@@ -119,6 +131,7 @@ __all__ = [
     "SCHEDULER_MANAGEMENT_TOOLS",
     "SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL",
     "SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL",
+    "SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL",
     "SchedulerManagementRuntime",
     "SchedulerNotificationRequest",
     "SchedulerNotificationResult",
@@ -138,4 +151,5 @@ __all__ = [
     "scheduler_market_regime_monitor_create",
     "scheduler_pause_process",
     "scheduler_resume_process",
+    "scheduler_trade_setup_monitor_create",
 ]

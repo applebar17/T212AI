@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from t212ai.capabilities import (
+    BrokerExecutionService,
     BrokerReadService,
     CommunityResearchService,
     DisclosureService,
@@ -12,12 +13,15 @@ from t212ai.capabilities import (
     SearchService,
 )
 from t212ai.market_signals import MarketSignalService
+from t212ai.pending_actions import PendingActionService
+from t212ai.proposals import ProposalService
 
 from .company_event_analyst import CompanyEventAnalystAdapter
 from .instrument_monitor import InstrumentMonitorAdapter
 from .market_signal_capture import MarketSignalCaptureAdapter
 from .market_regime_monitor import MarketRegimeMonitorAdapter
 from .models import ScheduledProcessKind
+from .trade_setup_monitor import TradeSetupMonitorAdapter
 from .worker import ScheduledProcessAdapter
 
 
@@ -31,6 +35,10 @@ def build_scheduler_adapter_registry(
     search_service: SearchService | None = None,
     market_signal_service: MarketSignalService | None = None,
     broker_read_service: BrokerReadService | None = None,
+    broker_execution_service: BrokerExecutionService | None = None,
+    pending_action_service: PendingActionService | None = None,
+    proposal_service: ProposalService | None = None,
+    broker_provider: str = "broker",
 ) -> dict[str, ScheduledProcessAdapter]:
     return {
         ScheduledProcessKind.INSTRUMENT_MONITOR.value: InstrumentMonitorAdapter(
@@ -57,5 +65,15 @@ def build_scheduler_adapter_registry(
             community_research_service=community_research_service,
             disclosure_service=disclosure_service,
             market_data_service=market_data_service,
+        ),
+        ScheduledProcessKind.TRADE_SETUP_MONITOR.value: TradeSetupMonitorAdapter(
+            market_agent=market_agent,
+            market_data_service=market_data_service,
+            broker_read_service=broker_read_service,
+            broker_execution_service=broker_execution_service,
+            pending_action_service=pending_action_service,
+            proposal_service=proposal_service,
+            market_signal_service=market_signal_service,
+            broker_provider=broker_provider,
         ),
     }

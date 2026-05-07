@@ -23,6 +23,8 @@ class ScheduledAdapterResult:
     metadata: dict[str, object] = field(default_factory=dict)
     notification_message: str | None = None
     notification_metadata: dict[str, object] = field(default_factory=dict)
+    notification_target_chat_ids: tuple[int, ...] = ()
+    notification_approval_payload: dict[str, object] | None = None
 
 
 class ScheduledProcessAdapter(Protocol):
@@ -279,6 +281,8 @@ class SchedulerWorker:
                 run_id=run_id,
                 message=message,
                 metadata=metadata,
+                target_chat_ids=result.notification_target_chat_ids,
+                approval_payload=result.notification_approval_payload,
             )
         except Exception as exc:  # pragma: no cover - defensive audit fallback
             try:

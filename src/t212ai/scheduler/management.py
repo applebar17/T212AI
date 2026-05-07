@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time, timezone
+from decimal import Decimal, InvalidOperation
 from functools import partial
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -27,6 +28,8 @@ class SchedulerManagementRuntime:
     default_timezone: str = "UTC"
     default_poll_every_seconds: int = 300
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    chat_id: str | None = None
+    user_id: int | None = None
 
 
 INSTRUMENT_MONITOR_TRIGGER_TYPES = frozenset(
@@ -74,6 +77,8 @@ MARKET_SIGNAL_CAPTURE_SCHEDULE_TYPES = frozenset({"polling", "recurring"})
 MARKET_SIGNAL_CAPTURE_FREQUENCIES = frozenset({"daily", "weekdays", "weekly"})
 DEFAULT_MARKET_SIGNAL_CAPTURE_POLL_SECONDS = 3600
 MIN_MARKET_SIGNAL_CAPTURE_POLL_SECONDS = 900
+TRADE_SETUP_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP", "STOP_LIMIT"})
+TRADE_SETUP_SIDES = frozenset({"BUY", "SELL"})
 THRESHOLD_TRIGGER_TYPES = frozenset(
     {
         "below_price",
@@ -765,6 +770,135 @@ SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_trade_setup_monitor_create",
+        "description": (
+            "Create one guarded LLM-assisted trade setup monitor. This tool creates "
+            "only kind=trade_setup_monitor, executionMode=llm_assisted, polling "
+            "schedule, notify/proposal action, and safety.brokerActionsAllowed=false. "
+            "Use it only when the user explicitly asks to monitor a setup and, if "
+            "proposal creation is enabled, explicitly provides or accepts risk caps. "
+            "The scheduler never submits orders; any created pending action still "
+            "requires Telegram button approval. Ask a concise clarification question "
+            "when trigger, proposal permission, risk caps, or approval chat target is missing."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": ["string", "null"], "default": None},
+                "description": {"type": "string", "default": ""},
+                "symbol": {
+                    "type": "string",
+                    "description": "Market-data symbol and default allowed order symbol.",
+                },
+                "trigger_type": {
+                    "type": "string",
+                    "enum": sorted(INSTRUMENT_MONITOR_TRIGGER_TYPES),
+                },
+                "value": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": "Threshold value for price or percent-change triggers.",
+                },
+                "lookback_period": {"type": "string", "default": "1mo"},
+                "lookback_interval": {"type": "string", "default": "1d"},
+                "auto_adjust": {"type": "boolean", "default": False},
+                "proposal_creation_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be true to create pending order proposals.",
+                },
+                "allowed_symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Allowed order tickers. Defaults to symbol when omitted.",
+                },
+                "allowed_sides": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": sorted(TRADE_SETUP_SIDES)},
+                    "default": [],
+                },
+                "allowed_order_types": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": sorted(TRADE_SETUP_ORDER_TYPES)},
+                    "default": [],
+                },
+                "max_notional_amount": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": "Maximum notional order size when notional sizing is allowed.",
+                },
+                "notional_currency": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Currency required with max_notional_amount.",
+                },
+                "max_quantity": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": "Maximum share quantity when quantity sizing is allowed.",
+                },
+                "allow_extended_hours": {"type": "boolean", "default": False},
+                "approval_chat_id": {
+                    "type": ["integer", "null"],
+                    "default": None,
+                    "description": "Telegram chat id for approval buttons. Defaults to invoking chat when available.",
+                },
+                "approval_user_id": {
+                    "type": ["integer", "null"],
+                    "default": None,
+                    "description": "Optional Telegram user id bound to the pending action.",
+                },
+                "poll_every_seconds": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "default": None,
+                },
+                "timezone": {"type": ["string", "null"], "default": None},
+                "expires_at": {"type": ["string", "null"], "default": None},
+                "task_guidelines": {"type": "string", "default": ""},
+                "notification_enabled": {"type": "boolean", "default": True},
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be false. Direct broker execution is not supported.",
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "symbol",
+                "trigger_type",
+                "value",
+                "lookback_period",
+                "lookback_interval",
+                "auto_adjust",
+                "proposal_creation_allowed",
+                "allowed_symbols",
+                "allowed_sides",
+                "allowed_order_types",
+                "max_notional_amount",
+                "notional_currency",
+                "max_quantity",
+                "allow_extended_hours",
+                "approval_chat_id",
+                "approval_user_id",
+                "poll_every_seconds",
+                "timezone",
+                "expires_at",
+                "task_guidelines",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _process_id_tool(name: str, description: str) -> ToolSpec:
     return {
@@ -813,6 +947,7 @@ SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
     SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL,
     SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL,
+    SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL,
     SCHEDULER_LIST_PROCESSES_TOOL,
     SCHEDULER_PAUSE_PROCESS_TOOL,
     SCHEDULER_RESUME_PROCESS_TOOL,
@@ -849,6 +984,8 @@ def build_scheduler_agent_tool_mapping(
     *,
     default_timezone: str = "UTC",
     default_poll_every_seconds: int = 300,
+    chat_id: str | None = None,
+    user_id: int | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> dict[str, Callable[..., ToolResult]]:
     runtime = SchedulerManagementRuntime(
@@ -856,6 +993,8 @@ def build_scheduler_agent_tool_mapping(
         default_timezone=default_timezone,
         default_poll_every_seconds=default_poll_every_seconds,
         clock=clock or (lambda: datetime.now(timezone.utc)),
+        chat_id=chat_id,
+        user_id=user_id,
     )
     return {
         "scheduler_instrument_monitor_create": partial(
@@ -872,6 +1011,10 @@ def build_scheduler_agent_tool_mapping(
         ),
         "scheduler_market_signal_capture_create": partial(
             scheduler_market_signal_capture_create,
+            runtime=runtime,
+        ),
+        "scheduler_trade_setup_monitor_create": partial(
+            scheduler_trade_setup_monitor_create,
             runtime=runtime,
         ),
         "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
@@ -1187,6 +1330,86 @@ def scheduler_market_signal_capture_create(
             f"{process.lifecycle.completion_policy.value}. Max signals per run: "
             f"{process.inputs.get('maxSignals')}. No broker action was configured. "
             "Saved market signals are advisory memory only."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_trade_setup_monitor_create", run_type="tool")
+def scheduler_trade_setup_monitor_create(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    trigger_type: str,
+    value: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    proposal_creation_allowed: bool,
+    allowed_symbols: list[str],
+    allowed_sides: list[str],
+    allowed_order_types: list[str],
+    max_notional_amount: int | float | None,
+    notional_currency: str | None,
+    max_quantity: int | float | None,
+    allow_extended_hours: bool,
+    approval_chat_id: int | None,
+    approval_user_id: int | None,
+    poll_every_seconds: int | None,
+    timezone: str | None,
+    expires_at: str | None,
+    task_guidelines: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="scheduler",
+        tool_name="scheduler_trade_setup_monitor_create",
+    )
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_trade_setup_monitor(
+            title=title,
+            description=description,
+            symbol=symbol,
+            trigger_type=trigger_type,
+            value=value,
+            lookback_period=lookback_period,
+            lookback_interval=lookback_interval,
+            auto_adjust=auto_adjust,
+            proposal_creation_allowed=proposal_creation_allowed,
+            allowed_symbols=allowed_symbols,
+            allowed_sides=allowed_sides,
+            allowed_order_types=allowed_order_types,
+            max_notional_amount=max_notional_amount,
+            notional_currency=notional_currency,
+            max_quantity=max_quantity,
+            allow_extended_hours=allow_extended_hours,
+            approval_chat_id=approval_chat_id,
+            approval_user_id=approval_user_id,
+            poll_every_seconds=poll_every_seconds,
+            timezone_name=timezone,
+            expires_at=expires_at,
+            task_guidelines=task_guidelines,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _trade_setup_exception(exc)
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created trade setup monitor {process.process_id}: {process.title}. "
+            f"Trigger: {process.trigger.get('type')} for {process.trigger.get('symbol')}. "
+            f"Schedule: polling every {process.schedule.poll_every_seconds} seconds. "
+            f"Lifecycle: {process.lifecycle.completion_policy.value}, "
+            f"expiresAt={process.lifecycle.expires_at}. "
+            f"Proposal creation allowed: {process.action.get('proposalCreationAllowed')}. "
+            "No broker action was configured; any future proposal requires Telegram button approval."
         ),
         data={"process": _process_payload(process)},
     )
@@ -1671,6 +1894,123 @@ def _market_signal_capture_title(
     return "Market signal capture: " + ", ".join(tags)
 
 
+def _create_trade_setup_monitor(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    trigger_type: str,
+    value: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    proposal_creation_allowed: bool,
+    allowed_symbols: list[str],
+    allowed_sides: list[str],
+    allowed_order_types: list[str],
+    max_notional_amount: int | float | None,
+    notional_currency: str | None,
+    max_quantity: int | float | None,
+    allow_extended_hours: bool,
+    approval_chat_id: int | None,
+    approval_user_id: int | None,
+    poll_every_seconds: int | None,
+    timezone_name: str | None,
+    expires_at: str | None,
+    task_guidelines: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError("broker_actions_allowed must be false; broker actions are unsupported.")
+    resolved_symbol = str(symbol or "").strip().upper()
+    if not resolved_symbol:
+        raise ValueError("symbol is required for trade setup monitor creation.")
+    resolved_trigger_type = str(trigger_type or "").strip()
+    if resolved_trigger_type not in INSTRUMENT_MONITOR_TRIGGER_TYPES:
+        raise ValueError(f"Unsupported trigger_type '{trigger_type}'.")
+    trigger: dict[str, Any] = {"type": resolved_trigger_type, "symbol": resolved_symbol}
+    if resolved_trigger_type in THRESHOLD_TRIGGER_TYPES:
+        if value is None:
+            raise ValueError(f"value is required for trigger_type '{resolved_trigger_type}'.")
+        trigger["value"] = float(value)
+    else:
+        trigger["lookbackPeriod"] = str(lookback_period or "1mo").strip() or "1mo"
+        trigger["lookbackInterval"] = str(lookback_interval or "1d").strip() or "1d"
+        trigger["autoAdjust"] = bool(auto_adjust)
+
+    poll_seconds = _positive_int(
+        poll_every_seconds,
+        fallback=runtime.default_poll_every_seconds,
+        field_name="poll_every_seconds",
+    )
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
+    action: dict[str, Any] = {
+        "type": "notify_or_propose",
+        "proposalCreationAllowed": bool(proposal_creation_allowed),
+    }
+    if proposal_creation_allowed:
+        policy_symbols = _clean_symbols(allowed_symbols) or [resolved_symbol]
+        if resolved_symbol not in policy_symbols:
+            policy_symbols.insert(0, resolved_symbol)
+        policy_sides = _clean_order_terms(allowed_sides, allowed=TRADE_SETUP_SIDES, field_name="allowed_sides")
+        policy_order_types = _clean_order_terms(
+            allowed_order_types,
+            allowed=TRADE_SETUP_ORDER_TYPES,
+            field_name="allowed_order_types",
+        )
+        max_notional = _optional_decimal(max_notional_amount, field_name="max_notional_amount")
+        max_qty = _optional_decimal(max_quantity, field_name="max_quantity")
+        currency = str(notional_currency or "").strip().upper()
+        if max_notional is None and max_qty is None:
+            raise ValueError("proposal creation requires max_notional_amount or max_quantity.")
+        if max_notional is not None and (max_notional <= 0 or not currency):
+            raise ValueError("max_notional_amount requires a positive value and notional_currency.")
+        if max_qty is not None and max_qty <= 0:
+            raise ValueError("max_quantity must be positive.")
+        resolved_chat_id = approval_chat_id
+        if resolved_chat_id is None and str(runtime.chat_id or "").strip():
+            resolved_chat_id = int(str(runtime.chat_id).strip())
+        if resolved_chat_id is None:
+            raise ValueError("proposal creation requires approval_chat_id or invoking chat context.")
+        action["orderPolicy"] = {
+            "allowedSymbols": policy_symbols,
+            "allowedSides": policy_sides,
+            "allowedOrderTypes": policy_order_types,
+            "maxNotionalAmount": str(max_notional) if max_notional is not None else None,
+            "notionalCurrency": currency or None,
+            "maxQuantity": str(max_qty) if max_qty is not None else None,
+            "allowExtendedHours": bool(allow_extended_hours),
+        }
+        action["approval"] = {
+            "chatId": int(resolved_chat_id),
+            "userId": approval_user_id if approval_user_id is not None else runtime.user_id,
+        }
+
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = f"{resolved_symbol} trade setup monitor"
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="trade_setup_monitor",
+        execution_mode="llm_assisted",
+        schedule={"type": "polling", "pollEverySeconds": poll_seconds},
+        trigger=trigger,
+        inputs={"symbol": resolved_symbol},
+        llm_scope={"taskGuidelines": str(task_guidelines or "").strip()},
+        action=action,
+        notification={"enabled": bool(notification_enabled)},
+        lifecycle={
+            "completionPolicy": "complete_on_first_match",
+            "expiresAt": expiry.isoformat(),
+        },
+        safety={"brokerActionsAllowed": False},
+    )
+
+
 def _resolve_market_proxy(
     *,
     market_label: str | None,
@@ -1715,6 +2055,21 @@ def _clean_terms(values: list[str] | None) -> list[str]:
     )
 
 
+def _clean_order_terms(
+    values: list[str] | None,
+    *,
+    allowed: frozenset[str],
+    field_name: str,
+) -> list[str]:
+    terms = _dedupe_terms(str(value or "").strip().upper() for value in values or [])
+    if not terms:
+        raise ValueError(f"{field_name} is required for proposal creation.")
+    unsupported = [term for term in terms if term not in allowed]
+    if unsupported:
+        raise ValueError(f"{field_name} contains unsupported values: {', '.join(unsupported)}.")
+    return terms
+
+
 def _dedupe_terms(values) -> list[str]:
     output: list[str] = []
     seen: set[str] = set()
@@ -1724,6 +2079,15 @@ def _dedupe_terms(values) -> list[str]:
         seen.add(value)
         output.append(value)
     return output
+
+
+def _optional_decimal(value: int | float | None, *, field_name: str) -> Decimal | None:
+    if value is None or not str(value).strip():
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{field_name} must be decimal-compatible.") from exc
 
 
 def _resolve_run_at(run_at: str | None, *, timezone_name: str) -> datetime:
@@ -1910,6 +2274,25 @@ def _market_signal_capture_exception(exc: Exception) -> ToolResult:
                 "sectors, or tags; use a polling or recurring schedule; keep "
                 "polling intervals at least 900 seconds; keep max_signals between "
                 "1 and 3; and keep broker_actions_allowed=false."
+            ),
+            retryable=False,
+        ),
+    )
+
+
+def _trade_setup_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Trade setup monitor creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_trade_setup_monitor_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide symbol, supported trigger_type, required trigger threshold, "
+                "positive polling interval if supplied, keep broker_actions_allowed=false, "
+                "and when proposal creation is enabled provide allowed sides/order types, "
+                "max notional or quantity caps, and an approval chat target."
             ),
             retryable=False,
         ),

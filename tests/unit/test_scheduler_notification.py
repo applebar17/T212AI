@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+import sys
 
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.scheduler import (
@@ -50,6 +51,7 @@ class FakeTelegramBot:
         chat_id,
         text,
         parse_mode=None,
+        reply_markup=None,
         reply_to_message_id=None,
         disable_web_page_preview=True,
     ):
@@ -58,11 +60,32 @@ class FakeTelegramBot:
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": parse_mode,
+                "reply_markup": reply_markup,
                 "reply_to_message_id": reply_to_message_id,
                 "disable_web_page_preview": disable_web_page_preview,
             }
         )
         return SimpleNamespace(message_id=len(self.sent))
+
+
+def _install_fake_telegram_module(monkeypatch) -> None:
+    class InlineKeyboardButton:
+        def __init__(self, text, *, callback_data):
+            self.text = text
+            self.callback_data = callback_data
+
+    class InlineKeyboardMarkup:
+        def __init__(self, inline_keyboard):
+            self.inline_keyboard = inline_keyboard
+
+    monkeypatch.setitem(
+        sys.modules,
+        "telegram",
+        SimpleNamespace(
+            InlineKeyboardButton=InlineKeyboardButton,
+            InlineKeyboardMarkup=InlineKeyboardMarkup,
+        ),
+    )
 
 
 def _service(tmp_path: Path) -> ScheduledProcessService:
@@ -171,3 +194,96 @@ def test_telegram_scheduler_notifier_sends_to_configured_chats() -> None:
     assert result.sent_count == 2
     assert [item["chat_id"] for item in bot.sent] == [123, 456]
     assert bot.sent[0]["text"] == "Scheduler alert."
+
+
+def test_telegram_scheduler_notifier_sends_approval_buttons(monkeypatch) -> None:
+    _install_fake_telegram_module(monkeypatch)
+    bot = FakeTelegramBot()
+    notifier = TelegramSchedulerNotifier(
+        token="telegram-token",
+        chat_ids=(123,),
+        bot_factory=lambda _token: bot,
+    )
+
+    result = notifier.send(
+        SchedulerNotificationRequest(
+            process_id="sched_trade",
+            message="Fallback message.",
+            approval_payload={
+                "actionId": "pa_test",
+                "text": "Approve this guarded proposal.",
+                "approveCallbackData": "pa:approve:pa_test",
+                "rejectCallbackData": "pa:reject:pa_test",
+            },
+        )
+    )
+
+    assert result.status == SchedulerNotificationStatus.SENT
+    assert result.metadata["approvalActionId"] == "pa_test"
+    assert result.metadata["responses"][0]["messageId"] == 1
+    assert bot.sent[0]["text"] == "Approve this guarded proposal."
+    assert bot.sent[0]["reply_markup"] is not None
+
+
+class CapturingPendingActionService:
+    def __init__(self) -> None:
+        self.attached: list[tuple[str, int]] = []
+
+    def attach_approval_message_id(self, action_id: str, message_id: int | None):
+        assert message_id is not None
+        self.attached.append((action_id, message_id))
+        return None
+
+
+def test_scheduler_notification_service_attaches_approval_message_id(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_telegram_module(monkeypatch)
+    service = _service(tmp_path)
+    process = _create_process(service)
+    pending = CapturingPendingActionService()
+    notifier = SendingNotifier()
+    notification_service = SchedulerNotificationService(
+        service,
+        notifier=notifier,
+        pending_action_service=pending,
+    )
+
+    result = notification_service.send_process_notification(
+        process_id=process.process_id,
+        message="Approval text.",
+        approval_payload={
+            "actionId": "pa_test",
+            "text": "Approval text.",
+            "approveCallbackData": "pa:approve:pa_test",
+            "rejectCallbackData": "pa:reject:pa_test",
+        },
+    )
+
+    assert result.status == SchedulerNotificationStatus.SENT
+    assert notifier.requests[0].approval_payload["actionId"] == "pa_test"
+    assert pending.attached == []
+
+    notification_service = SchedulerNotificationService(
+        service,
+        notifier=TelegramSchedulerNotifier(
+            token="telegram-token",
+            chat_ids=(123,),
+            bot_factory=lambda _token: FakeTelegramBot(),
+        ),
+        pending_action_service=pending,
+    )
+    result = notification_service.send_process_notification(
+        process_id=process.process_id,
+        message="Approval text.",
+        approval_payload={
+            "actionId": "pa_test",
+            "text": "Approval text.",
+            "approveCallbackData": "pa:approve:pa_test",
+            "rejectCallbackData": "pa:reject:pa_test",
+        },
+    )
+
+    assert result.status == SchedulerNotificationStatus.SENT
+    assert pending.attached == [("pa_test", 1)]

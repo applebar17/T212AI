@@ -1705,6 +1705,7 @@ def render_doctor_report(
         "scheduler_company_event_analyst",
         "scheduler_market_regime_monitor",
         "scheduler_market_signal_capture",
+        "scheduler_trade_setup_monitor",
     ):
         capability = assessment.capabilities[key]
         lines.append(
@@ -1960,6 +1961,10 @@ def run_scheduler_once(runtime, *, limit: int = 100) -> object:
             search_service=getattr(runtime, "search_service", None),
             market_signal_service=getattr(runtime, "market_signal_service", None),
             broker_read_service=getattr(runtime, "broker_read_service", None),
+            broker_execution_service=getattr(runtime, "broker_execution_service", None),
+            pending_action_service=getattr(runtime, "pending_action_service", None),
+            proposal_service=getattr(runtime, "proposal_service", None),
+            broker_provider=getattr(getattr(runtime, "settings", None), "broker_provider", "broker"),
         ),
         notification_service=getattr(runtime, "scheduler_notification_service", None),
     )

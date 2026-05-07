@@ -39,6 +39,24 @@ class NotifyingAdapter:
         )
 
 
+class ApprovalNotifyingAdapter:
+    def run(self, process: ScheduledProcess) -> ScheduledAdapterResult:
+        return ScheduledAdapterResult(
+            status=ScheduledRunStatus.COMPLETED,
+            matched=True,
+            output_summary=f"Completed {process.process_id}.",
+            notification_message="Approve guarded setup.",
+            notification_metadata={"symbol": "TSLA"},
+            notification_target_chat_ids=(123,),
+            notification_approval_payload={
+                "actionId": "pa_test",
+                "text": "Approve guarded setup.",
+                "approveCallbackData": "pa:approve:pa_test",
+                "rejectCallbackData": "pa:reject:pa_test",
+            },
+        )
+
+
 class RaisingAdapter:
     def run(self, process: ScheduledProcess) -> ScheduledAdapterResult:
         del process
@@ -95,6 +113,21 @@ def _create_due_market_signal_capture(service: ScheduledProcessService):
         },
         action={"type": "notify_only"},
         lifecycle={"completionPolicy": "keep_running"},
+        safety={"brokerActionsAllowed": False},
+        now=BASE_NOW,
+    )
+
+
+def _create_due_trade_setup_monitor(service: ScheduledProcessService):
+    return service.create_process(
+        title="TSLA guarded setup",
+        kind="trade_setup_monitor",
+        execution_mode="llm_assisted",
+        schedule={"type": "polling", "pollEverySeconds": 300},
+        trigger={"type": "below_price", "symbol": "TSLA", "value": 180},
+        inputs={"symbol": "TSLA"},
+        action={"type": "notify_or_propose", "proposalCreationAllowed": False},
+        lifecycle={"completionPolicy": "complete_on_first_match"},
         safety={"brokerActionsAllowed": False},
         now=BASE_NOW,
     )
@@ -177,6 +210,23 @@ def test_scheduler_worker_registry_skips_market_signal_capture_without_memory(
     assert updated.failure_count == 0
 
 
+def test_scheduler_worker_registry_skips_trade_setup_without_market_data(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    _create_due_trade_setup_monitor(service)
+    worker = SchedulerWorker(
+        service,
+        adapters=build_scheduler_adapter_registry(),
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+
+    assert result.skipped_count == 1
+    assert result.runs[0].code == "market_data_unavailable"
+    assert "adapter_unavailable" not in result.render_text()
+
+
 def test_scheduler_worker_records_completed_adapter_result(tmp_path: Path) -> None:
     service = _service(tmp_path)
     process = _create_due_process(service)
@@ -222,6 +272,28 @@ def test_scheduler_worker_sends_adapter_requested_notification(tmp_path: Path) -
         "matched": True,
         "symbol": "TSLA",
     }
+
+
+def test_scheduler_worker_propagates_approval_notification_payload(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    process = _create_due_process(service)
+    notifications = FakeNotificationService()
+    worker = SchedulerWorker(
+        service,
+        adapters={"instrument_monitor": ApprovalNotifyingAdapter()},
+        notification_service=notifications,
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+
+    assert result.completed_count == 1
+    call = notifications.calls[0]
+    assert call["process_id"] == process.process_id
+    assert call["target_chat_ids"] == (123,)
+    assert call["approval_payload"]["actionId"] == "pa_test"
+    assert call["approval_payload"]["approveCallbackData"] == "pa:approve:pa_test"
 
 
 def test_scheduler_worker_records_adapter_failure(tmp_path: Path) -> None:

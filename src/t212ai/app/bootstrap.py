@@ -283,6 +283,34 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 search_capability,
             ),
         ),
+        "scheduler_trade_setup_monitor": CapabilityAssessment(
+            name="scheduler_trade_setup_monitor",
+            label="Scheduler trade setup monitor",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip())
+            and market_data_capability.available
+            and providers["broker"].ready
+            and _broker_execution_available(settings, providers["broker"])
+            and providers["telegram"].ready,
+            optional=True,
+            selected_provider=(
+                "llm+sql+market_data+broker+telegram"
+                if providers["llm"].ready
+                and bool(str(settings.database_url or "").strip())
+                and market_data_capability.available
+                and providers["broker"].ready
+                and _broker_execution_available(settings, providers["broker"])
+                and providers["telegram"].ready
+                else None
+            ),
+            reasons=_scheduler_trade_setup_reasons(
+                settings,
+                providers["llm"],
+                providers["broker"],
+                providers["telegram"],
+                market_data_capability,
+            ),
+        ),
     }
 
     errors = _unique_messages(
@@ -418,6 +446,29 @@ def _scheduler_market_signal_capture_reasons(
     if not (disclosure.available or community.available or search.available):
         reasons.append(
             "Enable search, community research, or disclosure evidence for scheduler market-signal capture."
+        )
+    return tuple(_unique_messages(reasons))
+
+
+def _scheduler_trade_setup_reasons(
+    settings: AppSettings,
+    llm: ProviderAssessment,
+    broker: ProviderAssessment,
+    telegram: ProviderAssessment,
+    market_data: CapabilityAssessment,
+) -> tuple[str, ...]:
+    reasons = list(_scheduler_delegate_reasons(settings, llm))
+    if not market_data.available:
+        reasons.append("Configure MARKET_DATA_PROVIDER to enable scheduler trade setup monitors.")
+    if not broker.ready:
+        reasons.append("Configure broker read access for scheduler trade setup context.")
+    if not _broker_execution_available(settings, broker):
+        reasons.append(
+            "Enable broker execution eligibility so trade setup monitors can prepare orders for approval."
+        )
+    if not telegram.ready:
+        reasons.append(
+            "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID so pending proposals can be approved."
         )
     return tuple(_unique_messages(reasons))
 

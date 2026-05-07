@@ -288,6 +288,42 @@ class SchedulerGenAIClient(FakeGenAIClient):
         text = str(messages[-1]["content"]).lower() if messages else ""
         toolbox_name = getattr(toolbox, "name", None)
         if tools_mapping is not None and toolbox_name == "scheduler_agent":
+            if (
+                "trade setup" in text
+                and "propose" in text
+                and "scheduler_trade_setup_monitor_create" in tools_mapping
+            ):
+                result = tools_mapping["scheduler_trade_setup_monitor_create"](
+                    title=None,
+                    description="Evaluate a guarded TSLA trade setup after the threshold.",
+                    symbol="TSLA",
+                    trigger_type="below_price",
+                    value=180,
+                    lookback_period="1mo",
+                    lookback_interval="1d",
+                    auto_adjust=False,
+                    proposal_creation_allowed=True,
+                    allowed_symbols=["TSLA"],
+                    allowed_sides=["BUY"],
+                    allowed_order_types=["MARKET", "LIMIT"],
+                    max_notional_amount=1000,
+                    notional_currency="USD",
+                    max_quantity=None,
+                    allow_extended_hours=False,
+                    approval_chat_id=None,
+                    approval_user_id=None,
+                    poll_every_seconds=None,
+                    timezone=None,
+                    expires_at=None,
+                    task_guidelines="Only propose if setup quality is clear.",
+                    notification_enabled=True,
+                    broker_actions_allowed=False,
+                )
+                return _fake_chat_response(str(result.output))
+            if "trade setup" in text:
+                return _fake_chat_response(
+                    "Should proposal creation be enabled, and what risk caps should I enforce?"
+                )
             if "below 180" in text and "scheduler_instrument_monitor_create" in tools_mapping:
                 result = tools_mapping["scheduler_instrument_monitor_create"](
                     title=None,
@@ -1352,6 +1388,62 @@ def test_scheduler_agent_asks_clarification_when_signal_capture_scope_is_missing
     )
 
     assert "topic, symbols, sectors, or tags" in response.final_answer
+    assert service.list_processes() == []
+
+
+def test_scheduler_agent_creates_trade_setup_monitor_through_private_tool(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message=(
+                "create a TSLA trade setup monitor below 180 and propose a BUY "
+                "order up to 1000 USD if the setup is good"
+            ),
+            chat_id="12345",
+            metadata={"telegram_user_id": "678"},
+        ),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    processes = service.list_processes(statuses=["active"], kinds=["trade_setup_monitor"])
+    assert response.selected_agent == "scheduler_agent"
+    assert response.metadata["workflow"] == "scheduler_delegation"
+    assert len(processes) == 1
+    process = processes[0]
+    assert process.execution_mode.value == "llm_assisted"
+    assert process.schedule.type.value == "polling"
+    assert process.trigger == {"type": "below_price", "symbol": "TSLA", "value": 180.0}
+    assert process.action["proposalCreationAllowed"] is True
+    assert process.action["orderPolicy"]["maxNotionalAmount"] == "1000"
+    assert process.action["approval"] == {"chatId": 12345, "userId": 678}
+    assert process.safety.broker_actions_allowed is False
+    assert "Telegram button approval" in response.final_answer
+
+
+def test_scheduler_agent_asks_clarification_when_trade_setup_caps_are_missing(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="create a TSLA trade setup monitor", chat_id="12345"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "risk caps" in response.final_answer
     assert service.list_processes() == []
 
 

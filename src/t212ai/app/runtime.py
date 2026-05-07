@@ -198,12 +198,13 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_database_stack(runtime)
     _build_market_signal_stack(runtime)
     _build_scheduler_stack(runtime)
-    _build_scheduler_notification_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
     _build_capability_stack(runtime)
-    _build_toolbox_stack(runtime)
     _build_workflow_stack(runtime)
+    _build_scheduler_notification_stack(runtime)
+    _build_capability_stack(runtime)
+    _build_toolbox_stack(runtime)
     _build_calculator_stack(runtime)
     _build_reconciliation_stack(runtime)
     _build_agent_stack(runtime)
@@ -289,6 +290,7 @@ def _build_scheduler_notification_stack(runtime: AppRuntime) -> None:
         runtime.scheduler_notification_service = SchedulerNotificationService(
             runtime.scheduled_process_service,
             notifier=notifier,
+            pending_action_service=runtime.pending_action_service,
         )
     except Exception as exc:
         runtime.component_errors["scheduler_notifications"] = str(exc)
@@ -504,6 +506,21 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
                 )
             ),
             implementation=runtime.market_signal_service,
+        ),
+        "scheduler_trade_setup_monitor": CapabilityBinding(
+            capability="scheduler_trade_setup_monitor",
+            selected_provider=_capability_provider(runtime, "scheduler_trade_setup_monitor"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+                and runtime.market_data_service is not None
+                and runtime.broker_read_service is not None
+                and runtime.broker_execution_service is not None
+                and runtime.pending_action_service is not None
+                and runtime.proposal_service is not None
+                and runtime.scheduler_notification_service is not None
+            ),
+            implementation=runtime.scheduled_process_service,
         ),
     }
 
