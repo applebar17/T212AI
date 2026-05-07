@@ -334,6 +334,33 @@ class SchedulerGenAIClient(FakeGenAIClient):
                 return _fake_chat_response(
                     "What exact date/time or recurrence should I use for this analysis?"
                 )
+            if (
+                "nasdaq crash" in text
+                and "scheduler_market_regime_monitor_create" in tools_mapping
+            ):
+                result = tools_mapping["scheduler_market_regime_monitor_create"](
+                    title=None,
+                    description="Monitor Nasdaq broad-market stress today.",
+                    market_label="nasdaq",
+                    proxy_symbol=None,
+                    percent_change_below=None,
+                    drawdown_from_high_pct=None,
+                    lookback_period="1mo",
+                    lookback_interval="1d",
+                    auto_adjust=False,
+                    poll_every_seconds=None,
+                    timezone=None,
+                    expires_at=None,
+                    search_time_range="day",
+                    task_guidelines="Explain likely drivers if the stress trigger matches.",
+                    notification_enabled=True,
+                    broker_actions_allowed=False,
+                )
+                return _fake_chat_response(str(result.output))
+            if "crypto market crash" in text:
+                return _fake_chat_response(
+                    "Which exact market-data proxy symbol should I monitor for crypto market stress?"
+                )
             if "alert me when tsla goes below" in text:
                 return _fake_chat_response(
                     "Which threshold should I use for the TSLA alert?"
@@ -1190,6 +1217,58 @@ def test_scheduler_agent_asks_clarification_when_company_event_schedule_is_missi
     )
 
     assert "What exact date/time or recurrence" in response.final_answer
+    assert service.list_processes() == []
+
+
+def test_scheduler_agent_creates_market_regime_monitor_through_private_tool(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="monitor Nasdaq crash today", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    processes = service.list_processes(statuses=["active"], kinds=["market_regime_monitor"])
+    assert response.selected_agent == "scheduler_agent"
+    assert response.metadata["workflow"] == "scheduler_delegation"
+    assert len(processes) == 1
+    assert processes[0].execution_mode.value == "llm_assisted"
+    assert processes[0].schedule.type.value == "polling"
+    assert processes[0].trigger["proxySymbol"] == "QQQ"
+    assert processes[0].trigger["proxyLabel"] == "Nasdaq"
+    assert processes[0].trigger["conditions"][0] == {
+        "type": "percent_change_below",
+        "value": -3.0,
+    }
+    assert processes[0].trigger["conditions"][1]["type"] == "drawdown_from_high_pct"
+    assert processes[0].action == {"type": "notify_only"}
+    assert processes[0].safety.broker_actions_allowed is False
+    assert "No broker action" in response.final_answer
+
+
+def test_scheduler_agent_asks_clarification_when_market_proxy_is_unknown(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="monitor crypto market crash today", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "Which exact market-data proxy symbol" in response.final_answer
     assert service.list_processes() == []
 
 

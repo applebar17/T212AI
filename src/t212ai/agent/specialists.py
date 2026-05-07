@@ -1332,13 +1332,19 @@ class SchedulerAgent(BaseAgent):
                 ),
                 guidelines=(
                     "Use only the private scheduler tools. Create only supported "
-                    "instrument_monitor and company_event_analyst jobs; do not create "
-                    "market-regime, trade-setup, or unsupported process kinds. "
+                    "instrument_monitor, company_event_analyst, and "
+                    "market_regime_monitor jobs; do not create trade-setup or "
+                    "unsupported process kinds. "
                     "Instrument monitors must use deterministic polling schedules. "
                     "Company-event analyst jobs must use llm_assisted one-shot or "
-                    "recurring schedules and notify-only action. Ask one concise "
-                    "clarification question if symbol, schedule, trigger direction, "
-                    "or required threshold value is missing or ambiguous. Set "
+                    "recurring schedules and notify-only action. Market-regime "
+                    "monitors must use llm_assisted polling schedules, notify-only "
+                    "action, ETF proxies for broad labels, and default vague stress "
+                    "requests to SPY, percent_change_below=-3, and "
+                    "drawdown_from_high_pct=5 unless a clearer market label maps to "
+                    "QQQ, DIA, or IWM. Ask one concise clarification question if "
+                    "symbol, schedule, market/proxy target, trigger direction, or "
+                    "required threshold value is missing or ambiguous. Set "
                     "includeMarketAnalyst only when the user asks for broader market "
                     "impact, reaction, or context. Pause, resume, and archive require "
                     "an exact process_id; if the user refers by symbol or title, list "
@@ -1350,7 +1356,8 @@ class SchedulerAgent(BaseAgent):
                 ),
                 toolbox_summary=(
                     "Private scheduler tools: create deterministic instrument monitors, "
-                    "create LLM-assisted company-event analyst jobs, list scheduled "
+                    "create LLM-assisted company-event analyst jobs, create "
+                    "conditional market-regime stress monitors, list scheduled "
                     "processes, pause/resume/archive exact process ids. "
                     + render_tool_descriptions(SCHEDULER_AGENT_TOOLBOX)
                 ),

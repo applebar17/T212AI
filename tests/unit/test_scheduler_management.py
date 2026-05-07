@@ -15,6 +15,7 @@ from t212ai.scheduler import (
     scheduler_create_process,
     scheduler_instrument_monitor_create,
     scheduler_list_processes,
+    scheduler_market_regime_monitor_create,
     scheduler_pause_process,
     scheduler_resume_process,
 )
@@ -369,12 +370,160 @@ def test_scheduler_company_event_analyst_create_rejects_invalid_inputs(
         assert result.error.code == "invalid_company_event_analyst_spec"
 
 
+def test_scheduler_market_regime_monitor_create_applies_defaults_and_proxy_mapping(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+        clock=lambda: datetime(2026, 5, 7, 10, 30, tzinfo=timezone.utc),
+    )
+
+    result = scheduler_market_regime_monitor_create(
+        title=None,
+        description="Monitor a vague Nasdaq crash/stress request.",
+        market_label="nasdaq",
+        proxy_symbol=None,
+        percent_change_below=None,
+        drawdown_from_high_pct=None,
+        lookback_period="1mo",
+        lookback_interval="1d",
+        auto_adjust=False,
+        poll_every_seconds=None,
+        timezone=None,
+        expires_at=None,
+        search_time_range="day",
+        task_guidelines="Explain likely drivers if stress matches.",
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert "No broker action" in result.output
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.kind.value == "market_regime_monitor"
+    assert process.execution_mode.value == "llm_assisted"
+    assert process.schedule.type.value == "polling"
+    assert process.schedule.poll_every_seconds == 300
+    assert process.trigger["type"] == "market_regime_stress"
+    assert process.trigger["proxySymbol"] == "QQQ"
+    assert process.trigger["proxyLabel"] == "Nasdaq"
+    assert process.trigger["conditions"] == [
+        {"type": "percent_change_below", "value": -3.0},
+        {
+            "type": "drawdown_from_high_pct",
+            "value": 5.0,
+            "lookbackPeriod": "1mo",
+            "lookbackInterval": "1d",
+            "autoAdjust": False,
+        },
+    ]
+    assert process.inputs["searchTimeRange"] == "day"
+    assert process.action == {"type": "notify_only"}
+    assert process.lifecycle.completion_policy.value == "complete_on_first_match"
+    assert process.lifecycle.expires_at == datetime(2026, 5, 7, 23, 59, 59, tzinfo=timezone.utc)
+    assert process.notification == {"enabled": True}
+    assert process.safety.broker_actions_allowed is False
+
+
+def test_scheduler_market_regime_monitor_create_accepts_explicit_proxy_and_threshold(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(service=service)
+
+    result = scheduler_market_regime_monitor_create(
+        title="Custom proxy stress monitor",
+        description="Monitor an explicit proxy.",
+        market_label=None,
+        proxy_symbol="vixy",
+        percent_change_below=-4,
+        drawdown_from_high_pct=None,
+        lookback_period="1mo",
+        lookback_interval="1d",
+        auto_adjust=False,
+        poll_every_seconds=600,
+        timezone=None,
+        expires_at="2026-05-07T21:00:00Z",
+        search_time_range="day",
+        task_guidelines="Explain stress context.",
+        notification_enabled=False,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.trigger["proxySymbol"] == "VIXY"
+    assert process.trigger["proxyLabel"] == "VIXY"
+    assert process.trigger["conditions"] == [{"type": "percent_change_below", "value": -4.0}]
+    assert process.notification == {"enabled": False}
+
+
+def test_scheduler_market_regime_monitor_create_rejects_invalid_inputs(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+    base = {
+        "title": None,
+        "description": "",
+        "market_label": "market",
+        "proxy_symbol": None,
+        "percent_change_below": -3,
+        "drawdown_from_high_pct": None,
+        "lookback_period": "1mo",
+        "lookback_interval": "1d",
+        "auto_adjust": False,
+        "poll_every_seconds": None,
+        "timezone": None,
+        "expires_at": None,
+        "search_time_range": "day",
+        "task_guidelines": "",
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    missing_target = scheduler_market_regime_monitor_create(
+        **{**base, "market_label": None, "proxy_symbol": None}
+    )
+    unsupported_label = scheduler_market_regime_monitor_create(
+        **{**base, "market_label": "crypto", "proxy_symbol": None}
+    )
+    invalid_percent = scheduler_market_regime_monitor_create(
+        **{**base, "percent_change_below": 3}
+    )
+    invalid_drawdown = scheduler_market_regime_monitor_create(
+        **{**base, "percent_change_below": None, "drawdown_from_high_pct": -5}
+    )
+    unsafe = scheduler_market_regime_monitor_create(
+        **{**base, "broker_actions_allowed": True}
+    )
+
+    for result in (
+        missing_target,
+        unsupported_label,
+        invalid_percent,
+        invalid_drawdown,
+        unsafe,
+    ):
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error.code == "invalid_market_regime_monitor_spec"
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 
     assert set(mapping) == {
         "scheduler_instrument_monitor_create",
         "scheduler_company_event_analyst_create",
+        "scheduler_market_regime_monitor_create",
         "scheduler_list_processes",
         "scheduler_pause_process",
         "scheduler_resume_process",

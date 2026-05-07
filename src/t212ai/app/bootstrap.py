@@ -229,6 +229,26 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             ),
             reasons=_scheduler_delegate_reasons(settings, providers["llm"]),
         ),
+        "scheduler_market_regime_monitor": CapabilityAssessment(
+            name="scheduler_market_regime_monitor",
+            label="Scheduler market regime monitor",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip())
+            and market_data_capability.available,
+            optional=True,
+            selected_provider=(
+                f"llm+sql+{market_data_capability.selected_provider}"
+                if providers["llm"].ready
+                and bool(str(settings.database_url or "").strip())
+                and market_data_capability.available
+                else None
+            ),
+            reasons=_scheduler_market_regime_reasons(
+                settings,
+                providers["llm"],
+                market_data_capability,
+            ),
+        ),
     }
 
     errors = _unique_messages(
@@ -337,6 +357,17 @@ def _scheduler_delegate_reasons(
         reasons.append("Configure LLM reasoning to enable natural-language scheduling.")
     if not bool(str(settings.database_url or "").strip()):
         reasons.append("Set DATABASE_URL to enable SQL-backed scheduled processes.")
+    return tuple(reasons)
+
+
+def _scheduler_market_regime_reasons(
+    settings: AppSettings,
+    llm: ProviderAssessment,
+    market_data: CapabilityAssessment,
+) -> tuple[str, ...]:
+    reasons = list(_scheduler_delegate_reasons(settings, llm))
+    if not market_data.available:
+        reasons.append("Configure MARKET_DATA_PROVIDER to enable scheduler market-regime monitors.")
     return tuple(reasons)
 
 

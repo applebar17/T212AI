@@ -1703,6 +1703,7 @@ def render_doctor_report(
         "scheduler_instrument_monitor",
         "scheduler_delegate",
         "scheduler_company_event_analyst",
+        "scheduler_market_regime_monitor",
     ):
         capability = assessment.capabilities[key]
         lines.append(

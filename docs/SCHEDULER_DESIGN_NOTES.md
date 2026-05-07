@@ -1177,6 +1177,16 @@ Shipping criteria:
 
 - User can ask the system to monitor broad market stress for a day and receive an LLM-written explanation only if the condition is met.
 
+Implementation notes:
+
+- Implemented as `MarketRegimeMonitorAdapter`, registered under `market_regime_monitor`.
+- V1 monitors one proxy symbol per process and supports OR-style `percent_change_below` and `drawdown_from_high_pct` stress conditions.
+- Scheduler-agent creation is private through `scheduler_market_regime_monitor_create`; the main orchestrator still only delegates to the scheduler agent.
+- Broad labels map to ETF proxies: market/S&P -> SPY, Nasdaq -> QQQ, Dow -> DIA, Russell/small caps -> IWM.
+- Vague stress requests default to SPY, `percent_change_below=-3`, `drawdown_from_high_pct=5`, 1mo/1d lookback, and end-of-day expiry.
+- The adapter does not call search or the LLM on no-match runs; matched runs call the market analyst and synthesize `MarketRegimeAnalysis`.
+- The process is notify-only; broker/order actions remain unavailable for this wave.
+
 ### Wave 7: Market Signal Capture And Memory Integration
 
 Scope:

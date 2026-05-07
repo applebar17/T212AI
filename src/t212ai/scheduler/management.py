@@ -50,6 +50,26 @@ COMPANY_EVENT_TYPES = frozenset(
 )
 COMPANY_EVENT_SCHEDULE_TYPES = frozenset({"one_shot", "recurring"})
 COMPANY_EVENT_FREQUENCIES = frozenset({"daily", "weekdays", "weekly"})
+MARKET_REGIME_PROXY_LABELS = {
+    "market": ("SPY", "market"),
+    "s&p": ("SPY", "S&P 500"),
+    "s&p 500": ("SPY", "S&P 500"),
+    "sp500": ("SPY", "S&P 500"),
+    "spy": ("SPY", "S&P 500"),
+    "nasdaq": ("QQQ", "Nasdaq"),
+    "nasdaq 100": ("QQQ", "Nasdaq 100"),
+    "qqq": ("QQQ", "Nasdaq 100"),
+    "dow": ("DIA", "Dow"),
+    "dow jones": ("DIA", "Dow Jones"),
+    "dia": ("DIA", "Dow Jones"),
+    "russell": ("IWM", "Russell 2000"),
+    "russell 2000": ("IWM", "Russell 2000"),
+    "small caps": ("IWM", "small caps"),
+    "small cap": ("IWM", "small caps"),
+    "iwm": ("IWM", "Russell 2000"),
+}
+DEFAULT_MARKET_REGIME_PERCENT_CHANGE_BELOW = -3.0
+DEFAULT_MARKET_REGIME_DRAWDOWN_FROM_HIGH_PCT = 5.0
 THRESHOLD_TRIGGER_TYPES = frozenset(
     {
         "below_price",
@@ -447,6 +467,141 @@ SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_market_regime_monitor_create",
+        "description": (
+            "Create one safe LLM-assisted market-regime stress monitor. This tool "
+            "creates only kind=market_regime_monitor, executionMode=llm_assisted, "
+            "polling schedule, notify-only action, and safety.brokerActionsAllowed=false. "
+            "Use it for broad market stress/crash monitoring. If the user says market, "
+            "S&P, Nasdaq, Dow, Russell, or small caps, map to the configured ETF proxy. "
+            "If the request is vague, apply percent_change_below=-3 and "
+            "drawdown_from_high_pct=5, and state those defaults. Ask a concise "
+            "clarification question when the target market/proxy is ambiguous."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user-facing monitor title.",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional concise context for the monitor.",
+                },
+                "market_label": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "Broad market label such as market, S&P 500, Nasdaq, Dow, "
+                        "Russell, or small caps."
+                    ),
+                },
+                "proxy_symbol": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Explicit ETF/index proxy symbol. Used when market_label is absent.",
+                },
+                "percent_change_below": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": (
+                        "Signed percentage threshold, such as -3. If both thresholds "
+                        "are omitted, defaults to -3."
+                    ),
+                },
+                "drawdown_from_high_pct": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": (
+                        "Drawdown threshold from lookback high, such as 5. If both "
+                        "thresholds are omitted, defaults to 5."
+                    ),
+                },
+                "lookback_period": {
+                    "type": "string",
+                    "default": "1mo",
+                    "description": "Market-data lookback period for drawdown evaluation.",
+                },
+                "lookback_interval": {
+                    "type": "string",
+                    "default": "1d",
+                    "description": "Market-data lookback interval for drawdown evaluation.",
+                },
+                "auto_adjust": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether to ask the market-data provider for adjusted history.",
+                },
+                "poll_every_seconds": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "default": None,
+                    "description": "Polling interval in seconds. Defaults to scheduler default.",
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "IANA timezone for default end-of-day expiry.",
+                },
+                "expires_at": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "Optional ISO-8601 expiry. If omitted, defaults to end of "
+                        "current day in the selected timezone."
+                    ),
+                },
+                "search_time_range": {
+                    "type": "string",
+                    "default": "day",
+                    "description": "Search time filter used after trigger match.",
+                },
+                "task_guidelines": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional bounded LLM guidance for matched stress explanation.",
+                },
+                "notification_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether a matching stress trigger should notify the user.",
+                },
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be false. Broker/order execution is not supported.",
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "market_label",
+                "proxy_symbol",
+                "percent_change_below",
+                "drawdown_from_high_pct",
+                "lookback_period",
+                "lookback_interval",
+                "auto_adjust",
+                "poll_every_seconds",
+                "timezone",
+                "expires_at",
+                "search_time_range",
+                "task_guidelines",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _process_id_tool(name: str, description: str) -> ToolSpec:
     return {
@@ -493,6 +648,7 @@ SCHEDULER_MANAGEMENT_TOOLS: list[ToolSpec] = [
 SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL,
     SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
+    SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL,
     SCHEDULER_LIST_PROCESSES_TOOL,
     SCHEDULER_PAUSE_PROCESS_TOOL,
     SCHEDULER_RESUME_PROCESS_TOOL,
@@ -544,6 +700,10 @@ def build_scheduler_agent_tool_mapping(
         ),
         "scheduler_company_event_analyst_create": partial(
             scheduler_company_event_analyst_create,
+            runtime=runtime,
+        ),
+        "scheduler_market_regime_monitor_create": partial(
+            scheduler_market_regime_monitor_create,
             runtime=runtime,
         ),
         "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
@@ -718,6 +878,69 @@ def scheduler_company_event_analyst_create(
             f"Created company-event analyst process {process.process_id}: "
             f"{process.title}. Schedule: {schedule_summary}. Lifecycle: "
             f"{process.lifecycle.completion_policy.value}. No broker action was configured."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_market_regime_monitor_create", run_type="tool")
+def scheduler_market_regime_monitor_create(
+    *,
+    title: str | None,
+    description: str,
+    market_label: str | None,
+    proxy_symbol: str | None,
+    percent_change_below: int | float | None,
+    drawdown_from_high_pct: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    poll_every_seconds: int | None,
+    timezone: str | None,
+    expires_at: str | None,
+    search_time_range: str,
+    task_guidelines: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="scheduler",
+        tool_name="scheduler_market_regime_monitor_create",
+    )
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_market_regime_monitor(
+            title=title,
+            description=description,
+            market_label=market_label,
+            proxy_symbol=proxy_symbol,
+            percent_change_below=percent_change_below,
+            drawdown_from_high_pct=drawdown_from_high_pct,
+            lookback_period=lookback_period,
+            lookback_interval=lookback_interval,
+            auto_adjust=auto_adjust,
+            poll_every_seconds=poll_every_seconds,
+            timezone_name=timezone,
+            expires_at=expires_at,
+            search_time_range=search_time_range,
+            task_guidelines=task_guidelines,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _market_regime_exception(exc)
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created market-regime monitor {process.process_id}: {process.title}. "
+            f"Proxy: {process.inputs.get('proxyLabel')} ({process.inputs.get('proxySymbol')}). "
+            f"Schedule: polling every {process.schedule.poll_every_seconds} seconds. "
+            f"Lifecycle: {process.lifecycle.completion_policy.value}, "
+            f"expiresAt={process.lifecycle.expires_at}. "
+            "No broker action was configured."
         ),
         data={"process": _process_payload(process)},
     )
@@ -978,6 +1201,133 @@ def _create_company_event_analyst(
     )
 
 
+def _create_market_regime_monitor(
+    *,
+    title: str | None,
+    description: str,
+    market_label: str | None,
+    proxy_symbol: str | None,
+    percent_change_below: int | float | None,
+    drawdown_from_high_pct: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    poll_every_seconds: int | None,
+    timezone_name: str | None,
+    expires_at: str | None,
+    search_time_range: str,
+    task_guidelines: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError("broker_actions_allowed must be false; broker actions are unsupported.")
+    resolved_proxy_symbol, resolved_label = _resolve_market_proxy(
+        market_label=market_label,
+        proxy_symbol=proxy_symbol,
+    )
+    resolved_percent = _optional_float(percent_change_below)
+    resolved_drawdown = _optional_float(drawdown_from_high_pct)
+    if resolved_percent is None and resolved_drawdown is None:
+        resolved_percent = DEFAULT_MARKET_REGIME_PERCENT_CHANGE_BELOW
+        resolved_drawdown = DEFAULT_MARKET_REGIME_DRAWDOWN_FROM_HIGH_PCT
+    if resolved_percent is not None and resolved_percent >= 0:
+        raise ValueError("percent_change_below must be a negative percentage value.")
+    if resolved_drawdown is not None and resolved_drawdown <= 0:
+        raise ValueError("drawdown_from_high_pct must be a positive percentage value.")
+
+    poll_seconds = _positive_int(
+        poll_every_seconds,
+        fallback=runtime.default_poll_every_seconds,
+        field_name="poll_every_seconds",
+    )
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
+    resolved_lookback_period = str(lookback_period or "1mo").strip() or "1mo"
+    resolved_lookback_interval = str(lookback_interval or "1d").strip() or "1d"
+    conditions: list[dict[str, Any]] = []
+    if resolved_percent is not None:
+        conditions.append({"type": "percent_change_below", "value": resolved_percent})
+    if resolved_drawdown is not None:
+        conditions.append(
+            {
+                "type": "drawdown_from_high_pct",
+                "value": resolved_drawdown,
+                "lookbackPeriod": resolved_lookback_period,
+                "lookbackInterval": resolved_lookback_interval,
+                "autoAdjust": bool(auto_adjust),
+            }
+        )
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = f"{resolved_label} market-regime stress monitor"
+
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="market_regime_monitor",
+        execution_mode="llm_assisted",
+        schedule={"type": "polling", "pollEverySeconds": poll_seconds},
+        trigger={
+            "type": "market_regime_stress",
+            "proxySymbol": resolved_proxy_symbol,
+            "proxyLabel": resolved_label,
+            "conditions": conditions,
+            "lookbackPeriod": resolved_lookback_period,
+            "lookbackInterval": resolved_lookback_interval,
+            "autoAdjust": bool(auto_adjust),
+        },
+        inputs={
+            "proxySymbol": resolved_proxy_symbol,
+            "proxyLabel": resolved_label,
+            "searchTimeRange": str(search_time_range or "day").strip() or "day",
+        },
+        llm_scope={"taskGuidelines": str(task_guidelines or "").strip()},
+        action={"type": "notify_only"},
+        notification={"enabled": bool(notification_enabled)},
+        lifecycle={
+            "completionPolicy": "complete_on_first_match",
+            "expiresAt": expiry.isoformat(),
+        },
+        safety={"brokerActionsAllowed": False},
+    )
+
+
+def _resolve_market_proxy(
+    *,
+    market_label: str | None,
+    proxy_symbol: str | None,
+) -> tuple[str, str]:
+    raw_label = str(market_label or "").strip()
+    normalized_label = " ".join(raw_label.lower().replace("_", " ").split())
+    explicit_proxy = str(proxy_symbol or "").strip().upper()
+    if normalized_label:
+        mapped = MARKET_REGIME_PROXY_LABELS.get(normalized_label)
+        if mapped is not None:
+            return mapped
+        if not explicit_proxy:
+            allowed = ", ".join(
+                ["market", "S&P 500", "Nasdaq", "Dow", "Russell 2000", "small caps"]
+            )
+            raise ValueError(
+                f"Unsupported market_label '{market_label}'. Use one of: {allowed}; "
+                "or provide proxy_symbol explicitly."
+            )
+    if explicit_proxy:
+        return explicit_proxy, raw_label or explicit_proxy
+    raise ValueError("Provide either proxy_symbol or a known market_label.")
+
+
+def _optional_float(value: int | float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("threshold values must be numeric.") from exc
+
+
 def _resolve_run_at(run_at: str | None, *, timezone_name: str) -> datetime:
     raw = str(run_at or "").strip()
     if not raw:
@@ -1124,6 +1474,25 @@ def _company_event_exception(exc: Exception) -> ToolResult:
                 "Provide symbol and a supported one_shot or recurring schedule. "
                 "one_shot requires run_at; recurring requires frequency, time, and "
                 "timezone. Keep broker_actions_allowed=false."
+            ),
+            retryable=False,
+        ),
+    )
+
+
+def _market_regime_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Market-regime monitor creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_market_regime_monitor_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide a known market_label or explicit proxy_symbol, keep "
+                "broker_actions_allowed=false, use a negative percent_change_below "
+                "or positive drawdown_from_high_pct, and provide a valid timezone "
+                "if overriding the default."
             ),
             retryable=False,
         ),

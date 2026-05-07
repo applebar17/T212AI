@@ -480,6 +480,16 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ),
             implementation=runtime.scheduled_process_service,
         ),
+        "scheduler_market_regime_monitor": CapabilityBinding(
+            capability="scheduler_market_regime_monitor",
+            selected_provider=_capability_provider(runtime, "scheduler_market_regime_monitor"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+                and runtime.market_data_service is not None
+            ),
+            implementation=runtime.market_data_service,
+        ),
     }
 
 

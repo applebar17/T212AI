@@ -14,6 +14,7 @@ from t212ai.market_signals import MarketSignalService
 
 from .company_event_analyst import CompanyEventAnalystAdapter
 from .instrument_monitor import InstrumentMonitorAdapter
+from .market_regime_monitor import MarketRegimeMonitorAdapter
 from .models import ScheduledProcessKind
 from .worker import ScheduledProcessAdapter
 
@@ -40,5 +41,10 @@ def build_scheduler_adapter_registry(
             search_service=search_service,
             market_signal_service=market_signal_service,
             broker_read_service=broker_read_service,
+        ),
+        ScheduledProcessKind.MARKET_REGIME_MONITOR.value: MarketRegimeMonitorAdapter(
+            market_agent=market_agent,
+            market_data_service=market_data_service,
+            search_service=search_service,
         ),
     }
