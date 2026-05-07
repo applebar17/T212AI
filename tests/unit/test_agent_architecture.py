@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
+import re
 from types import SimpleNamespace
 
 from t212ai.agent import (
@@ -26,7 +28,9 @@ from t212ai.agent import (
     PlanActionGroupExecution,
     PlanExecutionMode,
     PortfolioAnalystAgent,
+    SchedulerAgent,
     TaskComplexity,
+    build_specialist_agents,
     classify_message,
 )
 from t212ai.agent.history import ChatHistoryWindow
@@ -54,6 +58,8 @@ from t212ai.telegram.bridge import (
     build_default_message_handler,
 )
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
+from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
+from t212ai.scheduler import ScheduledProcessService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 
@@ -252,9 +258,82 @@ class FakeGenAIClient:
                     entities=[{"key": "expression", "value": "2 + 2"}],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
+            if (
+                "alert me when tsla goes below 180" in text
+                and "delegate_to_scheduler_agent" in tools_mapping
+            ):
+                tools_mapping["delegate_to_scheduler_agent"](
+                    task_brief="Create a deterministic TSLA price monitor.",
+                    expected_output="Return the scheduled process id and monitor summary.",
+                    intent_kind=IntentKind.MANAGE_SCHEDULED_PROCESSES.value,
+                    entities=[{"key": "symbol", "value": "TSLA"}],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
         return _fake_chat_response(
             "I can chat naturally, explain what I do, and delegate portfolio, "
             "order, market, company, guideline-memory, or calculation work when needed."
+        )
+
+
+class SchedulerGenAIClient(FakeGenAIClient):
+    def call_openai(
+        self,
+        params: dict[str, object],
+        tools_mapping: dict[str, object] | None = None,
+        toolbox=None,
+        include_tool_meta: bool = False,
+    ):
+        del include_tool_meta
+        messages = params.get("messages") or []
+        text = str(messages[-1]["content"]).lower() if messages else ""
+        toolbox_name = getattr(toolbox, "name", None)
+        if tools_mapping is not None and toolbox_name == "scheduler_agent":
+            if "below 180" in text and "scheduler_instrument_monitor_create" in tools_mapping:
+                result = tools_mapping["scheduler_instrument_monitor_create"](
+                    title=None,
+                    description="Alert when TSLA crosses the requested threshold.",
+                    symbol="TSLA",
+                    trigger_type="below_price",
+                    value=180,
+                    lookback_period="1mo",
+                    lookback_interval="1d",
+                    auto_adjust=False,
+                    poll_every_seconds=None,
+                    timezone=None,
+                    expires_at=None,
+                    notification_enabled=True,
+                    broker_actions_allowed=False,
+                )
+                return _fake_chat_response(str(result.output))
+            if "alert me when tsla goes below" in text:
+                return _fake_chat_response(
+                    "Which threshold should I use for the TSLA alert?"
+                )
+            if "pause the tsla monitor" in text:
+                tools_mapping["scheduler_list_processes"](
+                    statuses=["active", "paused"],
+                    kinds=["instrument_monitor"],
+                    limit=20,
+                )
+                return _fake_chat_response(
+                    "I found candidate TSLA monitors. Please provide the exact process_id."
+                )
+            process_match = re.search(r"sched_[a-z0-9_]+", text)
+            if process_match and "pause" in text:
+                result = tools_mapping["scheduler_pause_process"](
+                    process_id=process_match.group(0)
+                )
+                return _fake_chat_response(str(result.output))
+            if process_match and "archive" in text:
+                result = tools_mapping["scheduler_archive_process"](
+                    process_id=process_match.group(0)
+                )
+                return _fake_chat_response(str(result.output))
+        return super().call_openai(
+            params,
+            tools_mapping=tools_mapping,
+            toolbox=toolbox,
+            include_tool_meta=False,
         )
 
 
@@ -478,6 +557,12 @@ class FakeExecutorGenAIClient:
 
 def _reasoner() -> AgentReasoner:
     return AgentReasoner(FakeGenAIClient())  # type: ignore[arg-type]
+
+
+def _scheduler_service(tmp_path: Path) -> ScheduledProcessService:
+    engine = build_engine(f"sqlite:///{tmp_path / 'scheduler-agent.db'}")
+    ensure_schema(engine)
+    return ScheduledProcessService(build_session_factory(engine))
 
 
 class FakeAgentWorkflowBroker:
@@ -1003,6 +1088,122 @@ def test_market_analyst_agent_uses_configurable_grouped_loop(monkeypatch) -> Non
     assert response.final_answer.strip()
 
 
+def test_scheduler_agent_creates_instrument_monitor_through_private_tool(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="alert me when TSLA goes below 180 today", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    processes = service.list_processes(statuses=["active"], kinds=["instrument_monitor"])
+    assert response.selected_agent == "scheduler_agent"
+    assert response.metadata["workflow"] == "scheduler_delegation"
+    assert len(processes) == 1
+    assert processes[0].trigger["symbol"] == "TSLA"
+    assert processes[0].trigger["type"] == "below_price"
+    assert processes[0].safety.broker_actions_allowed is False
+    assert "No broker action" in response.final_answer
+
+
+def test_scheduler_agent_asks_clarification_when_threshold_is_missing(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="alert me when TSLA goes below today", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "Which threshold" in response.final_answer
+    assert service.list_processes() == []
+
+
+def test_scheduler_agent_lists_candidates_before_fuzzy_pause(tmp_path: Path) -> None:
+    service = _scheduler_service(tmp_path)
+    process = service.create_process(
+        title="TSLA threshold monitor",
+        kind="instrument_monitor",
+        execution_mode="deterministic",
+        schedule={"type": "polling", "pollEverySeconds": 300},
+        trigger={"type": "below_price", "symbol": "TSLA", "value": 180},
+        inputs={"symbols": ["TSLA"]},
+        lifecycle={"completionPolicy": "complete_on_first_match"},
+        safety={},
+    )
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="pause the TSLA monitor", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "exact process_id" in response.final_answer
+    assert service.get_process(process.process_id).status.value == "active"
+
+
+def test_scheduler_agent_pauses_and_archives_exact_process_id(tmp_path: Path) -> None:
+    service = _scheduler_service(tmp_path)
+    process = service.create_process(
+        title="TSLA threshold monitor",
+        kind="instrument_monitor",
+        execution_mode="deterministic",
+        schedule={"type": "polling", "pollEverySeconds": 300},
+        trigger={"type": "below_price", "symbol": "TSLA", "value": 180},
+        inputs={"symbols": ["TSLA"]},
+        lifecycle={"completionPolicy": "complete_on_first_match"},
+        safety={},
+    )
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    paused = agent.handle(
+        AgentRequest(user_message=f"pause {process.process_id}", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+    archived = agent.handle(
+        AgentRequest(user_message=f"archive {process.process_id}", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "Paused scheduled process" in paused.final_answer
+    assert "Archived scheduled process" in archived.final_answer
+    assert service.get_process(process.process_id).status.value == "archived"
+
+
+def test_scheduler_agent_returns_unavailable_message_when_service_missing() -> None:
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=None,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="alert me when TSLA goes below 180", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert response.metadata["workflow_status"] == "unavailable"
+    assert "Scheduler is not configured" in response.final_answer
+
+
 def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> None:
     from t212ai.agent import OrderAgent
 
@@ -1135,6 +1336,31 @@ def test_orchestrator_routes_representative_requests() -> None:
             assert response.metadata["route"] == expected_route
 
 
+def test_orchestrator_routes_scheduler_requests_when_scheduler_agent_is_configured(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    reasoner = AgentReasoner(SchedulerGenAIClient())  # type: ignore[arg-type]
+    specialists = build_specialist_agents(
+        reasoner,
+        scheduled_process_service=service,
+    )
+    orchestrator = MainOrchestratorAgent(reasoner, specialists=specialists)
+
+    response = orchestrator.handle(
+        AgentRequest(user_message="alert me when TSLA goes below 180 today", chat_id="chat")
+    )
+
+    assert "delegate_to_scheduler_agent" in orchestrator.orchestrator_toolbox.tools_by_name
+    assert response.metadata["route"] == "scheduler_agent"
+
+
+def test_orchestrator_omits_scheduler_tool_when_scheduler_agent_is_missing() -> None:
+    orchestrator = MainOrchestratorAgent(_reasoner())
+
+    assert "delegate_to_scheduler_agent" not in orchestrator.orchestrator_toolbox.tools_by_name
+
+
 def test_classify_message_treats_liquidation_as_order_execution() -> None:
     intent = classify_message("Can you fully liquidate my position in LVMH at mkt price?")
 
@@ -1146,6 +1372,12 @@ def test_classify_message_keeps_advisory_buy_question_as_trade_discussion() -> N
     intent = classify_message("Should I buy Apple after earnings?")
 
     assert intent.kind == IntentKind.PROPOSE_TRADE
+
+
+def test_classify_message_detects_scheduler_monitoring_requests() -> None:
+    intent = classify_message("alert me when TSLA goes below 180 today")
+
+    assert intent.kind == IntentKind.MANAGE_SCHEDULED_PROCESSES
 
 
 def test_orchestrator_forces_order_agent_for_liquidation_requests() -> None:

@@ -203,6 +203,19 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             selected_provider=market_data_capability.selected_provider,
             reasons=_scheduler_instrument_monitor_reasons(settings, market_data_capability),
         ),
+        "scheduler_delegate": CapabilityAssessment(
+            name="scheduler_delegate",
+            label="Scheduler delegate",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip()),
+            optional=True,
+            selected_provider=(
+                "llm+sql"
+                if providers["llm"].ready and bool(str(settings.database_url or "").strip())
+                else None
+            ),
+            reasons=_scheduler_delegate_reasons(settings, providers["llm"]),
+        ),
     }
 
     errors = _unique_messages(
@@ -299,6 +312,18 @@ def _scheduler_instrument_monitor_reasons(
         reasons.append("Set DATABASE_URL to enable SQL-backed scheduled processes.")
     if not market_data.available:
         reasons.append("Configure MARKET_DATA_PROVIDER to enable scheduler instrument monitors.")
+    return tuple(reasons)
+
+
+def _scheduler_delegate_reasons(
+    settings: AppSettings,
+    llm: ProviderAssessment,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if not llm.ready:
+        reasons.append("Configure LLM reasoning to enable natural-language scheduling.")
+    if not bool(str(settings.database_url or "").strip()):
+        reasons.append("Set DATABASE_URL to enable SQL-backed scheduled processes.")
     return tuple(reasons)
 
 

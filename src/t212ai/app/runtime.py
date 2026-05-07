@@ -12,6 +12,7 @@ from t212ai.agent import (
     ConfigurableReasonerAgent,
     GroupedPlanExecutor,
     MainOrchestratorAgent,
+    SchedulerAgent,
     build_specialist_agents,
 )
 from t212ai.alpaca import AlpacaBrokerClient, AlpacaMarketDataClient
@@ -104,6 +105,7 @@ class AppRuntime:
     agent_judge: AgentJudge | None = None
     main_orchestrator: MainOrchestratorAgent | None = None
     calculator_agent: CalculatorAgent | None = None
+    scheduler_agent: SchedulerAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
     alpaca_broker_client: AlpacaBrokerClient | None = None
@@ -454,6 +456,15 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ),
             implementation=runtime.market_data_service,
         ),
+        "scheduler_delegate": CapabilityBinding(
+            capability="scheduler_delegate",
+            selected_provider=_capability_provider(runtime, "scheduler_delegate"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+            ),
+            implementation=runtime.scheduled_process_service,
+        ),
     }
 
 
@@ -525,6 +536,12 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_provider=runtime.settings.broker_provider,
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,
+            scheduled_process_service=runtime.scheduled_process_service,
+            scheduler_default_timezone=runtime.settings.scheduler_default_timezone,
+            scheduler_default_poll_every_seconds=_positive_int_setting(
+                runtime.settings.scheduler_default_poll_every_seconds,
+                default=300,
+            ),
             portfolio_toolbox_summary=(
                 runtime.specialist_tooling.portfolio_toolbox_summary
                 if runtime.specialist_tooling is not None
@@ -561,6 +578,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             guideline_service=runtime.guideline_memory_service,
             specialists=specialists,
         )
+        runtime.scheduler_agent = specialists.scheduler
     except Exception as exc:  # pragma: no cover - defensive
         runtime.component_errors["main_orchestrator"] = str(exc)
 
@@ -578,6 +596,14 @@ def _collect_startup_notes(assessment: ConfigAssessment) -> tuple[str, ...]:
         seen.add(normalized)
         deduped.append(normalized)
     return tuple(deduped)
+
+
+def _positive_int_setting(value: object, *, default: int) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _capability_provider(runtime: AppRuntime, name: str) -> str | None:

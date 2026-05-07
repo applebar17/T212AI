@@ -47,6 +47,7 @@ from .specialists import (
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
+    SchedulerAgent,
 )
 
 __all__ = [
@@ -83,6 +84,7 @@ __all__ = [
     "PlanActionGroup",
     "PlanExecutionMode",
     "PortfolioAnalystAgent",
+    "SchedulerAgent",
     "SpecialistAgents",
     "TaskComplexity",
     "ToolStep",

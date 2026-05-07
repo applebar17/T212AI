@@ -18,6 +18,7 @@ from t212ai.genai.tracing import (
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import PendingActionService
 from t212ai.proposals import ProposalService
+from t212ai.scheduler import ScheduledProcessService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 from .base import AgentProfile, BaseAgent
@@ -34,6 +35,7 @@ from .specialists import (
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
+    SchedulerAgent,
 )
 
 
@@ -45,9 +47,10 @@ class SpecialistAgents:
     company: CompanyAnalystAgent
     guideline_memory: GuidelineMemoryAgent
     calculator: CalculatorAgent
+    scheduler: SchedulerAgent | None = None
 
     def by_key(self) -> dict[str, BaseAgent]:
-        return {
+        agents: dict[str, BaseAgent] = {
             "portfolio": self.portfolio,
             "order": self.order,
             "market": self.market,
@@ -55,6 +58,9 @@ class SpecialistAgents:
             "guideline_memory": self.guideline_memory,
             "calculator": self.calculator,
         }
+        if self.scheduler is not None:
+            agents["scheduler"] = self.scheduler
+        return agents
 
 
 @dataclass(slots=True)
@@ -107,6 +113,11 @@ _SPECIALIST_TOOL_CONFIGS: tuple[tuple[str, str, tuple[IntentKind, ...]], ...] = 
         "calculator",
         (IntentKind.CALCULATE,),
     ),
+    (
+        "delegate_to_scheduler_agent",
+        "scheduler",
+        (IntentKind.MANAGE_SCHEDULED_PROCESSES,),
+    ),
 )
 
 
@@ -140,8 +151,9 @@ class MainOrchestratorAgent(BaseAgent):
                 ),
                 toolbox_summary=(
                     "Delegation tools: portfolio_analyst, order_agent, market_analyst, "
-                    "company_analyst, guideline_memory_agent, calculator_agent. The "
-                    "orchestrator may also answer directly or ask clarifying questions."
+                    "company_analyst, guideline_memory_agent, calculator_agent, and "
+                    "scheduler_agent when configured. The orchestrator may also answer "
+                    "directly or ask clarifying questions."
                 ),
                 task_complexity=TaskComplexity.EASY,
                 guideline_scopes=("global", "orchestrator"),
@@ -249,14 +261,18 @@ class MainOrchestratorAgent(BaseAgent):
 
     def _build_orchestrator_toolbox(self) -> ToolBox:
         specialists = self.specialists.by_key()
-        tools = [
-            self._delegation_tool(
-                name=tool_name,
-                specialist=specialists[specialist_key],
-                allowed_intents=allowed_intents,
+        tools = []
+        for tool_name, specialist_key, allowed_intents in _SPECIALIST_TOOL_CONFIGS:
+            specialist = specialists.get(specialist_key)
+            if specialist is None:
+                continue
+            tools.append(
+                self._delegation_tool(
+                    name=tool_name,
+                    specialist=specialist,
+                    allowed_intents=allowed_intents,
+                )
             )
-            for tool_name, specialist_key, allowed_intents in _SPECIALIST_TOOL_CONFIGS
-        ]
         return ToolBox(
             name="orchestrator_routing",
             tools=tools,
@@ -355,7 +371,9 @@ class MainOrchestratorAgent(BaseAgent):
         specialists = self.specialists.by_key()
         mapping: dict[str, Any] = {}
         for tool_name, specialist_key, allowed_intents in _SPECIALIST_TOOL_CONFIGS:
-            specialist = specialists[specialist_key]
+            specialist = specialists.get(specialist_key)
+            if specialist is None:
+                continue
             mapping[tool_name] = self._build_specialist_tool(
                 request=request,
                 tool_runs=tool_runs,
@@ -610,6 +628,9 @@ def build_specialist_agents(
     broker_provider: str = "broker",
     pending_action_service: PendingActionService | None = None,
     proposal_service: ProposalService | None = None,
+    scheduled_process_service: ScheduledProcessService | None = None,
+    scheduler_default_timezone: str = "UTC",
+    scheduler_default_poll_every_seconds: int = 300,
     portfolio_toolbox_summary: str | None = None,
     order_toolbox: "ToolBox | None" = None,
     order_toolbox_summary: str | None = None,
@@ -663,6 +684,17 @@ def build_specialist_agents(
             reasoner,
             guideline_service=guideline_service,
         ),
+        scheduler=(
+            SchedulerAgent(
+                reasoner,
+                guideline_service=guideline_service,
+                scheduled_process_service=scheduled_process_service,
+                default_timezone=scheduler_default_timezone,
+                default_poll_every_seconds=scheduler_default_poll_every_seconds,
+            )
+            if scheduled_process_service is not None
+            else None
+        ),
     )
 
 
@@ -673,6 +705,11 @@ def classify_message(message: str) -> AgentIntent:
     guideline_intent = _classify_guideline_message(text)
     if guideline_intent is not None:
         return guideline_intent
+    scheduler_lifecycle_intent = _classify_scheduler_message(text)
+    if scheduler_lifecycle_intent is not None and any(
+        word in text for word in ("alert", "monitor", "schedule", "scheduler")
+    ):
+        return scheduler_lifecycle_intent
     if any(word in text for word in ("cancel", "order status")):
         return AgentIntent(kind=IntentKind.CANCEL_ORDER, confidence=0.85)
     if any(word in text for word in ("pending order", "orders", "open order")):
@@ -685,6 +722,9 @@ def classify_message(message: str) -> AgentIntent:
         )
     if any(word in text for word in ("buy", "sell", "place order", "trade")):
         return AgentIntent(kind=IntentKind.PROPOSE_TRADE, confidence=0.8)
+    scheduler_intent = scheduler_lifecycle_intent or _classify_scheduler_message(text)
+    if scheduler_intent is not None:
+        return scheduler_intent
     has_digit = any(char.isdigit() for char in text)
     has_operator = any(symbol in text for symbol in ("+", "-", "*", "/", "^", "%"))
     if "calculate" in text or (has_digit and has_operator) or ("what is" in text and has_digit):
@@ -698,6 +738,73 @@ def classify_message(message: str) -> AgentIntent:
     if any(word in text for word in ("analyze", "company", "ticker", "earnings", "analyst")):
         return AgentIntent(kind=IntentKind.ANALYZE_INSTRUMENT, confidence=0.75)
     return AgentIntent(kind=IntentKind.UNKNOWN, entities={"message": message}, confidence=0.0)
+
+
+def _classify_scheduler_message(text: str) -> AgentIntent | None:
+    has_scheduler_action = any(
+        phrase in text
+        for phrase in (
+            "alert me",
+            "notify me",
+            "monitor",
+            "watch ",
+            "schedule",
+            "scheduled process",
+            "scheduler",
+            "pause alert",
+            "resume alert",
+            "archive alert",
+            "stop alert",
+            "pause monitor",
+            "resume monitor",
+            "archive monitor",
+            "stop monitor",
+        )
+    )
+    has_trigger_language = any(
+        phrase in text
+        for phrase in (
+            "goes below",
+            "goes above",
+            "drops below",
+            "rises above",
+            "breaks below",
+            "breaks above",
+            "reaches",
+            "hits",
+            "all time low",
+            "monthly low",
+            "monthly high",
+            "period low",
+            "period high",
+        )
+    )
+    has_lifecycle_word = any(
+        phrase in text
+        for phrase in (
+            "pause alert",
+            "resume alert",
+            "archive alert",
+            "cancel alert",
+            "pause monitor",
+            "resume monitor",
+            "archive monitor",
+            "cancel monitor",
+            "pause sched_",
+            "resume sched_",
+            "archive sched_",
+        )
+    )
+    if has_scheduler_action or has_lifecycle_word or (
+        has_trigger_language
+        and any(word in text for word in ("alert", "notify", "monitor", "watch", "schedule"))
+    ):
+        return AgentIntent(
+            kind=IntentKind.MANAGE_SCHEDULED_PROCESSES,
+            entities={"domain": "scheduler"},
+            confidence=0.82,
+        )
+    return None
 
 
 def _entities_to_items(intent: AgentIntent) -> list[dict[str, str]]:

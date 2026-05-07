@@ -19,6 +19,7 @@ class IntentKind(StrEnum):
     REBALANCE = "rebalance"
     CALCULATE = "calculate"
     MANAGE_GUIDELINES = "manage_guidelines"
+    MANAGE_SCHEDULED_PROCESSES = "manage_scheduled_processes"
     HELP = "help"
     UNKNOWN = "unknown"
 

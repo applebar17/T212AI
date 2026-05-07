@@ -228,6 +228,8 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "APP_LOG_FILE_PATH",
             "GUIDELINE_MEMORY_PATH",
             "DATABASE_URL",
+            "SCHEDULER_DEFAULT_TIMEZONE",
+            "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
         ),
     ),
     (
@@ -336,6 +338,8 @@ STORAGE_SECTION_KEYS = (
     "APP_LOG_LEVEL",
     "APP_LOG_FILE_PATH",
     "DATABASE_URL",
+    "SCHEDULER_DEFAULT_TIMEZONE",
+    "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
     "GUIDELINE_MEMORY_PATH",
 )
 
@@ -934,6 +938,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             settings.guideline_memory_path,
         ),
         "DATABASE_URL": existing_raw.get("DATABASE_URL", settings.database_url),
+        "SCHEDULER_DEFAULT_TIMEZONE": existing_raw.get(
+            "SCHEDULER_DEFAULT_TIMEZONE",
+            settings.scheduler_default_timezone,
+        ),
+        "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS": existing_raw.get(
+            "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
+            str(settings.scheduler_default_poll_every_seconds),
+        ),
         "SEARXNG_BASE_URL": existing_raw.get(
             "SEARXNG_BASE_URL",
             settings.searxng_base_url or "",
@@ -1381,6 +1393,14 @@ def apply_configuration_wizard(
                 "DATABASE_URL",
                 default=updates["DATABASE_URL"],
             )
+            updates["SCHEDULER_DEFAULT_TIMEZONE"] = io_runtime.prompt(
+                "SCHEDULER_DEFAULT_TIMEZONE",
+                default=updates["SCHEDULER_DEFAULT_TIMEZONE"],
+            )
+            updates["SCHEDULER_DEFAULT_POLL_EVERY_SECONDS"] = io_runtime.prompt(
+                "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
+                default=updates["SCHEDULER_DEFAULT_POLL_EVERY_SECONDS"],
+            )
             updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
                 "GUIDELINE_MEMORY_PATH",
                 default=updates["GUIDELINE_MEMORY_PATH"],
@@ -1681,6 +1701,7 @@ def render_doctor_report(
         "scheduled_processes",
         "scheduler_notifications",
         "scheduler_instrument_monitor",
+        "scheduler_delegate",
     ):
         capability = assessment.capabilities[key]
         lines.append(

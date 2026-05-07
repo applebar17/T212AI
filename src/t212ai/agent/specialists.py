@@ -31,6 +31,11 @@ from t212ai.pending_actions import (
     PendingActionService,
 )
 from t212ai.proposals import ProposalService
+from t212ai.scheduler import (
+    SCHEDULER_AGENT_TOOLBOX,
+    ScheduledProcessService,
+    build_scheduler_agent_tool_mapping,
+)
 from t212ai.workflows import (
     PendingOrdersReviewWorkflow,
     PortfolioSummaryWorkflow,
@@ -1304,6 +1309,119 @@ class MarketAnalystAgent(BaseAgent):
             plan=plan,
             metadata={"workflow": "market_analysis", "workflow_status": "ok"},
             artifacts={"workflow": "market_analysis"},
+        )
+
+
+class SchedulerAgent(BaseAgent):
+    def __init__(
+        self,
+        reasoner,
+        guideline_service: GuidelineMemoryService | None = None,
+        *,
+        scheduled_process_service: ScheduledProcessService | None = None,
+        default_timezone: str = "UTC",
+        default_poll_every_seconds: int = 300,
+    ) -> None:
+        super().__init__(
+            reasoner,
+            AgentProfile(
+                name="scheduler_agent",
+                purpose=(
+                    "Create and manage bounded scheduled trading-related processes "
+                    "from natural language."
+                ),
+                guidelines=(
+                    "Use only the private scheduler tools. Create only executable "
+                    "instrument_monitor jobs; do not create company, market-regime, "
+                    "trade-setup, or unsupported process kinds. Creation must use "
+                    "executionMode=deterministic, polling schedules, "
+                    "complete_on_first_match lifecycle by default, notifications on "
+                    "by default, and brokerActionsAllowed=false. Ask one concise "
+                    "clarification question if symbol, trigger direction, or required "
+                    "threshold value is missing or ambiguous. Pause, resume, and archive "
+                    "require an exact process_id; if the user refers by symbol or title, "
+                    "list candidates and ask the user to choose. Never configure broker "
+                    "actions, order proposals, autonomous execution, or deletion. "
+                    "Responses must state the action result, process_id when created or "
+                    "changed, schedule/lifecycle summary, and that no broker action was "
+                    "configured."
+                ),
+                toolbox_summary=(
+                    "Private scheduler tools: create deterministic instrument monitors, "
+                    "list scheduled processes, pause/resume/archive exact process ids. "
+                    + render_tool_descriptions(SCHEDULER_AGENT_TOOLBOX)
+                ),
+                task_complexity=TaskComplexity.COMPLEX,
+                guideline_scopes=("global", "agent:scheduler"),
+                guideline_include_categories=("investment_preference",),
+                toolbox=SCHEDULER_AGENT_TOOLBOX,
+            ),
+            guideline_service=guideline_service,
+        )
+        self.scheduled_process_service = scheduled_process_service
+        self.default_timezone = default_timezone
+        self.default_poll_every_seconds = default_poll_every_seconds
+
+    @traceable(name="Scheduler Agent Handle", run_type="chain")
+    def handle(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent | None = None,
+        task_complexity: TaskComplexity | None = None,
+    ) -> AgentResponse:
+        resolved_intent = intent or AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES)
+        complexity = task_complexity or self.resolve_complexity(request.user_message)
+        set_trace_name(f"{self.__class__.__name__}.handle")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_kind="specialist",
+            intent_kind=resolved_intent.kind.value,
+            task_complexity=complexity.value,
+            workflow="scheduler_delegation",
+        )
+        if self.scheduled_process_service is None:
+            return AgentResponse(
+                final_answer=(
+                    "Scheduler is not configured. Set DATABASE_URL and restart the "
+                    "runtime to enable scheduled process management."
+                ),
+                selected_agent=self.name,
+                metadata={
+                    "workflow": "scheduler_delegation",
+                    "workflow_status": "unavailable",
+                },
+                artifacts={"workflow": "scheduler_delegation"},
+            )
+
+        final_answer = self.reasoner.orchestrate_with_tools(
+            agent_name=self.profile.name,
+            purpose=self.profile.purpose,
+            guidelines=self.profile.guidelines,
+            toolbox_summary=self.profile.toolbox_summary,
+            user_request=request.user_message,
+            toolbox=SCHEDULER_AGENT_TOOLBOX,
+            tools_mapping=build_scheduler_agent_tool_mapping(
+                self.scheduled_process_service,
+                default_timezone=self.default_timezone,
+                default_poll_every_seconds=self.default_poll_every_seconds,
+            ),
+            chat_history=self._history_for_prompt(request.history),
+            persistent_guidance=self._persistent_guidance(),
+        )
+        if not final_answer.strip():
+            final_answer = (
+                "I could not complete the scheduler request. No scheduler change was "
+                "made unless a tool result above explicitly returned a process_id."
+            )
+        return AgentResponse(
+            final_answer=final_answer,
+            selected_agent=self.name,
+            metadata={
+                "workflow": "scheduler_delegation",
+                "workflow_status": "ok",
+            },
+            artifacts={"workflow": "scheduler_delegation"},
         )
 
 

@@ -8,8 +8,10 @@ access to arbitrary scheduler internals.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, time, timezone
 from functools import partial
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
@@ -22,6 +24,29 @@ from .service import ScheduledProcessService
 @dataclass(slots=True)
 class SchedulerManagementRuntime:
     service: ScheduledProcessService | None = None
+    default_timezone: str = "UTC"
+    default_poll_every_seconds: int = 300
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+
+
+INSTRUMENT_MONITOR_TRIGGER_TYPES = frozenset(
+    {
+        "below_price",
+        "above_price",
+        "percent_change_below",
+        "percent_change_above",
+        "period_low_breakdown",
+        "period_high_breakout",
+    }
+)
+THRESHOLD_TRIGGER_TYPES = frozenset(
+    {
+        "below_price",
+        "above_price",
+        "percent_change_below",
+        "percent_change_above",
+    }
+)
 
 
 SCHEDULER_CREATE_PROCESS_TOOL: ToolSpec = {
@@ -159,6 +184,125 @@ SCHEDULER_LIST_PROCESSES_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_instrument_monitor_create",
+        "description": (
+            "Create one executable deterministic instrument monitor from natural "
+            "language scheduling intent. This tool creates only kind=instrument_monitor, "
+            "executionMode=deterministic, polling schedules, and safety.brokerActionsAllowed=false. "
+            "Use it for alerts such as price thresholds, percent-change thresholds, "
+            "period-low breakdowns, or period-high breakouts. Ask a concise "
+            "clarification question instead of calling this tool when symbol, trigger "
+            "direction, or required threshold value is missing or ambiguous. This tool "
+            "never configures broker or order actions."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user-facing monitor title.",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional concise context for the monitor.",
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Market-data symbol to monitor, such as TSLA or AAPL.",
+                },
+                "trigger_type": {
+                    "type": "string",
+                    "enum": sorted(INSTRUMENT_MONITOR_TRIGGER_TYPES),
+                    "description": (
+                        "Supported trigger type. Price and percent-change triggers "
+                        "require value. Period high/low triggers use lookback fields."
+                    ),
+                },
+                "value": {
+                    "type": ["number", "null"],
+                    "default": None,
+                    "description": (
+                        "Threshold value for price or percent-change triggers. "
+                        "Percent changes use signed percentage points, such as -5."
+                    ),
+                },
+                "lookback_period": {
+                    "type": "string",
+                    "default": "1mo",
+                    "description": "Market-data lookback period for period high/low triggers.",
+                },
+                "lookback_interval": {
+                    "type": "string",
+                    "default": "1d",
+                    "description": "Market-data lookback interval for period high/low triggers.",
+                },
+                "auto_adjust": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether to ask the market-data provider for adjusted history.",
+                },
+                "poll_every_seconds": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "default": None,
+                    "description": (
+                        "Polling interval in seconds. Defaults to the configured "
+                        "scheduler default, normally 300."
+                    ),
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "IANA timezone used only for default end-of-day expiry. "
+                        "Defaults to configured scheduler timezone."
+                    ),
+                },
+                "expires_at": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "Optional ISO-8601 expiry. If omitted, defaults to the end "
+                        "of the current day in the selected timezone."
+                    ),
+                },
+                "notification_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether a matching trigger should notify the user.",
+                },
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be false. Broker/order execution is not supported.",
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "symbol",
+                "trigger_type",
+                "value",
+                "lookback_period",
+                "lookback_interval",
+                "auto_adjust",
+                "poll_every_seconds",
+                "timezone",
+                "expires_at",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _process_id_tool(name: str, description: str) -> ToolSpec:
     return {
@@ -202,11 +346,23 @@ SCHEDULER_MANAGEMENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_RESUME_PROCESS_TOOL,
     SCHEDULER_ARCHIVE_PROCESS_TOOL,
 ]
+SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
+    SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL,
+    SCHEDULER_LIST_PROCESSES_TOOL,
+    SCHEDULER_PAUSE_PROCESS_TOOL,
+    SCHEDULER_RESUME_PROCESS_TOOL,
+    SCHEDULER_ARCHIVE_PROCESS_TOOL,
+]
 
 SCHEDULER_MANAGEMENT_TOOLBOX = ToolBox(
     name="scheduler_management",
     tools=SCHEDULER_MANAGEMENT_TOOLS,
     tools_by_name=build_tool_index(SCHEDULER_MANAGEMENT_TOOLS),
+)
+SCHEDULER_AGENT_TOOLBOX = ToolBox(
+    name="scheduler_agent",
+    tools=SCHEDULER_AGENT_TOOLS,
+    tools_by_name=build_tool_index(SCHEDULER_AGENT_TOOLS),
 )
 
 
@@ -216,6 +372,31 @@ def build_scheduler_management_tool_mapping(
     runtime = SchedulerManagementRuntime(service=service)
     return {
         "scheduler_create_process": partial(scheduler_create_process, runtime=runtime),
+        "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
+        "scheduler_pause_process": partial(scheduler_pause_process, runtime=runtime),
+        "scheduler_resume_process": partial(scheduler_resume_process, runtime=runtime),
+        "scheduler_archive_process": partial(scheduler_archive_process, runtime=runtime),
+    }
+
+
+def build_scheduler_agent_tool_mapping(
+    service: ScheduledProcessService | None,
+    *,
+    default_timezone: str = "UTC",
+    default_poll_every_seconds: int = 300,
+    clock: Callable[[], datetime] | None = None,
+) -> dict[str, Callable[..., ToolResult]]:
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone=default_timezone,
+        default_poll_every_seconds=default_poll_every_seconds,
+        clock=clock or (lambda: datetime.now(timezone.utc)),
+    )
+    return {
+        "scheduler_instrument_monitor_create": partial(
+            scheduler_instrument_monitor_create,
+            runtime=runtime,
+        ),
         "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
         "scheduler_pause_process": partial(scheduler_pause_process, runtime=runtime),
         "scheduler_resume_process": partial(scheduler_resume_process, runtime=runtime),
@@ -265,6 +446,59 @@ def scheduler_create_process(
         output=(
             f"Created scheduled process {process.process_id}: {process.title}. "
             f"status={process.status.value} nextRunAt={process.next_run_at}."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_instrument_monitor_create", run_type="tool")
+def scheduler_instrument_monitor_create(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    trigger_type: str,
+    value: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    poll_every_seconds: int | None,
+    timezone: str | None,
+    expires_at: str | None,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(provider="scheduler", tool_name="scheduler_instrument_monitor_create")
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_instrument_monitor(
+            title=title,
+            description=description,
+            symbol=symbol,
+            trigger_type=trigger_type,
+            value=value,
+            lookback_period=lookback_period,
+            lookback_interval=lookback_interval,
+            auto_adjust=auto_adjust,
+            poll_every_seconds=poll_every_seconds,
+            timezone_name=timezone,
+            expires_at=expires_at,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _instrument_monitor_exception(exc)
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created instrument monitor {process.process_id}: {process.title}. "
+            f"Schedule: polling every {process.schedule.poll_every_seconds} seconds. "
+            f"Lifecycle: {process.lifecycle.completion_policy.value}, "
+            f"expiresAt={process.lifecycle.expires_at}. "
+            "No broker action was configured."
         ),
         data={"process": _process_payload(process)},
     )
@@ -363,6 +597,122 @@ def _lifecycle_tool(
     )
 
 
+def _create_instrument_monitor(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    trigger_type: str,
+    value: int | float | None,
+    lookback_period: str,
+    lookback_interval: str,
+    auto_adjust: bool,
+    poll_every_seconds: int | None,
+    timezone_name: str | None,
+    expires_at: str | None,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError("broker_actions_allowed must be false; broker actions are unsupported.")
+    resolved_symbol = str(symbol or "").strip().upper()
+    if not resolved_symbol:
+        raise ValueError("symbol is required for instrument monitor creation.")
+    resolved_trigger_type = str(trigger_type or "").strip()
+    if resolved_trigger_type not in INSTRUMENT_MONITOR_TRIGGER_TYPES:
+        raise ValueError(f"Unsupported instrument monitor trigger_type '{trigger_type}'.")
+    trigger: dict[str, Any] = {
+        "type": resolved_trigger_type,
+        "symbol": resolved_symbol,
+    }
+    if resolved_trigger_type in THRESHOLD_TRIGGER_TYPES:
+        if value is None:
+            raise ValueError(f"value is required for trigger_type '{resolved_trigger_type}'.")
+        trigger["value"] = float(value)
+    else:
+        trigger["lookbackPeriod"] = str(lookback_period or "1mo").strip() or "1mo"
+        trigger["lookbackInterval"] = str(lookback_interval or "1d").strip() or "1d"
+        trigger["autoAdjust"] = bool(auto_adjust)
+
+    poll_seconds = _positive_int(
+        poll_every_seconds,
+        fallback=runtime.default_poll_every_seconds,
+        field_name="poll_every_seconds",
+    )
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = f"{resolved_symbol} {resolved_trigger_type} monitor"
+
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="instrument_monitor",
+        execution_mode="deterministic",
+        schedule={"type": "polling", "pollEverySeconds": poll_seconds},
+        trigger=trigger,
+        inputs={"symbols": [resolved_symbol]},
+        llm_scope={},
+        action={},
+        notification={"enabled": bool(notification_enabled)},
+        lifecycle={
+            "completionPolicy": "complete_on_first_match",
+            "expiresAt": expiry.isoformat(),
+        },
+        safety={"brokerActionsAllowed": False},
+    )
+
+
+def _positive_int(value: int | None, *, fallback: int, field_name: str) -> int:
+    resolved = fallback if value is None else value
+    try:
+        parsed = int(resolved)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive integer.") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be greater than zero.")
+    return parsed
+
+
+def _resolve_expires_at(
+    expires_at: str | None,
+    *,
+    timezone_name: str,
+    runtime: SchedulerManagementRuntime,
+) -> datetime:
+    tz = _zone_info(timezone_name)
+    raw = str(expires_at or "").strip()
+    if raw:
+        normalized = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("expires_at must be a valid ISO-8601 datetime.") from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=tz)
+        return parsed.astimezone(timezone.utc)
+
+    now = runtime.clock()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    local_now = now.astimezone(tz)
+    end_of_day = datetime.combine(
+        local_now.date(),
+        time(hour=23, minute=59, second=59),
+        tzinfo=tz,
+    )
+    return end_of_day.astimezone(timezone.utc)
+
+
+def _zone_info(timezone_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"timezone must be a valid IANA timezone: {timezone_name}.") from exc
+
+
 def _process_payload(process: ScheduledProcess) -> dict[str, Any]:
     return process.model_dump(by_alias=True, exclude_none=True, mode="json")
 
@@ -414,5 +764,23 @@ def _tool_exception(exc: Exception, *, operation: str) -> ToolResult:
             ),
             retryable=False,
             details={"operation": operation},
+        ),
+    )
+
+
+def _instrument_monitor_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Instrument monitor creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_instrument_monitor_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide symbol, a supported trigger_type, value for price or "
+                "percent-change triggers, positive poll_every_seconds if supplied, "
+                "and keep broker_actions_allowed=false."
+            ),
+            retryable=False,
         ),
     )

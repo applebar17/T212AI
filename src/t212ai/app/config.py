@@ -176,6 +176,8 @@ class AppSettings:
     app_log_file_path: str = "data/logs/t212ai.log"
     guideline_memory_path: str = "data/guidelines/guidelines.json"
     database_url: str = "sqlite:///./data/t212ai.db"
+    scheduler_default_timezone: str = "UTC"
+    scheduler_default_poll_every_seconds: int = 300
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
 
@@ -357,6 +359,12 @@ def get_app_settings(
             "data/guidelines/guidelines.json",
         ),
         database_url=source.get("DATABASE_URL", "sqlite:///./data/t212ai.db"),
+        scheduler_default_timezone=source.get("SCHEDULER_DEFAULT_TIMEZONE", "UTC"),
+        scheduler_default_poll_every_seconds=_env_int_from_source(
+            source,
+            "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
+            300,
+        ),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),
         live_trading_enabled=_env_bool_from_source(
             source,
@@ -364,6 +372,21 @@ def get_app_settings(
             False,
         ),
     )
+
+
+def _env_int_from_source(
+    source: Mapping[str, str],
+    name: str,
+    default: int,
+) -> int:
+    value = source.get(name)
+    if value is None or not str(value).strip():
+        return default
+    try:
+        parsed = int(str(value).strip())
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _env_bool_from_source(

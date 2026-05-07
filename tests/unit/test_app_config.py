@@ -195,6 +195,18 @@ def test_get_app_settings_loads_genai_context_settings() -> None:
     assert settings.genai_context_summary_max_tokens == "1536"
 
 
+def test_get_app_settings_loads_scheduler_defaults() -> None:
+    settings = get_app_settings(
+        env={
+            "SCHEDULER_DEFAULT_TIMEZONE": "Europe/Rome",
+            "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS": "900",
+        }
+    )
+
+    assert settings.scheduler_default_timezone == "Europe/Rome"
+    assert settings.scheduler_default_poll_every_seconds == 900
+
+
 def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None:
     settings = get_app_settings(
         env={
