@@ -456,6 +456,7 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert "Run bot preflight: blocked" in output
     assert "- Scheduled processes: available" in output
     assert "- Scheduler notifications: unavailable" in output
+    assert "- Scheduler instrument monitor: available" in output
 
 
 def test_doctor_returns_nonzero_for_partial_reddit_config(tmp_path, capsys) -> None:
@@ -655,6 +656,35 @@ def test_run_scheduler_once_invokes_scheduler_runtime(
     assert exit_code == 0
     assert output.strip() == "scheduler ran"
     assert isinstance(calls["runtime"], FakeRuntime)
+
+
+def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeWorker:
+        def __init__(self, service, *, adapters, notification_service=None):
+            calls["service"] = service
+            calls["adapters"] = adapters
+            calls["notification_service"] = notification_service
+
+        def run_once(self, *, limit: int = 100):
+            calls["limit"] = limit
+            return object()
+
+    class FakeRuntime:
+        scheduled_process_service = object()
+        market_data_service = object()
+        scheduler_notification_service = object()
+
+    monkeypatch.setattr(cli, "SchedulerWorker", FakeWorker)
+
+    result = cli.run_scheduler_once(FakeRuntime(), limit=7)
+
+    assert result is not None
+    assert calls["service"] is FakeRuntime.scheduled_process_service
+    assert "instrument_monitor" in calls["adapters"]
+    assert calls["notification_service"] is FakeRuntime.scheduler_notification_service
+    assert calls["limit"] == 7
 
 
 def test_run_scheduler_parses_interval_and_invokes_worker(monkeypatch, tmp_path) -> None:

@@ -445,6 +445,15 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ready=runtime.scheduler_notification_service is not None,
             implementation=runtime.scheduler_notification_service,
         ),
+        "scheduler_instrument_monitor": CapabilityBinding(
+            capability="scheduler_instrument_monitor",
+            selected_provider=_capability_provider(runtime, "scheduler_instrument_monitor"),
+            ready=(
+                runtime.scheduled_process_service is not None
+                and runtime.market_data_service is not None
+            ),
+            implementation=runtime.market_data_service,
+        ),
     }
 
 

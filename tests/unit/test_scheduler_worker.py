@@ -10,6 +10,7 @@ from t212ai.scheduler import (
     ScheduledProcessService,
     ScheduledRunStatus,
     SchedulerWorker,
+    build_scheduler_adapter_registry,
 )
 
 
@@ -107,6 +108,26 @@ def test_scheduler_worker_skips_due_process_without_adapter(tmp_path: Path) -> N
     assert updated.next_run_at == BASE_NOW + timedelta(seconds=60)
     assert updated.failure_count == 0
     assert notifications.calls == []
+
+
+def test_scheduler_worker_registry_skips_instrument_monitor_without_market_data(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    process = _create_due_process(service)
+    worker = SchedulerWorker(
+        service,
+        adapters=build_scheduler_adapter_registry(market_data_service=None),
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+    updated = service.get_process(process.process_id)
+
+    assert result.skipped_count == 1
+    assert result.runs[0].code == "market_data_unavailable"
+    assert "adapter_unavailable" not in result.render_text()
+    assert updated is not None
+    assert updated.failure_count == 0
 
 
 def test_scheduler_worker_records_completed_adapter_result(tmp_path: Path) -> None:

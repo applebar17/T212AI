@@ -81,6 +81,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "sec_edgar": _assess_sec_edgar_provider(settings),
     }
     selector_errors = _validate_selector_values(settings)
+    market_data_capability = _build_market_data_capability(settings, providers)
     capabilities = {
         "llm_reasoning": CapabilityAssessment(
             name="llm_reasoning",
@@ -125,7 +126,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             ),
             reasons=_broker_execution_reasons(settings, providers["broker"]),
         ),
-        "market_data": _build_market_data_capability(settings, providers),
+        "market_data": market_data_capability,
         "market_intelligence": _build_market_intelligence_capability(settings, providers),
         "disclosure": _build_disclosure_capability(settings, providers),
         "research_community_context": CapabilityAssessment(
@@ -192,6 +193,15 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             optional=True,
             selected_provider="telegram" if providers["telegram"].ready else None,
             reasons=_scheduler_notification_reasons(settings, providers["telegram"]),
+        ),
+        "scheduler_instrument_monitor": CapabilityAssessment(
+            name="scheduler_instrument_monitor",
+            label="Scheduler instrument monitor",
+            available=bool(str(settings.database_url or "").strip())
+            and market_data_capability.available,
+            optional=True,
+            selected_provider=market_data_capability.selected_provider,
+            reasons=_scheduler_instrument_monitor_reasons(settings, market_data_capability),
         ),
     }
 
@@ -277,6 +287,18 @@ def _scheduler_notification_reasons(
         reasons.append(
             "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID to enable scheduler Telegram notifications."
         )
+    return tuple(reasons)
+
+
+def _scheduler_instrument_monitor_reasons(
+    settings: AppSettings,
+    market_data: CapabilityAssessment,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if not bool(str(settings.database_url or "").strip()):
+        reasons.append("Set DATABASE_URL to enable SQL-backed scheduled processes.")
+    if not market_data.available:
+        reasons.append("Configure MARKET_DATA_PROVIDER to enable scheduler instrument monitors.")
     return tuple(reasons)
 
 

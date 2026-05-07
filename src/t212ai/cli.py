@@ -33,7 +33,7 @@ from .genai.context import (
     ModelContextRegistry,
     parse_context_token_value,
 )
-from .scheduler import SchedulerWorker
+from .scheduler import SchedulerWorker, build_scheduler_adapter_registry
 
 
 LLM_PROVIDER_OPTIONS = (
@@ -1680,6 +1680,7 @@ def render_doctor_report(
         "market_signal_memory",
         "scheduled_processes",
         "scheduler_notifications",
+        "scheduler_instrument_monitor",
     ):
         capability = assessment.capabilities[key]
         lines.append(
@@ -1926,6 +1927,9 @@ def run_scheduler_once(runtime, *, limit: int = 100) -> object:
         raise RuntimeError("Scheduler service is not configured.")
     worker = SchedulerWorker(
         runtime.scheduled_process_service,
+        adapters=build_scheduler_adapter_registry(
+            market_data_service=getattr(runtime, "market_data_service", None),
+        ),
         notification_service=getattr(runtime, "scheduler_notification_service", None),
     )
     return worker.run_once(limit=limit)

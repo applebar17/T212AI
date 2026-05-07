@@ -44,9 +44,12 @@ from .worker import (
     SchedulerWorker,
     SchedulerWorkerResult,
 )
+from .instrument_monitor import InstrumentMonitorAdapter
+from .registry import build_scheduler_adapter_registry
 
 __all__ = [
     "LifecycleCompletionPolicy",
+    "InstrumentMonitorAdapter",
     "LifecycleSpec",
     "ScheduledEventType",
     "ScheduledExecutionMode",
@@ -79,6 +82,7 @@ __all__ = [
     "SchedulerNotifier",
     "TelegramSchedulerNotifier",
     "build_scheduler_management_tool_mapping",
+    "build_scheduler_adapter_registry",
     "scheduler_archive_process",
     "scheduler_create_process",
     "scheduler_list_processes",

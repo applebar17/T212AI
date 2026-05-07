@@ -364,6 +364,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["scheduled_processes"].ready
     assert not runtime.capability_registry["scheduler_notifications"].ready
+    assert runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -411,6 +412,7 @@ def test_build_runtime_disables_scheduler_when_database_is_unavailable(tmp_path:
     assert not runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["scheduled_processes"].selected_provider is None
     assert not runtime.capability_registry["scheduler_notifications"].ready
+    assert not runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert "database" in runtime.component_errors
 
 
@@ -540,6 +542,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["market_intelligence"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["scheduled_processes"].ready
+    assert runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
