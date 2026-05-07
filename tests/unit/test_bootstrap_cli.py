@@ -51,8 +51,11 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["LLM_PROVIDER"] == "openai"
     assert updates["OPENAI_API_KEY"] == "openai-key"
     assert updates["OPENAI_CHAT_MODEL_DEFAULT"] == "gpt-4o-mini"
+    assert updates["GENAI_CONTEXT_TOKENS_DEFAULT"] == "128000"
     assert updates["OPENAI_CHAT_MODEL_SMART"] == ""
+    assert updates["GENAI_CONTEXT_TOKENS_SMART"] == ""
     assert updates["OPENAI_CHAT_MODEL_REASONING"] == ""
+    assert updates["GENAI_CONTEXT_TOKENS_REASONING"] == ""
     assert updates["BROKER_PROVIDER"] == "none"
     assert updates["MARKET_DATA_PROVIDER"] == "yahoo"
     assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "alpha_vantage"
@@ -79,10 +82,13 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "azure-key",
             "",
             "azure-baseline",
+            "",
             "y",
             "azure-smart",
+            "",
             "y",
             "azure-reasoning",
+            "",
             "azure-embed",
             "y",
             "",
@@ -112,8 +118,11 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["AZURE_OPENAI_ENDPOINT"] == "https://azure.example"
     assert updates["AZURE_OPENAI_API_KEY"] == "azure-key"
     assert updates["OPENAI_CHAT_MODEL_DEFAULT"] == "azure-baseline"
+    assert updates["GENAI_CONTEXT_TOKENS_DEFAULT"] == "128000"
     assert updates["OPENAI_CHAT_MODEL_SMART"] == "azure-smart"
+    assert updates["GENAI_CONTEXT_TOKENS_SMART"] == "128000"
     assert updates["OPENAI_CHAT_MODEL_REASONING"] == "azure-reasoning"
+    assert updates["GENAI_CONTEXT_TOKENS_REASONING"] == "128000"
     assert updates["AZURE_OPENAI_EMBED_DEPLOYMENT"] == "azure-embed"
     assert updates["LANGSMITH_TRACING"] == "true"
     assert updates["LANGSMITH_ENDPOINT"] == "https://eu.api.smith.langchain.com"
@@ -128,6 +137,68 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["REDDIT_USERNAME"] == "reddit-user"
     assert updates["REDDIT_PASSWORD"] == "reddit-password"
     assert updates["REDDIT_REFRESH_TOKEN"] == ""
+
+
+def test_context_limit_prompt_validates_custom_integer() -> None:
+    responses = iter(["custom", "64000", "64001"])
+    output = StringIO()
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=output)
+
+    result = cli._prompt_model_context_limit(
+        io_runtime,
+        model="custom-deployment",
+        existing="",
+        label="custom deployment",
+    )
+
+    assert result == "64001"
+    assert "greater than 64000" in output.getvalue()
+
+
+def test_context_limit_prompt_auto_uses_known_model_limit_without_prompting() -> None:
+    io_runtime = cli.TerminalIO(
+        input_fn=lambda _prompt: (_ for _ in ()).throw(AssertionError("unexpected prompt")),
+        output=StringIO(),
+    )
+
+    result = cli._prompt_model_context_limit(
+        io_runtime,
+        model="gpt-4.1",
+        existing="",
+        label="known model",
+    )
+
+    assert result == "1047576"
+
+
+def test_openai_model_prompt_allows_only_registry_known_custom_models() -> None:
+    responses = iter(["custom", "not-a-model", "gpt-4.1-2025-04-14"])
+    output = StringIO()
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=output)
+
+    result = cli._prompt_openai_model(
+        io_runtime,
+        "OpenAI model",
+        options=cli.OPENAI_DEFAULT_MODEL_OPTIONS,
+        default="gpt-4o-mini",
+    )
+
+    assert result == "gpt-4.1-2025-04-14"
+    assert "not in the internal OpenAI context registry" in output.getvalue()
+
+
+def test_build_managed_env_values_preserves_context_settings() -> None:
+    updates = cli.build_managed_env_values(
+        {
+            "GENAI_CONTEXT_TOKENS_DEFAULT": "200000",
+            "GENAI_CONTEXT_TOKENS_SMART": "300000",
+            "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON": '{"custom":250000}',
+        }
+    )
+
+    assert updates["GENAI_CONTEXT_TOKENS_DEFAULT"] == "200000"
+    assert updates["GENAI_CONTEXT_TOKENS_SMART"] == "300000"
+    assert updates["GENAI_CONTEXT_TOKENS_BY_MODEL_JSON"] == '{"custom":250000}'
 
 
 def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:

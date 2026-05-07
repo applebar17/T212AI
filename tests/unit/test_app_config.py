@@ -169,6 +169,32 @@ def test_get_app_settings_uses_default_guideline_memory_path() -> None:
     assert settings.yahoo_enabled
 
 
+def test_get_app_settings_loads_genai_context_settings() -> None:
+    settings = get_app_settings(
+        env={
+            "GENAI_CONTEXT_TOKENS_DEFAULT": "200000",
+            "GENAI_CONTEXT_TOKENS_SMART": "300000",
+            "GENAI_CONTEXT_TOKENS_REASONING": "400000",
+            "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON": '{"custom":250000}',
+            "GENAI_CONTEXT_FALLBACK_TOKENS": "128000",
+            "GENAI_CONTEXT_GUARD_RATIO": "0.9",
+            "GENAI_OUTPUT_RESERVE_TOKENS": "2048",
+            "GENAI_CONTEXT_RECENT_MESSAGES": "16",
+            "GENAI_CONTEXT_SUMMARY_MAX_TOKENS": "1536",
+        }
+    )
+
+    assert settings.genai_context_tokens_default == "200000"
+    assert settings.genai_context_tokens_smart == "300000"
+    assert settings.genai_context_tokens_reasoning == "400000"
+    assert settings.genai_context_tokens_by_model_json == '{"custom":250000}'
+    assert settings.genai_context_fallback_tokens == "128000"
+    assert settings.genai_context_guard_ratio == "0.9"
+    assert settings.genai_output_reserve_tokens == "2048"
+    assert settings.genai_context_recent_messages == "16"
+    assert settings.genai_context_summary_max_tokens == "1536"
+
+
 def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None:
     settings = get_app_settings(
         env={

@@ -26,6 +26,12 @@ from .app.config import (
 )
 from .app.logging import configure_logging
 from .app.runtime import build_runtime
+from .genai.context import (
+    DEFAULT_CONTEXT_FALLBACK_TOKENS,
+    MIN_CONFIGURABLE_CONTEXT_TOKENS,
+    ModelContextRegistry,
+    parse_context_token_value,
+)
 
 
 LLM_PROVIDER_OPTIONS = (
@@ -54,6 +60,28 @@ ALPACA_ENVIRONMENT_OPTIONS = (
 REDDIT_AUTH_OPTIONS = (
     ("refresh_token", "Refresh token"),
     ("username_password", "Username and password"),
+)
+_MODEL_CONTEXT_REGISTRY = ModelContextRegistry()
+OPENAI_DEFAULT_MODEL_OPTIONS = (
+    ("gpt-4o-mini", "gpt-4o-mini - economical 4.x baseline"),
+    ("gpt-4o", "gpt-4o - balanced 4.x baseline"),
+    ("gpt-4.1-mini", "gpt-4.1-mini - efficient long-context 4.x baseline"),
+    ("gpt-5-mini", "gpt-5-mini - efficient 5.x baseline"),
+    ("gpt-5", "gpt-5 - stronger 5.x baseline"),
+)
+OPENAI_SMART_MODEL_OPTIONS = (
+    ("gpt-4.1", "gpt-4.1 - long-context 4.x smart model"),
+    ("gpt-4.1-mini", "gpt-4.1-mini - efficient 4.x smart model"),
+    ("gpt-5", "gpt-5 - 5.x smart model"),
+    ("gpt-5.2", "gpt-5.2 - newer 5.x smart model"),
+    ("gpt-5.5", "gpt-5.5 - largest 5.x smart model"),
+)
+OPENAI_REASONING_MODEL_OPTIONS = (
+    ("o4-mini", "o4-mini - efficient reasoning model"),
+    ("o3-mini", "o3-mini - prior efficient reasoning model"),
+    ("o3", "o3 - deeper reasoning model"),
+    ("gpt-5", "gpt-5 - general 5.x reasoning model"),
+    ("gpt-5.5", "gpt-5.5 - largest 5.x reasoning model"),
 )
 SECRET_KEYS = frozenset(
     {
@@ -104,6 +132,15 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "OPENAI_CHAT_MODEL_REASONING",
             "OPENAI_EMBED_MODEL",
             "OPENAI_EMBED_DIMENSIONS",
+            "GENAI_CONTEXT_TOKENS_DEFAULT",
+            "GENAI_CONTEXT_TOKENS_SMART",
+            "GENAI_CONTEXT_TOKENS_REASONING",
+            "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON",
+            "GENAI_CONTEXT_FALLBACK_TOKENS",
+            "GENAI_CONTEXT_GUARD_RATIO",
+            "GENAI_OUTPUT_RESERVE_TOKENS",
+            "GENAI_CONTEXT_RECENT_MESSAGES",
+            "GENAI_CONTEXT_SUMMARY_MAX_TOKENS",
             "AZURE_OPENAI_ENABLED",
             "AZURE_OPENAI_ENDPOINT",
             "AZURE_OPENAI_API_KEY",
@@ -205,6 +242,15 @@ LLM_SECTION_KEYS = (
     "OPENAI_CHAT_MODEL_REASONING",
     "OPENAI_EMBED_MODEL",
     "OPENAI_EMBED_DIMENSIONS",
+    "GENAI_CONTEXT_TOKENS_DEFAULT",
+    "GENAI_CONTEXT_TOKENS_SMART",
+    "GENAI_CONTEXT_TOKENS_REASONING",
+    "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON",
+    "GENAI_CONTEXT_FALLBACK_TOKENS",
+    "GENAI_CONTEXT_GUARD_RATIO",
+    "GENAI_OUTPUT_RESERVE_TOKENS",
+    "GENAI_CONTEXT_RECENT_MESSAGES",
+    "GENAI_CONTEXT_SUMMARY_MAX_TOKENS",
     "AZURE_OPENAI_ENABLED",
     "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_API_KEY",
@@ -612,6 +658,42 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "OPENAI_EMBED_DIMENSIONS",
             "",
         ),
+        "GENAI_CONTEXT_TOKENS_DEFAULT": existing_raw.get(
+            "GENAI_CONTEXT_TOKENS_DEFAULT",
+            settings.genai_context_tokens_default or "",
+        ),
+        "GENAI_CONTEXT_TOKENS_SMART": existing_raw.get(
+            "GENAI_CONTEXT_TOKENS_SMART",
+            settings.genai_context_tokens_smart or "",
+        ),
+        "GENAI_CONTEXT_TOKENS_REASONING": existing_raw.get(
+            "GENAI_CONTEXT_TOKENS_REASONING",
+            settings.genai_context_tokens_reasoning or "",
+        ),
+        "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON": existing_raw.get(
+            "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON",
+            settings.genai_context_tokens_by_model_json or "",
+        ),
+        "GENAI_CONTEXT_FALLBACK_TOKENS": existing_raw.get(
+            "GENAI_CONTEXT_FALLBACK_TOKENS",
+            settings.genai_context_fallback_tokens,
+        ),
+        "GENAI_CONTEXT_GUARD_RATIO": existing_raw.get(
+            "GENAI_CONTEXT_GUARD_RATIO",
+            settings.genai_context_guard_ratio,
+        ),
+        "GENAI_OUTPUT_RESERVE_TOKENS": existing_raw.get(
+            "GENAI_OUTPUT_RESERVE_TOKENS",
+            settings.genai_output_reserve_tokens,
+        ),
+        "GENAI_CONTEXT_RECENT_MESSAGES": existing_raw.get(
+            "GENAI_CONTEXT_RECENT_MESSAGES",
+            settings.genai_context_recent_messages,
+        ),
+        "GENAI_CONTEXT_SUMMARY_MAX_TOKENS": existing_raw.get(
+            "GENAI_CONTEXT_SUMMARY_MAX_TOKENS",
+            settings.genai_context_summary_max_tokens,
+        ),
         "AZURE_OPENAI_ENABLED": existing_raw.get(
             "AZURE_OPENAI_ENABLED",
             _bool_to_env(settings.llm_provider == "azure_openai"),
@@ -825,31 +907,62 @@ def apply_configuration_wizard(
                 "OPENAI_API_KEY",
                 default=updates["OPENAI_API_KEY"],
             )
-            updates["OPENAI_CHAT_MODEL_DEFAULT"] = _prompt_required(
+            updates["OPENAI_CHAT_MODEL_DEFAULT"] = _prompt_openai_model(
                 io_runtime,
                 "OpenAI chat model for default/baseline tasks",
+                options=OPENAI_DEFAULT_MODEL_OPTIONS,
                 default=updates["OPENAI_CHAT_MODEL_DEFAULT"] or "gpt-4o-mini",
+            )
+            updates["GENAI_CONTEXT_TOKENS_DEFAULT"] = _prompt_model_context_limit(
+                io_runtime,
+                model=updates["OPENAI_CHAT_MODEL_DEFAULT"],
+                existing=updates["GENAI_CONTEXT_TOKENS_DEFAULT"],
+                label="default/baseline model",
             )
             if io_runtime.confirm(
                 "Configure a dedicated smart model for delicate/critical tasks? Recommended.",
                 default=bool(updates["OPENAI_CHAT_MODEL_SMART"]),
             ):
-                updates["OPENAI_CHAT_MODEL_SMART"] = io_runtime.prompt(
+                updates["OPENAI_CHAT_MODEL_SMART"] = _prompt_openai_model(
+                    io_runtime,
                     "OpenAI chat model for smart/critical tasks",
+                    options=OPENAI_SMART_MODEL_OPTIONS,
                     default=updates["OPENAI_CHAT_MODEL_SMART"] or "gpt-4.1",
                 )
+                updates["GENAI_CONTEXT_TOKENS_SMART"] = _prompt_model_context_limit(
+                    io_runtime,
+                    model=updates["OPENAI_CHAT_MODEL_SMART"],
+                    existing=updates["GENAI_CONTEXT_TOKENS_SMART"],
+                    label="smart/critical model",
+                )
             else:
-                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_SMART")
+                _clear_env_keys(
+                    updates,
+                    "OPENAI_CHAT_MODEL_SMART",
+                    "GENAI_CONTEXT_TOKENS_SMART",
+                )
             if io_runtime.confirm(
                 "Configure a dedicated reasoning model for deeper reasoning tasks? Recommended.",
                 default=bool(updates["OPENAI_CHAT_MODEL_REASONING"]),
             ):
-                updates["OPENAI_CHAT_MODEL_REASONING"] = io_runtime.prompt(
+                updates["OPENAI_CHAT_MODEL_REASONING"] = _prompt_openai_model(
+                    io_runtime,
                     "OpenAI chat model for reasoning tasks",
+                    options=OPENAI_REASONING_MODEL_OPTIONS,
                     default=updates["OPENAI_CHAT_MODEL_REASONING"] or "o4-mini",
                 )
+                updates["GENAI_CONTEXT_TOKENS_REASONING"] = _prompt_model_context_limit(
+                    io_runtime,
+                    model=updates["OPENAI_CHAT_MODEL_REASONING"],
+                    existing=updates["GENAI_CONTEXT_TOKENS_REASONING"],
+                    label="reasoning model",
+                )
             else:
-                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_REASONING")
+                _clear_env_keys(
+                    updates,
+                    "OPENAI_CHAT_MODEL_REASONING",
+                    "GENAI_CONTEXT_TOKENS_REASONING",
+                )
             updates["OPENAI_EMBED_MODEL"] = io_runtime.prompt(
                 "OpenAI embedding model",
                 default=updates["OPENAI_EMBED_MODEL"],
@@ -884,6 +997,12 @@ def apply_configuration_wizard(
                     updates["OPENAI_CHAT_MODEL_DEFAULT"] if azure_existing_models else ""
                 ),
             )
+            updates["GENAI_CONTEXT_TOKENS_DEFAULT"] = _prompt_model_context_limit(
+                io_runtime,
+                model=updates["OPENAI_CHAT_MODEL_DEFAULT"],
+                existing=updates["GENAI_CONTEXT_TOKENS_DEFAULT"],
+                label="default/baseline deployment",
+            )
             if io_runtime.confirm(
                 "Configure a dedicated Azure deployment for smart/delicate tasks? Recommended.",
                 default=bool(updates["OPENAI_CHAT_MODEL_SMART"]) and azure_existing_models,
@@ -892,8 +1011,18 @@ def apply_configuration_wizard(
                     "Azure chat deployment for smart/critical tasks",
                     default=updates["OPENAI_CHAT_MODEL_SMART"],
                 )
+                updates["GENAI_CONTEXT_TOKENS_SMART"] = _prompt_model_context_limit(
+                    io_runtime,
+                    model=updates["OPENAI_CHAT_MODEL_SMART"],
+                    existing=updates["GENAI_CONTEXT_TOKENS_SMART"],
+                    label="smart/critical deployment",
+                )
             else:
-                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_SMART")
+                _clear_env_keys(
+                    updates,
+                    "OPENAI_CHAT_MODEL_SMART",
+                    "GENAI_CONTEXT_TOKENS_SMART",
+                )
             if io_runtime.confirm(
                 "Configure a dedicated Azure deployment for reasoning tasks? Recommended.",
                 default=bool(updates["OPENAI_CHAT_MODEL_REASONING"]) and azure_existing_models,
@@ -902,8 +1031,18 @@ def apply_configuration_wizard(
                     "Azure chat deployment for reasoning tasks",
                     default=updates["OPENAI_CHAT_MODEL_REASONING"],
                 )
+                updates["GENAI_CONTEXT_TOKENS_REASONING"] = _prompt_model_context_limit(
+                    io_runtime,
+                    model=updates["OPENAI_CHAT_MODEL_REASONING"],
+                    existing=updates["GENAI_CONTEXT_TOKENS_REASONING"],
+                    label="reasoning deployment",
+                )
             else:
-                _clear_env_keys(updates, "OPENAI_CHAT_MODEL_REASONING")
+                _clear_env_keys(
+                    updates,
+                    "OPENAI_CHAT_MODEL_REASONING",
+                    "GENAI_CONTEXT_TOKENS_REASONING",
+                )
             updates["AZURE_OPENAI_EMBED_DEPLOYMENT"] = io_runtime.prompt(
                 "Azure embedding deployment (optional)",
                 default=updates["AZURE_OPENAI_EMBED_DEPLOYMENT"],
@@ -1315,6 +1454,92 @@ def _prompt_required(
         io_runtime.write("This value is required.")
 
 
+def _prompt_openai_model(
+    io_runtime: TerminalIO,
+    label: str,
+    *,
+    options: tuple[tuple[str, str], ...],
+    default: str,
+) -> str:
+    normalized_default = str(default or "").strip()
+    option_values = {value for value, _ in options}
+    prompt_options = (*options, ("custom", "Other known OpenAI model id"))
+    if normalized_default in option_values:
+        selected_default = normalized_default
+        custom_default = ""
+    elif _MODEL_CONTEXT_REGISTRY.lookup(normalized_default) is not None:
+        selected_default = "custom"
+        custom_default = normalized_default
+    else:
+        selected_default = options[0][0]
+        custom_default = ""
+
+    selected = io_runtime.choose(
+        label,
+        options=prompt_options,
+        default=selected_default,
+    )
+    if selected != "custom":
+        return selected
+
+    while True:
+        model = io_runtime.prompt(
+            "OpenAI model id",
+            default=custom_default,
+        ).strip()
+        if _MODEL_CONTEXT_REGISTRY.lookup(model) is not None:
+            return model
+        io_runtime.write(
+            "Model is not in the internal OpenAI context registry. "
+            "Choose a listed model or update the registry first."
+        )
+
+
+def _prompt_model_context_limit(
+    io_runtime: TerminalIO,
+    *,
+    model: str,
+    existing: str,
+    label: str,
+) -> str:
+    known_limit = _MODEL_CONTEXT_REGISTRY.lookup(model)
+    if known_limit is not None:
+        return str(known_limit)
+
+    existing_limit = parse_context_token_value(existing)
+    fallback = str(DEFAULT_CONTEXT_FALLBACK_TOKENS)
+    options: list[tuple[str, str]] = []
+    options.append((fallback, f"Safe default: {fallback} tokens"))
+    options.append(("custom", f"Custom integer > {MIN_CONFIGURABLE_CONTEXT_TOKENS}"))
+
+    if existing_limit is not None and str(existing_limit) in {value for value, _ in options}:
+        default = str(existing_limit)
+    elif existing_limit is not None:
+        default = "custom"
+    else:
+        default = fallback
+
+    selected = io_runtime.choose(
+        f"Context token limit for {label}",
+        options=tuple(options),
+        default=default,
+    )
+    if selected != "custom":
+        return selected
+
+    while True:
+        raw = io_runtime.prompt(
+            f"Custom context token limit for {label}",
+            default=str(existing_limit or ""),
+        )
+        parsed = parse_context_token_value(raw)
+        if parsed is not None:
+            return str(parsed)
+        io_runtime.write(
+            f"Enter an integer greater than {MIN_CONFIGURABLE_CONTEXT_TOKENS}."
+        )
+
+
 def render_configuration_review(updates: Mapping[str, str]) -> str:
     lines = ["Configuration review"]
     for section_name, keys in MANAGED_ENV_SECTIONS:
@@ -1406,6 +1631,7 @@ def render_doctor_report(
 
     lines.append("")
     lines.append(f"LLM provider selection: {settings.llm_provider}")
+    lines.append(f"GenAI context fallback tokens: {settings.genai_context_fallback_tokens}")
     lines.append(f"Broker provider selection: {settings.broker_provider}")
     lines.append(f"Market data provider selection: {settings.market_data_provider}")
     lines.append(

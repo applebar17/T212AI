@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import os
@@ -13,6 +13,19 @@ from pydantic import BaseModel
 
 from t212ai.app.config import AppSettings, load_env_file
 
+from .context import (
+    DEFAULT_CONTEXT_FALLBACK_TOKENS,
+    DEFAULT_CONTEXT_GUARD_RATIO,
+    DEFAULT_CONTEXT_RECENT_MESSAGES,
+    DEFAULT_CONTEXT_SUMMARY_MAX_TOKENS,
+    DEFAULT_OUTPUT_RESERVE_TOKENS,
+    ContextBudgetResolver,
+    GenAIContextManager,
+    is_context_length_error,
+    parse_context_limit_from_error,
+    parse_context_token_value,
+    parse_context_tokens_by_model_json,
+)
 from .models import ToolError, ToolResult, ToolSpec
 from .tokenizer import TokenCounter
 from .tools import ToolBox, build_chat_toolbox, build_tool_mapping
@@ -53,6 +66,42 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_context_tokens(name: str) -> int | None:
+    return parse_context_token_value(os.getenv(name))
+
+
+def _env_context_tokens_default(name: str, default: int) -> int:
+    parsed = parse_context_token_value(os.getenv(name))
+    return parsed if parsed is not None else default
+
+
+def _settings_context_tokens(value: str | None) -> int | None:
+    return parse_context_token_value(value)
+
+
+def _settings_context_tokens_default(value: str | None, default: int) -> int:
+    parsed = parse_context_token_value(value)
+    return parsed if parsed is not None else default
+
+
+def _safe_int(value: Any, default: int) -> int:
+    if value is None or not str(value).strip():
+        return default
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    if value is None or not str(value).strip():
+        return default
+    try:
+        return float(str(value).strip())
+    except ValueError:
+        return default
+
+
 @dataclass(slots=True)
 class GenAISettings:
     openai_api_key: str | None = None
@@ -61,6 +110,15 @@ class GenAISettings:
     chat_model_smart: str = "gpt-4.1"
     chat_model_reasoning: str = "o4-mini"
     embed_dimensions: int | None = None
+    context_tokens_default: int | None = None
+    context_tokens_smart: int | None = None
+    context_tokens_reasoning: int | None = None
+    context_tokens_by_model: dict[str, int] = field(default_factory=dict)
+    context_fallback_tokens: int = DEFAULT_CONTEXT_FALLBACK_TOKENS
+    context_guard_ratio: float = DEFAULT_CONTEXT_GUARD_RATIO
+    output_reserve_tokens: int = DEFAULT_OUTPUT_RESERVE_TOKENS
+    context_recent_messages: int = DEFAULT_CONTEXT_RECENT_MESSAGES
+    context_summary_max_tokens: int = DEFAULT_CONTEXT_SUMMARY_MAX_TOKENS
     is_azure: bool = False
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
@@ -87,6 +145,32 @@ def get_genai_settings() -> GenAISettings:
         chat_model_smart=os.getenv("OPENAI_CHAT_MODEL_SMART", "gpt-4.1"),
         chat_model_reasoning=os.getenv("OPENAI_CHAT_MODEL_REASONING", "o4-mini"),
         embed_dimensions=embed_dimensions,
+        context_tokens_default=_env_context_tokens("GENAI_CONTEXT_TOKENS_DEFAULT"),
+        context_tokens_smart=_env_context_tokens("GENAI_CONTEXT_TOKENS_SMART"),
+        context_tokens_reasoning=_env_context_tokens("GENAI_CONTEXT_TOKENS_REASONING"),
+        context_tokens_by_model=parse_context_tokens_by_model_json(
+            os.getenv("GENAI_CONTEXT_TOKENS_BY_MODEL_JSON")
+        ),
+        context_fallback_tokens=_env_context_tokens_default(
+            "GENAI_CONTEXT_FALLBACK_TOKENS",
+            DEFAULT_CONTEXT_FALLBACK_TOKENS,
+        ),
+        context_guard_ratio=_env_float(
+            "GENAI_CONTEXT_GUARD_RATIO",
+            DEFAULT_CONTEXT_GUARD_RATIO,
+        ),
+        output_reserve_tokens=_env_int(
+            "GENAI_OUTPUT_RESERVE_TOKENS",
+            DEFAULT_OUTPUT_RESERVE_TOKENS,
+        ),
+        context_recent_messages=_env_int(
+            "GENAI_CONTEXT_RECENT_MESSAGES",
+            DEFAULT_CONTEXT_RECENT_MESSAGES,
+        ),
+        context_summary_max_tokens=_env_int(
+            "GENAI_CONTEXT_SUMMARY_MAX_TOKENS",
+            DEFAULT_CONTEXT_SUMMARY_MAX_TOKENS,
+        ),
         is_azure=_env_bool("AZURE_OPENAI_ENABLED", False),
         azure_openai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -117,6 +201,36 @@ def genai_settings_from_app_settings(settings: AppSettings) -> GenAISettings:
         chat_model_smart=settings.openai_chat_model_smart,
         chat_model_reasoning=settings.openai_chat_model_reasoning,
         embed_dimensions=embed_dimensions,
+        context_tokens_default=_settings_context_tokens(
+            settings.genai_context_tokens_default
+        ),
+        context_tokens_smart=_settings_context_tokens(settings.genai_context_tokens_smart),
+        context_tokens_reasoning=_settings_context_tokens(
+            settings.genai_context_tokens_reasoning
+        ),
+        context_tokens_by_model=parse_context_tokens_by_model_json(
+            settings.genai_context_tokens_by_model_json
+        ),
+        context_fallback_tokens=_settings_context_tokens_default(
+            settings.genai_context_fallback_tokens,
+            DEFAULT_CONTEXT_FALLBACK_TOKENS,
+        ),
+        context_guard_ratio=_safe_float(
+            settings.genai_context_guard_ratio,
+            DEFAULT_CONTEXT_GUARD_RATIO,
+        ),
+        output_reserve_tokens=_safe_int(
+            settings.genai_output_reserve_tokens,
+            DEFAULT_OUTPUT_RESERVE_TOKENS,
+        ),
+        context_recent_messages=_safe_int(
+            settings.genai_context_recent_messages,
+            DEFAULT_CONTEXT_RECENT_MESSAGES,
+        ),
+        context_summary_max_tokens=_safe_int(
+            settings.genai_context_summary_max_tokens,
+            DEFAULT_CONTEXT_SUMMARY_MAX_TOKENS,
+        ),
         is_azure=(
             str(settings.llm_provider or "").strip().lower() == "azure_openai"
             or bool(settings.azure_openai_enabled)
@@ -137,11 +251,12 @@ class GenAIClient:
         self.settings = settings or get_genai_settings()
         self.logger = logger or logging.getLogger(__name__)
         self.client = self._make_client()
-        self.max_context_tokens = 128_000
-        self.output_reserve_tokens = 1_024
+        self.token_counter = TokenCounter()
+        self.context_manager = self._build_context_manager()
+        self.max_context_tokens = self.settings.context_fallback_tokens
+        self.output_reserve_tokens = self.settings.output_reserve_tokens
         self.max_retries = 3
         self.retry_backoff_seconds = 1.5
-        self.token_counter = TokenCounter()
         self.use_responses_api = self._resolve_responses_api()
         self.tool_call_limit = max(0, int(self.settings.genai_tool_call_limit))
         self.tool_call_timeout_seconds = max(
@@ -275,6 +390,7 @@ class GenAIClient:
         )
 
         while True:
+            self._ensure_context_budget(params)
             response = call_fn(params)
 
             choice = response.choices[0]
@@ -358,6 +474,31 @@ class GenAIClient:
             raise RuntimeError("OPENAI_API_KEY is missing.")
         client = openai.OpenAI(api_key=self.settings.openai_api_key)
         return wrap_openai(client) if wrap_openai else client
+
+    def _build_context_manager(self) -> GenAIContextManager:
+        tier_context_tokens = {
+            key: value
+            for key, value in {
+                "default": self.settings.context_tokens_default,
+                "smart": self.settings.context_tokens_smart,
+                "reasoning": self.settings.context_tokens_reasoning,
+            }.items()
+            if value is not None
+        }
+        resolver = ContextBudgetResolver(
+            tier_context_tokens=tier_context_tokens,
+            model_context_tokens=self.settings.context_tokens_by_model,
+            fallback_tokens=self.settings.context_fallback_tokens,
+        )
+        return GenAIContextManager(
+            resolver=resolver,
+            token_counter=self.token_counter,
+            guard_ratio=self.settings.context_guard_ratio,
+            output_reserve_tokens=self.settings.output_reserve_tokens,
+            recent_messages=self.settings.context_recent_messages,
+            summary_max_tokens=self.settings.context_summary_max_tokens,
+            logger=self.logger,
+        )
 
     def _resolve_responses_api(self) -> bool:
         override = os.getenv("GENAI_USE_RESPONSES_API")
@@ -699,8 +840,10 @@ class GenAIClient:
     def _call_with_retries(self, params: dict[str, Any]):
         adjusted_for_temperature = False
         adjusted_for_max_tokens = False
+        adjusted_for_context = False
         for attempt in range(1, self.max_retries + 1):
             try:
+                self._ensure_context_budget(params)
                 return self.client.chat.completions.create(**params)
             except Exception as exc:  # pragma: no cover
                 if (
@@ -723,6 +866,18 @@ class GenAIClient:
                         "OpenAI model rejected max_tokens; retrying with max_completion_tokens."
                     )
                     continue
+                if (
+                    not adjusted_for_context
+                    and self._should_retry_after_context_compaction(exc, params)
+                ):
+                    adjusted_for_context = True
+                    self._record_context_limit_from_error(exc, params.get("model"))
+                    compacted = self._force_context_compaction(params)
+                    self.logger.warning(
+                        "OpenAI call exceeded context limit; compacted=%s and retrying once.",
+                        compacted,
+                    )
+                    continue
                 if not self._is_retryable_error(exc) or attempt == self.max_retries:
                     raise
                 delay = self.retry_backoff_seconds * attempt
@@ -741,8 +896,10 @@ class GenAIClient:
     def _call_structured_response_with_retries(self, params: dict[str, Any]):
         adjusted_for_temperature = False
         adjusted_for_max_tokens = False
+        adjusted_for_context = False
         for attempt in range(1, self.max_retries + 1):
             try:
+                self._ensure_context_budget(params)
                 if hasattr(self.client, "chat") and hasattr(
                     self.client.chat.completions, "parse"
                 ):
@@ -773,6 +930,19 @@ class GenAIClient:
                         "OpenAI model rejected max_tokens; retrying structured call with max_completion_tokens."
                     )
                     continue
+                if (
+                    not adjusted_for_context
+                    and self._should_retry_after_context_compaction(exc, params)
+                ):
+                    adjusted_for_context = True
+                    self._record_context_limit_from_error(exc, params.get("model"))
+                    compacted = self._force_context_compaction(params)
+                    self.logger.warning(
+                        "OpenAI structured call exceeded context limit; compacted=%s "
+                        "and retrying once.",
+                        compacted,
+                    )
+                    continue
                 if not self._is_retryable_error(exc) or attempt == self.max_retries:
                     raise
                 delay = self.retry_backoff_seconds * attempt
@@ -798,9 +968,20 @@ class GenAIClient:
     ) -> BaseModel:
         adjusted_for_temperature = False
         adjusted_for_max_tokens = False
+        adjusted_for_context = False
         max_completion_tokens: int | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
+                params_for_budget: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                }
+                if max_tokens is not None:
+                    params_for_budget["max_tokens"] = max_tokens
+                if max_completion_tokens is not None:
+                    params_for_budget["max_completion_tokens"] = max_completion_tokens
+                self._ensure_context_budget(params_for_budget)
+                messages = params_for_budget["messages"]
                 return self._call_structured_once(
                     schema,
                     messages=messages,
@@ -838,6 +1019,25 @@ class GenAIClient:
                         None if max_tokens is None else int(max_tokens)
                     )
                     max_tokens = None
+                    continue
+                if not adjusted_for_context and is_context_length_error(exc):
+                    adjusted_for_context = True
+                    self._record_context_limit_from_error(exc, model)
+                    params_for_budget = {
+                        "model": model,
+                        "messages": messages,
+                    }
+                    if max_tokens is not None:
+                        params_for_budget["max_tokens"] = max_tokens
+                    if max_completion_tokens is not None:
+                        params_for_budget["max_completion_tokens"] = max_completion_tokens
+                    compacted = self._force_context_compaction(params_for_budget)
+                    messages = params_for_budget["messages"]
+                    self.logger.warning(
+                        "OpenAI structured parse call exceeded context limit; "
+                        "compacted=%s and retrying once.",
+                        compacted,
+                    )
                     continue
                 if not self._is_retryable_error(exc) or attempt == self.max_retries:
                     raise
@@ -948,6 +1148,16 @@ class GenAIClient:
         )
         return any(marker in message for marker in unsupported_markers)
 
+    def _should_retry_after_context_compaction(
+        self,
+        exc: Exception,
+        params: dict[str, Any],
+    ) -> bool:
+        if not is_context_length_error(exc):
+            return False
+        messages = params.get("messages")
+        return isinstance(messages, list) and bool(messages)
+
     def _replace_max_tokens(self, params: dict[str, Any]) -> dict[str, Any]:
         updated = dict(params)
         max_tokens = updated.pop("max_tokens", None)
@@ -992,21 +1202,21 @@ class GenAIClient:
         if not model or not messages:
             return
 
-        max_tokens = int(params.get("max_tokens") or self.output_reserve_tokens)
-        budget = self.max_context_tokens - max_tokens
-        if budget <= 0:
-            return
-
-        total = self._count_tokens_messages(messages, model)
-        if total <= budget:
-            return
-
-        self.logger.warning(
-            "Context tokens %s exceed budget %s; truncating messages.",
-            total,
-            budget,
+        result = self._get_context_manager().ensure_budget(
+            params,
+            tier=self._context_tier_for_model(str(model)),
+            summarizer=self._summarize_context_messages,
         )
-        params["messages"] = self._truncate_messages(messages, model, budget)
+        if result.changed:
+            self.logger.warning(
+                "Context tokens %s exceed budget %s for model %s; compacted messages "
+                "(summary=%s truncation=%s).",
+                result.input_tokens,
+                result.budget_tokens,
+                model,
+                result.summary_used,
+                result.fallback_truncated,
+            )
 
     def _count_tokens_messages(self, messages: list[dict[str, Any]], model: str) -> int:
         return self._get_token_counter().count_messages(messages, model=model)
@@ -1022,21 +1232,108 @@ class GenAIClient:
         self.token_counter = counter
         return counter
 
+    def _get_context_manager(self) -> GenAIContextManager:
+        manager = getattr(self, "context_manager", None)
+        if isinstance(manager, GenAIContextManager):
+            return manager
+        manager = GenAIContextManager(
+            token_counter=self._get_token_counter(),
+            logger=getattr(self, "logger", logging.getLogger(__name__)),
+        )
+        self.context_manager = manager
+        return manager
+
+    def _context_tier_for_model(self, model: str) -> str | None:
+        normalized = str(model or "").strip()
+        if normalized and normalized == (self.settings.chat_model_default or "").strip():
+            return "default"
+        if normalized and normalized == (self.settings.chat_model_smart or "").strip():
+            return "smart"
+        if normalized and normalized == (self.settings.chat_model_reasoning or "").strip():
+            return "reasoning"
+        return None
+
     def _truncate_messages(
         self,
         messages: list[dict[str, Any]],
         model: str,
         budget: int,
     ) -> list[dict[str, Any]]:
-        if not messages:
-            return messages
+        return self._get_context_manager().truncate_messages(
+            messages,
+            model=model,
+            budget_tokens=budget,
+        )
 
-        system_message = messages[0]
-        kept: list[dict[str, Any]] = [system_message]
-        for message in reversed(messages[1:]):
-            candidate = list(reversed(kept[1:])) + [message]
-            candidate_messages = [system_message] + candidate
-            if self._count_tokens_messages(candidate_messages, model) <= budget:
-                kept.append(message)
+    def _force_context_compaction(self, params: dict[str, Any]) -> bool:
+        model = str(params.get("model") or "")
+        messages_before = params.get("messages")
+        if not model or not isinstance(messages_before, list) or not messages_before:
+            return False
+        result = self._get_context_manager().ensure_budget(
+            params,
+            tier=self._context_tier_for_model(model),
+            summarizer=self._summarize_context_messages,
+            force=True,
+        )
+        return result.changed
 
-        return [system_message] + list(reversed(kept[1:]))
+    def _record_context_limit_from_error(
+        self,
+        exc: Exception,
+        model: str | None,
+    ) -> int | None:
+        limit = parse_context_limit_from_error(exc)
+        if limit is not None:
+            self._get_context_manager().resolver.record_runtime_limit(model, limit)
+        return limit
+
+    def _summarize_context_messages(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        max_tokens: int,
+    ) -> str:
+        summary_model = self._default_chat_model()
+        manager = self._get_context_manager()
+        source_budget = max(2_048, min(32_000, manager.resolver.resolve(summary_model) // 4))
+        source = manager.render_messages_for_summary(
+            messages,
+            model=summary_model,
+            max_tokens=source_budget,
+        )
+        if not source.strip():
+            return ""
+
+        params: dict[str, Any] = {
+            "model": summary_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You compress prior conversation and tool context for a trading "
+                        "assistant. Preserve user intent, decisions, constraints, tool "
+                        "results, unresolved errors, and next actions. Be concise."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Summarize the following older context so another model can "
+                        "continue the same task without seeing the raw messages.\n\n"
+                        f"{source}"
+                    ),
+                },
+            ],
+            "max_tokens": max_tokens,
+        }
+        try:
+            response = self.client.chat.completions.create(**params)
+        except Exception as exc:
+            if self._should_retry_with_max_completion_tokens(exc, params):
+                response = self.client.chat.completions.create(
+                    **self._replace_max_tokens(params)
+                )
+            else:
+                raise
+        return str(response.choices[0].message.content or "").strip()

@@ -16,6 +16,9 @@ __all__ = [
     "genai_settings_from_app_settings",
     "get_genai_settings",
     "TokenCounter",
+    "ContextBudgetResolver",
+    "GenAIContextManager",
+    "ModelContextRegistry",
     "count_text_tokens",
     "count_content_tokens",
     "count_message_tokens",
@@ -42,6 +45,24 @@ def __getattr__(name: str) -> Any:
             "GenAISettings": GenAISettings,
             "genai_settings_from_app_settings": genai_settings_from_app_settings,
             "get_genai_settings": get_genai_settings,
+        }
+        return exports[name]
+
+    if name in {
+        "ContextBudgetResolver",
+        "GenAIContextManager",
+        "ModelContextRegistry",
+    }:
+        from .context import (
+            ContextBudgetResolver,
+            GenAIContextManager,
+            ModelContextRegistry,
+        )
+
+        exports = {
+            "ContextBudgetResolver": ContextBudgetResolver,
+            "GenAIContextManager": GenAIContextManager,
+            "ModelContextRegistry": ModelContextRegistry,
         }
         return exports[name]
 

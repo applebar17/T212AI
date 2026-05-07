@@ -114,6 +114,15 @@ class AppSettings:
     openai_chat_model_reasoning: str = "o4-mini"
     openai_embed_model: str = "text-embedding-3-small"
     openai_embed_dimensions: str | None = None
+    genai_context_tokens_default: str | None = None
+    genai_context_tokens_smart: str | None = None
+    genai_context_tokens_reasoning: str | None = None
+    genai_context_tokens_by_model_json: str | None = None
+    genai_context_fallback_tokens: str = "128000"
+    genai_context_guard_ratio: str = "0.95"
+    genai_output_reserve_tokens: str = "1024"
+    genai_context_recent_messages: str = "12"
+    genai_context_summary_max_tokens: str = "1024"
     azure_openai_enabled: bool = False
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
@@ -232,6 +241,26 @@ def get_app_settings(
             "text-embedding-3-small",
         ),
         openai_embed_dimensions=source.get("OPENAI_EMBED_DIMENSIONS"),
+        genai_context_tokens_default=source.get("GENAI_CONTEXT_TOKENS_DEFAULT"),
+        genai_context_tokens_smart=source.get("GENAI_CONTEXT_TOKENS_SMART"),
+        genai_context_tokens_reasoning=source.get("GENAI_CONTEXT_TOKENS_REASONING"),
+        genai_context_tokens_by_model_json=source.get(
+            "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON"
+        ),
+        genai_context_fallback_tokens=source.get(
+            "GENAI_CONTEXT_FALLBACK_TOKENS",
+            "128000",
+        ),
+        genai_context_guard_ratio=source.get("GENAI_CONTEXT_GUARD_RATIO", "0.95"),
+        genai_output_reserve_tokens=source.get("GENAI_OUTPUT_RESERVE_TOKENS", "1024"),
+        genai_context_recent_messages=source.get(
+            "GENAI_CONTEXT_RECENT_MESSAGES",
+            "12",
+        ),
+        genai_context_summary_max_tokens=source.get(
+            "GENAI_CONTEXT_SUMMARY_MAX_TOKENS",
+            "1024",
+        ),
         azure_openai_enabled=_env_bool_from_source(source, "AZURE_OPENAI_ENABLED", False),
         azure_openai_endpoint=source.get("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_key=source.get("AZURE_OPENAI_API_KEY"),
