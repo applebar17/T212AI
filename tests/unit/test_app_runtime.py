@@ -346,6 +346,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.db_session_factory is not None
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
+    assert runtime.market_signal_service is not None
     assert runtime.calculator_service is not None
     assert runtime.market_data_service is not None
     assert isinstance(runtime.market_data_service, MarketDataService)
@@ -358,6 +359,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.broker_execution_service is None
     assert runtime.capability_registry["market_data"].selected_provider == "yahoo"
     assert runtime.capability_registry["market_data"].ready
+    assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -372,6 +374,9 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
         "edgar_recent_ownership_activity",
         "edgar_recent_major_stake_activity",
         "edgar_company_disclosure_snapshot",
+        "market_signal_search",
+        "market_signal_create",
+        "market_signal_archive",
     }
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
@@ -414,6 +419,7 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.db_session_factory is not None
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
+    assert runtime.market_signal_service is not None
     assert runtime.calculator_service is not None
     assert runtime.calculator_agent is not None
     assert runtime.market_data_service is not None
@@ -464,6 +470,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert isinstance(runtime.broker_execution_service, BrokerExecutionService)
     assert runtime.pending_action_service is not None
     assert runtime.proposal_service is not None
+    assert runtime.market_signal_service is not None
     assert runtime.reconciliation_service is not None
     assert runtime.portfolio_summary_workflow is not None
     assert runtime.pending_orders_review_workflow is not None
@@ -484,10 +491,12 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["broker_read"].ready
     assert runtime.capability_registry["broker_execution"].ready
     assert runtime.capability_registry["market_intelligence"].ready
+    assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
     assert "alpha_vantage_most_actively_traded" in market_tools
+    assert "market_signal_search" in market_tools
     assert "searxng_search" not in market_tools
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is not None

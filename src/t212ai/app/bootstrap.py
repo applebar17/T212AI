@@ -162,6 +162,17 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 "Set GUIDELINE_MEMORY_PATH to a writable JSON path.",
             ),
         ),
+        "market_signal_memory": CapabilityAssessment(
+            name="market_signal_memory",
+            label="Market signal memory",
+            available=bool(str(settings.database_url or "").strip()),
+            optional=True,
+            selected_provider="sql" if str(settings.database_url or "").strip() else None,
+            reasons=_reasons_for_capability(
+                bool(str(settings.database_url or "").strip()),
+                "Set DATABASE_URL to enable SQL-backed market signal memory.",
+            ),
+        ),
     }
 
     errors = _unique_messages(

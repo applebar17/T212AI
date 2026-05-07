@@ -1046,6 +1046,7 @@ class MarketAnalystAgent(BaseAgent):
         guideline_service: GuidelineMemoryService | None = None,
         *,
         market_data_service=None,
+        market_signal_service=None,
         toolbox: ToolBox | None = None,
         toolbox_summary: str | None = None,
         configurable_reasoner_agent: ConfigurableReasonerAgent | None = None,
@@ -1065,12 +1066,15 @@ class MarketAnalystAgent(BaseAgent):
                     "price context from slower research enrichment. For broad live market "
                     "scans, movers, gainers, losers, or watchlists, use available market "
                     "tools and proceed with reasonable defaults instead of asking broker "
-                    "execution-risk or volatility-preference questions."
+                    "execution-risk or volatility-preference questions. Search stored "
+                    "market signals before deeper research when the request mentions known "
+                    "symbols, sectors, themes, watchlists, catalysts, or portfolio-relevant "
+                    "market context. Treat stored signals as advisory context only."
                 ),
                 toolbox_summary=toolbox_summary or (
                     "Market analyst toolbox: market snapshot and relative-volume monitoring; "
                     "active-movers intelligence; official disclosure activity; web search "
-                    "and article scraping for expansion."
+                    "and article scraping for expansion; persistent market signal memory."
                 ),
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:market"),
@@ -1079,6 +1083,7 @@ class MarketAnalystAgent(BaseAgent):
             guideline_service=guideline_service,
         )
         self.market_data_service = market_data_service
+        self.market_signal_service = market_signal_service
         self.configurable_reasoner_agent = configurable_reasoner_agent
         self.configurable_planner_agent = configurable_planner_agent
         self.grouped_plan_executor = grouped_plan_executor
@@ -1209,6 +1214,7 @@ class MarketAnalystAgent(BaseAgent):
         tools_mapping = build_tool_mapping_for(
             self.profile.toolbox,
             market_data_service=self.market_data_service,
+            market_signal_service=self.market_signal_service,
         )
         execution_result = self.grouped_plan_executor.execute(
             invocation=invocation,
@@ -1285,6 +1291,7 @@ class MarketAnalystAgent(BaseAgent):
             tools_mapping=build_tool_mapping_for(
                 self.profile.toolbox,
                 market_data_service=self.market_data_service,
+                market_signal_service=self.market_signal_service,
             ),
             chat_history=self._history_for_prompt(request.history),
             persistent_guidance=self._persistent_guidance(),

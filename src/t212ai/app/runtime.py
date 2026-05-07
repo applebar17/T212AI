@@ -44,6 +44,7 @@ from t212ai.guidelines.service import (
     GuidelineMemoryService,
     build_empty_guideline_document,
 )
+from t212ai.market_signals import MarketSignalService
 from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
@@ -84,6 +85,7 @@ class AppRuntime:
     db_session_factory: sessionmaker[Session] | None = None
     pending_action_service: PendingActionService | None = None
     proposal_service: ProposalService | None = None
+    market_signal_service: MarketSignalService | None = None
     reconciliation_service: ReconciliationService | None = None
     calculator_service: CalculatorService | None = None
     genai_client: GenAIClient | None = None
@@ -178,6 +180,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
 
     _build_genai_stack(runtime)
     _build_database_stack(runtime)
+    _build_market_signal_stack(runtime)
     _build_broker_stack(runtime)
     _build_data_source_stack(runtime)
     _build_capability_stack(runtime)
@@ -242,6 +245,12 @@ def _build_database_stack(runtime: AppRuntime) -> None:
 
     runtime.db_engine = engine
     runtime.db_session_factory = session_factory
+
+
+def _build_market_signal_stack(runtime: AppRuntime) -> None:
+    if runtime.db_session_factory is None:
+        return
+    runtime.market_signal_service = MarketSignalService(runtime.db_session_factory)
 
 
 def _build_data_source_stack(runtime: AppRuntime) -> None:
@@ -385,6 +394,12 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ready=runtime.search_service is not None,
             implementation=runtime.search_service,
         ),
+        "market_signal_memory": CapabilityBinding(
+            capability="market_signal_memory",
+            selected_provider=_capability_provider(runtime, "market_signal_memory"),
+            ready=runtime.market_signal_service is not None,
+            implementation=runtime.market_signal_service,
+        ),
     }
 
 
@@ -449,6 +464,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_read_service=runtime.broker_read_service,
             broker_execution_service=runtime.broker_execution_service,
             market_data_service=runtime.market_data_service,
+            market_signal_service=runtime.market_signal_service,
             configurable_reasoner_agent=runtime.configurable_reasoner_agent,
             configurable_planner_agent=runtime.configurable_planner_agent,
             grouped_plan_executor=runtime.grouped_plan_executor,

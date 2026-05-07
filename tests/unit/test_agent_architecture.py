@@ -859,6 +859,7 @@ def test_market_analyst_agent_exposes_market_analyst_toolbox() -> None:
     assert agent.profile.toolbox.name == "market_analyst"
     assert "edgar_company_disclosure_snapshot" in agent.profile.toolbox.tools_by_name
     assert "market_get_volume_monitor" in agent.profile.toolbox.tools_by_name
+    assert "market_signal_search" in agent.profile.toolbox.tools_by_name
 
 
 def test_market_analyst_agent_direct_default_uses_empty_generic_toolbox() -> None:

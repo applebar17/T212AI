@@ -1370,6 +1370,7 @@ def render_doctor_report(
         "research_community_context",
         "search",
         "persistent_guideline_memory",
+        "market_signal_memory",
     ):
         capability = assessment.capabilities[key]
         lines.append(

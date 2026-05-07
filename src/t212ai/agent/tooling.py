@@ -86,6 +86,10 @@ def _market_summary(toolbox: ToolBox) -> str:
         segments.append("official disclosure activity")
     if "searxng_search" in names or "scrape_page" in names or "scrape_article" in names:
         segments.append("web search and page scraping for expansion")
+    if "market_signal_search" in names:
+        segments.append(
+            "persistent market signal memory for active signals, concise saves, and archives"
+        )
     if not segments:
         return (
             "No market-data or research providers are currently configured for this agent."

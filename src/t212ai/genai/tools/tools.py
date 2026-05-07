@@ -12,6 +12,10 @@ from t212ai.app.config import AppSettings, get_app_settings
 from t212ai.genai.tracing import (
     traceable,
 )
+from t212ai.market_signals import (
+    MARKET_SIGNAL_TOOLS,
+    build_market_signal_tool_mapping,
+)
 from ..models import ToolError, ToolResult, ToolSpec
 from .base import ToolBox, build_tool_index
 from .market_data import (
@@ -66,6 +70,7 @@ from .yahoo_finance import (
 
 if TYPE_CHECKING:
     from t212ai.capabilities.protocols import MarketDataService
+    from t212ai.market_signals import MarketSignalService
 
 
 def _market_data_provider_ready(
@@ -237,6 +242,8 @@ def build_market_analyst_toolbox(
         and _provider_ready(resolved_assessment, "searxng")
     ):
         tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
+    if resolved_assessment.capabilities["market_signal_memory"].available:
+        tools.extend(MARKET_SIGNAL_TOOLS)
     return ToolBox(
         name="market_analyst",
         tools=tools,
@@ -281,6 +288,7 @@ def build_tool_mapping(
     settings: AppSettings | None = None,
     assessment: ConfigAssessment | None = None,
     market_data_service: "MarketDataService | None" = None,
+    market_signal_service: "MarketSignalService | None" = None,
     **_unused: Any,
 ) -> dict[str, Callable[..., Any]]:
     del embed_fn, genai_client
@@ -383,6 +391,7 @@ def build_tool_mapping(
         mapping.update(build_reddit_tool_mapping())
     except RuntimeError:
         pass
+    mapping.update(build_market_signal_tool_mapping(market_signal_service))
     return mapping
 
 

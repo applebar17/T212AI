@@ -34,7 +34,11 @@ def configure_logging(
     if file_path is not None and str(file_path).strip():
         target = Path(file_path).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(target, encoding="utf-8")
+        try:
+            file_handler = logging.FileHandler(target, encoding="utf-8")
+        except OSError as exc:
+            root.warning("File logging disabled for %s: %s", target, exc)
+            return
         file_handler.setLevel(resolved_level)
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)

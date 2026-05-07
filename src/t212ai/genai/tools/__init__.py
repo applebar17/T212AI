@@ -69,6 +69,12 @@ __all__ = [
     "market_get_volume_monitor",
     "market_get_market_snapshot",
     "market_get_chart_context",
+    "MARKET_SIGNAL_SEARCH_TOOL",
+    "MARKET_SIGNAL_CREATE_TOOL",
+    "MARKET_SIGNAL_ARCHIVE_TOOL",
+    "market_signal_search",
+    "market_signal_create",
+    "market_signal_archive",
 ]
 
 
@@ -204,6 +210,33 @@ def __getattr__(name: str) -> Any:
             "market_get_volume_monitor": market_get_volume_monitor,
             "market_get_market_snapshot": market_get_market_snapshot,
             "market_get_chart_context": market_get_chart_context,
+        }
+        return exports[name]
+
+    if name in {
+        "MARKET_SIGNAL_SEARCH_TOOL",
+        "MARKET_SIGNAL_CREATE_TOOL",
+        "MARKET_SIGNAL_ARCHIVE_TOOL",
+        "market_signal_search",
+        "market_signal_create",
+        "market_signal_archive",
+    }:
+        from t212ai.market_signals import (
+            MARKET_SIGNAL_ARCHIVE_TOOL,
+            MARKET_SIGNAL_CREATE_TOOL,
+            MARKET_SIGNAL_SEARCH_TOOL,
+            market_signal_archive,
+            market_signal_create,
+            market_signal_search,
+        )
+
+        exports = {
+            "MARKET_SIGNAL_SEARCH_TOOL": MARKET_SIGNAL_SEARCH_TOOL,
+            "MARKET_SIGNAL_CREATE_TOOL": MARKET_SIGNAL_CREATE_TOOL,
+            "MARKET_SIGNAL_ARCHIVE_TOOL": MARKET_SIGNAL_ARCHIVE_TOOL,
+            "market_signal_search": market_signal_search,
+            "market_signal_create": market_signal_create,
+            "market_signal_archive": market_signal_archive,
         }
         return exports[name]
 
