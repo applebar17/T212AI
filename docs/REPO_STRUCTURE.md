@@ -30,24 +30,35 @@ The structure should support:
 |   |-- AGENTIC_FLOW.md
 |   |-- AGENTIC_LOGIC.md
 |   |-- AGENT_PATTERNS.md
+|   |-- ARCHITECTURE_DIAGRAMS.md
+|   |-- ARCHITECTURE_STATUS.md
 |   |-- DATA_SOURCES.md
+|   |-- DEV_GUIDELINES.md
 |   |-- FEATURES.md
 |   |-- NEWS_AND_WEBSEARCH.md
-|   |-- OPEN_QUESTIONS.md
 |   |-- PLAN.md
 |   |-- REPO_STRUCTURE.md
 |   `-- T212ApiDocs.md
 |-- scripts/
+|   |-- check_trading212_instrument_resolution.py
 |   |-- dev_bot.py
 |   `-- smoke_tools.py
 |-- src/
 |   `-- t212ai/
 |       |-- agent/
+|       |-- alpaca/
 |       |-- app/
 |       |-- brokers/
+|       |-- calculator/
+|       |-- capabilities/
 |       |-- data_sources/
 |       |-- genai/
+|       |-- guidelines/
+|       |-- market_signals/
+|       |-- pending_actions/
 |       |-- persistence/
+|       |-- proposals/
+|       |-- reconciliation/
 |       |-- telegram/
 |       `-- workflows/
 |-- tests/
@@ -116,6 +127,28 @@ Trading 212 broker integration:
 
 This package is broker-authoritative. Do not mix Yahoo, web-search, or news data here.
 
+### `src/t212ai/alpaca`
+
+Alpaca broker and market-data integration:
+
+- shared Alpaca HTTP base
+- paper/live broker client and service
+- market-data client and service
+- generic broker and market-data facade support
+
+Alpaca broker integration follows the same broker-authoritative boundary for
+paper/live account state and order actions.
+
+### `src/t212ai/capabilities`
+
+Provider-neutral capability models used to bind runtime implementations to the
+agent-facing tool surface.
+
+### `src/t212ai/guidelines`
+
+Persistent guideline memory storage and service logic for durable user
+preferences and operating rules.
+
 ### `src/t212ai/data_sources`
 
 Non-broker external data:
@@ -136,6 +169,7 @@ Reusable LLM/tooling infrastructure:
 - OpenAI/Azure client wrapper
 - tool execution loop
 - token counting
+- context-window budgeting and summarization guardrails
 - tracing helpers
 - generic tool registry mechanics
 
@@ -146,10 +180,41 @@ This package should remain domain-light. Trading 212-specific behavior belongs i
 Lightweight local persistence:
 
 - SQLite session setup
-- Alembic-managed models
-- repositories for proposals, approvals, executions, policies, watchlists, and digest state
+- SQLAlchemy base metadata and database helpers
 
-This is not a warehouse. Persist only data needed for continuity and safety.
+Feature packages own their operational rows and services while using this shared
+database layer. This is not a warehouse. Persist only data needed for continuity
+and safety.
+
+### `src/t212ai/market_signals`
+
+SQL-backed persistent market-signal memory:
+
+- compact market-relevant notes
+- active-signal search
+- create/archive tools for the market analyst
+- deterministic maintenance methods for cleanup
+
+Market signals are advisory context only. They are not broker state, market-data
+authority, or execution validation.
+
+### `src/t212ai/pending_actions` and `src/t212ai/proposals`
+
+Operational execution-safety persistence:
+
+- prepared broker actions
+- proposal records
+- approval events
+- execution attempts
+- reconciliation metadata
+
+These packages protect the approval and execution flow. Do not bypass them for
+state-changing broker actions.
+
+### `src/t212ai/reconciliation`
+
+Broker reconciliation backend for syncing local pending actions and execution
+attempts against remote broker state.
 
 ### `src/t212ai/telegram`
 
@@ -198,6 +263,8 @@ Small local commands:
 
 - `dev_bot.py`: future local Telegram bot runner
 - `smoke_tools.py`: quick tool registry smoke check
+- `check_trading212_instrument_resolution.py`: local broker instrument
+  resolution diagnostic
 
 ### `tests`
 
@@ -229,7 +296,9 @@ Use SQLite + Alembic for operational state only:
 
 - trade proposals
 - approvals/rejections
+- pending actions
 - execution records and order fingerprints
+- market signals
 - user policy
 - watchlists
 - alert definitions
@@ -250,10 +319,10 @@ The current Docker setup is intentionally minimal:
 
 - installs the package from `pyproject.toml`
 - includes database, Telegram, and research optional dependencies
-- runs `python -m t212ai` by default
+- runs `python -m t212ai run bot` by default
 - mounts `./data` through Compose
 
-The default container command is a placeholder until the Telegram bot runner exists.
+Compose also starts a local SearXNG service for search tooling.
 
 ## What Not To Build Yet
 
@@ -269,10 +338,6 @@ Add these only when a concrete use case forces them.
 
 ## Recommended Next Step
 
-Start filling the first real domain package:
-
-```text
-src/t212ai/brokers/trading212/
-```
-
-The first useful implementation target is a demo-mode Trading 212 client for account summary, positions, and pending orders.
+Use [todo.md](./todo.md) for the active implementation queue. The current
+near-term focus is scheduled process tooling and the shared agentic
+reason-plan-execute-judge-return loop, not initial project scaffolding.

@@ -161,7 +161,7 @@ python -m t212ai
 Near-term work is focused on making the trading bot more operationally useful:
 
 - scheduled processes for digests, scans, and alerts
-- richer market-signal read/write flows
-- token context management for long tool-heavy LLM conversations
 - stronger reason-plan-execute-judge loops across specialists
+- unified market-context packets with clearer freshness and provenance
+- watchlist/snapshot scope decisions
 - more deterministic thin workflows where safety or repeatability matters

@@ -20,7 +20,9 @@ flowchart TD
     RT --> PROP[Proposal Service]
     RT --> RECON[Reconciliation Service]
     RT --> CALCSVC[Calculator Service]
+    RT --> SIGNALS[Market Signal Service]
     RT --> GENAI[GenAI Client]
+    GENAI --> CTX[Context Budget Manager]
     RT --> REASON[Agent Reasoner]
     RT --> JUDGE[Agent Judge]
     RT --> ORCH[Main Orchestrator Agent]
@@ -31,6 +33,7 @@ flowchart TD
     ORCH --> MARKET[Market Analyst Agent]
     ORCH --> COMPANY[Company Analyst Agent]
     ORCH --> MEMORY[Guideline Memory Agent]
+    ORCH --> CALCAGENT[Calculator Agent]
 
     RT --> T212[Trading 212 Service]
     RT --> ALPACA[Alpaca Market Data and Broker Services]
@@ -70,7 +73,9 @@ flowchart LR
     RT --> REASON[Agent Reasoner]
     RT --> JUDGE[Agent Judge]
     RT --> ORCH[Main Orchestrator Agent]
-    RT --> CALCAGENT[Standalone Calculator Agent]
+    RT --> SIGNALS[Market Signal Service]
+    RT --> CTX[GenAI Context Manager]
+    RT --> CALCAGENT[Calculator Agent]
 
     RT --> T212[Trading 212 Client and Service]
     RT --> AB[Alpaca Broker Client and Service]
@@ -90,7 +95,7 @@ flowchart LR
     classDef wired fill:#dff3e4,stroke:#2d6a4f,color:#1b4332;
     classDef partial fill:#fff3cd,stroke:#b08900,color:#5f3b00;
 
-    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,DB,PACT,PROP,RECON,CALCSVC,GENAI,REASON,JUDGE,ORCH,CALCAGENT,T212,AB,Y,AM,A,RD,BOT,TG,W1,W2 wired;
+    class CLI,SETTINGS,ASSESS,RT,GDOC,GSVC,HIST,DB,PACT,PROP,RECON,CALCSVC,SIGNALS,CTX,GENAI,REASON,JUDGE,ORCH,CALCAGENT,T212,AB,Y,AM,A,RD,BOT,TG,W1,W2 wired;
 ```
 
 ## 3. Current Startup And Worker Surfaces
@@ -171,7 +176,7 @@ sequenceDiagram
     OrderAgent->>PendingAction: Persist exact prepared action
     OrderAgent-->>Telegram: Approval request
     Telegram-->>User: Approve / Reject
-    User->>Telegram: Button click or yes/no fallback
+    User->>Telegram: Button callback
     Telegram->>PendingAction: Resolve exact stored action
     PendingAction->>Broker: submit exact prepared action
     Broker-->>Telegram: Immediate broker response
@@ -207,10 +212,11 @@ flowchart TB
     A[Runtime is composed] --> B[Agents can route and plan]
     B --> C[Execution safety baseline is in place]
     C --> D[Proposal persistence and broker-aware reconciliation baseline are in place]
-    D --> E[Calculator baseline exists as a standalone specialist]
-    E --> F[But market context is still not unified]
-    F --> G[Company and market thin flows are still missing]
-    G --> H[Watchlist and broader scheduled jobs are still open]
+    D --> E[Calculator specialist is routed when LLM runtime is available]
+    E --> F[Market signals and token-context guardrails are in place]
+    F --> G[But market context is still not unified]
+    G --> H[Company and market thin flows are still missing]
+    H --> I[Watchlist and broader scheduled jobs are still open]
 ```
 
 ## 9. Current Vs Near-Term Direction
@@ -221,20 +227,22 @@ flowchart TD
     NOW --> B[Approval-safe order flow for Trading 212 and Alpaca]
     NOW --> C[Proposal and execution journaling]
     NOW --> D[Broker-provider-aware reconciliation worker baseline]
-    NOW --> E[Standalone calculator agent]
+    NOW --> E[Calculator specialist routed when LLM runtime is available]
+    NOW --> F[Market signal memory and GenAI context guardrails]
 
-    A --> NEXT1[Unified market-context layer]
+    A --> NEXT1[Broader scheduled jobs]
     B --> NEXT2[Better reconciliation UX]
-    C --> NEXT3[More thin read flows]
-    D --> NEXT4[Broader scheduled jobs]
-    E --> NEXT5[Optional calculator routing later]
+    C --> NEXT3[Judge and action-repair in the shared agentic loop]
+    D --> NEXT4[Unified market-context layer]
+    E --> NEXT5[More thin read flows]
+    F --> NEXT6[Watchlist scope decision]
 ```
 
 ## Suggested Use
 
 Use this file together with:
 - [ARCHITECTURE_STATUS.md](./ARCHITECTURE_STATUS.md) for the written summary
-- [PLAN.md](./PLAN.md) for the roadmap
+- [todo.md](./todo.md) for the active implementation queue
 
 The next useful diagrams would be:
 - one diagram per real workflow once implemented

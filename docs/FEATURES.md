@@ -184,8 +184,8 @@ The first version can support both:
 - `/watchlist`
 - `/analyze <ticker>`
 - `/proposal <buy|sell> <ticker> ...`
-- `/approve <proposal_id>`
-- `/reject <proposal_id>`
+- `/proposals`
+- `/proposal <proposal_id>`
 - `/cancel_order <order_id>`
 - `/digest now`
 
@@ -198,7 +198,7 @@ The first version can support both:
 - "Cancel the oldest pending order for Tesla if it is still unfilled."
 - "Should I cancel any pending orders before the market opens?"
 - "Use the latest news and my current positions to tell me what needs attention."
-- "Approve the last proposal for AAPL if it still fits my policy."
+- "Show me the latest proposal for AAPL so I can approve or reject it with the Telegram buttons."
 
 ## Strongly Recommended Non-Goals For v1
 

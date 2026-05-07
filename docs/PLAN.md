@@ -1,6 +1,10 @@
 # Trading 212 Telegram Agent Plan
 
-Status: working implementation plan.
+Status: historical roadmap reference.
+
+Many early milestones in this document are now implemented or superseded by the
+runtime architecture. Use [ARCHITECTURE_STATUS.md](./ARCHITECTURE_STATUS.md) for
+current state and [todo.md](./todo.md) for the active implementation queue.
 
 ## Goal
 

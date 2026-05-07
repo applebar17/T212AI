@@ -1,6 +1,8 @@
 # Architecture Status
 
-This file is a direct snapshot of the current repo state vs the target in [PLAN.md](./PLAN.md).
+This file is a direct snapshot of the current repo state. Historical roadmap
+context remains in [PLAN.md](./PLAN.md), while active near-term work is tracked
+in [todo.md](./todo.md).
 
 For diagrams, see [ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md).
 
@@ -15,9 +17,11 @@ The current state is:
 - agent baseline: in place
 - provider integration baseline: in place
 - persistent guideline memory: in place
-- calculator baseline: in place, but not routed by default
+- calculator baseline: in place and routed when the LLM runtime is configured
 - workflow execution layer: partially in place
 - operational persistence, approval flow, and reconciliation baseline: in place
+- market-signal memory: in place
+- GenAI context-window guardrails: in place
 
 ## Current Architecture
 
@@ -31,7 +35,7 @@ Implemented decision:
 Meaning in practice:
 - market/company/portfolio exploration can stay mostly agentic and tool-driven for now
 - repeated or sensitive paths get deterministic thin flows first
-- calculator capabilities are implemented as deterministic tools first, then optionally promoted into routing later
+- calculator capabilities are implemented as deterministic tools and routed through the orchestrator when the LLM runtime is configured
 
 ### 1. Bootstrap And Startup Layer
 
@@ -69,7 +73,7 @@ Implemented:
 - reconciliation service wiring
 - calculator service wiring
 - GenAI client wiring from `AppSettings`
-- `AgentReasoner`, `AgentJudge`, `MainOrchestratorAgent`, and standalone `CalculatorAgent` wiring
+- `AgentReasoner`, `AgentJudge`, `MainOrchestratorAgent`, and `CalculatorAgent` wiring
 - Trading 212 runtime wiring
 - Alpaca broker runtime wiring
 - Yahoo runtime wiring
@@ -139,6 +143,8 @@ Current status:
   - prepared order submission
   - prepared order cancellation
 - `CalculatorAgent` is routed through the orchestrator and still uses deterministic tools for execution-safe math
+- `MarketAnalystAgent` can use SQL-backed market signal memory when `DATABASE_URL` is configured
+- `GenAIClient` resolves context windows per model/tier and compacts long tool-heavy conversations before provider calls
 
 Missing:
 - company and market specialists are still mostly plan/tool-driven
@@ -199,6 +205,7 @@ Current status:
 
 Missing:
 - deeper reconciliation/audit depth beyond the current operational baseline
+- scheduled maintenance for market signals, if cleanup/staleness policies become operationally important
 
 ### 7. Workflows
 
@@ -274,7 +281,7 @@ Missing:
 | External data | multi-provider research/context layer | baseline done, not unified |
 | Orchestrator/specialists | routed agent-of-agents design | done at baseline |
 | Persistent memory | long-term guidelines/config memory | done at baseline |
-| Calculator | deterministic math and finance helper baseline | implemented, not routed by default |
+| Calculator | deterministic math and finance helper baseline | implemented and routed when LLM runtime is available |
 | Workflow layer | thin deterministic flows for repeated/sensitive paths | partially done |
 | Proposal engine | structured persisted proposals | baseline done |
 | Approval flow | approval on deterministic prepared actions | baseline done |
@@ -286,11 +293,11 @@ Missing:
 
 In priority order, the main gaps are now:
 
-1. Add a unified market-context layer with clearer freshness/provenance handling across providers.
-2. Implement company and market snapshot thin flows only where they provide immediate value.
-3. Decide whether watchlist support is part of v1 scope or should be explicitly deferred.
-4. Expand scheduled jobs beyond the current reconciliation worker baseline.
-5. Decide when or whether the standalone calculator should be routed through the main orchestrator.
+1. Expand scheduled jobs beyond the current reconciliation worker baseline.
+2. Wire the shared reason-plan-execute-judge-return loop more broadly, including judge and repair behavior.
+3. Add a unified market-context layer with clearer freshness/provenance handling across providers.
+4. Implement company and market snapshot thin flows only where they provide immediate value.
+5. Decide whether watchlist support is part of v1 scope or should be explicitly deferred.
 
 ## Practical Read On The Repo
 
@@ -300,11 +307,13 @@ The repo now has:
 - a real agent baseline
 - real provider integrations
 - a real calculator baseline
+- SQL-backed market-signal memory
+- GenAI context-window budgeting and compaction
 - a real reconciliation backend baseline
 
 The repo still does not have:
 - unified market context
-- broad scheduled operational flows
+- broad scheduled operational flows beyond reconciliation
 - watchlist implementation parity with the written v1 target
 
 So the current state is best described as:
@@ -314,14 +323,18 @@ So the current state is best described as:
 
 ## Recommended Next Build Order
 
-1. Add a unified market-context layer with freshness-aware composition.
-2. Add company and market snapshot thin flows only if usage shows they are worth structuring now.
-3. Decide and implement the minimal watchlist baseline, or explicitly defer it out of v1.
-4. Expand scheduled jobs only after the manual path remains stable.
-5. Route the calculator agent only if real usage justifies it.
+1. Add a small scheduled-process baseline that can run deterministic jobs beyond reconciliation.
+2. Wire judge/action-repair behavior into the configurable specialist loop.
+3. Add a unified market-context layer with freshness-aware composition.
+4. Add company and market snapshot thin flows only if usage shows they are worth structuring now.
+5. Decide and implement the minimal watchlist baseline, or explicitly defer it out of v1.
 
 ## Short Conclusion
 
 The architecture direction remains correct.
 
-The main missing layer is no longer runtime composition, proposal persistence, or the initial execution-safety baseline. Those are now in place. The next real gaps are market-context unification, additional high-value thin flows, watchlist scope clarity, and broader scheduled operations beyond reconciliation.
+The main missing layer is no longer runtime composition, proposal persistence,
+market-signal memory, token-context protection, or the initial execution-safety
+baseline. Those are now in place. The next real gaps are scheduled operational
+flows beyond reconciliation, broader agentic loop reuse, market-context
+unification, additional high-value thin flows, and watchlist scope clarity.
