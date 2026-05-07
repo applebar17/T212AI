@@ -361,6 +361,37 @@ class SchedulerGenAIClient(FakeGenAIClient):
                 return _fake_chat_response(
                     "Which exact market-data proxy symbol should I monitor for crypto market stress?"
                 )
+            if (
+                "capture semiconductor signals every hour" in text
+                and "scheduler_market_signal_capture_create" in tools_mapping
+            ):
+                result = tools_mapping["scheduler_market_signal_capture_create"](
+                    title=None,
+                    description="Capture durable semiconductor market signals hourly.",
+                    query="semiconductor AI capex risks",
+                    symbols=["NVDA"],
+                    sectors=["semiconductors"],
+                    tags=["ai_capex"],
+                    schedule_type="polling",
+                    poll_every_seconds=None,
+                    frequency=None,
+                    time=None,
+                    timezone=None,
+                    days=[],
+                    task_guidelines="Save durable future-impact-oriented signals only.",
+                    max_signals=3,
+                    search_time_range="day",
+                    community_time_range="week",
+                    market_period="1mo",
+                    disclosure_since_days=30,
+                    notification_enabled=True,
+                    broker_actions_allowed=False,
+                )
+                return _fake_chat_response(str(result.output))
+            if "capture market signals" in text:
+                return _fake_chat_response(
+                    "What exact topic, symbols, sectors, or tags should I scan, and what schedule should I use?"
+                )
             if "alert me when tsla goes below" in text:
                 return _fake_chat_response(
                     "Which threshold should I use for the TSLA alert?"
@@ -1269,6 +1300,58 @@ def test_scheduler_agent_asks_clarification_when_market_proxy_is_unknown(
     )
 
     assert "Which exact market-data proxy symbol" in response.final_answer
+    assert service.list_processes() == []
+
+
+def test_scheduler_agent_creates_market_signal_capture_through_private_tool(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="capture semiconductor signals every hour",
+            chat_id="chat",
+        ),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    processes = service.list_processes(statuses=["active"], kinds=["market_signal_capture"])
+    assert response.selected_agent == "scheduler_agent"
+    assert response.metadata["workflow"] == "scheduler_delegation"
+    assert len(processes) == 1
+    assert processes[0].execution_mode.value == "llm_assisted"
+    assert processes[0].schedule.type.value == "polling"
+    assert processes[0].schedule.poll_every_seconds == 3600
+    assert processes[0].inputs["query"] == "semiconductor AI capex risks"
+    assert processes[0].inputs["maxSignals"] == 3
+    assert processes[0].action == {"type": "notify_only"}
+    assert processes[0].safety.broker_actions_allowed is False
+    assert "advisory memory" in response.final_answer
+    assert "No broker action" in response.final_answer
+
+
+def test_scheduler_agent_asks_clarification_when_signal_capture_scope_is_missing(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="capture market signals", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "topic, symbols, sectors, or tags" in response.final_answer
     assert service.list_processes() == []
 
 

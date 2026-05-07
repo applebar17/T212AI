@@ -1191,20 +1191,30 @@ Implementation notes:
 
 Scope:
 
-- Add recurring scans that can save durable insights into the market signal store.
+- Add recurring or polling scans that can save durable insights into the market signal store.
 - Use this as the first scheduler process that writes to another memory service.
+- Expose creation only through the private scheduler agent toolbox.
 
 Design details:
 
-- The adapter should write compact market signals only when the analysis finds durable future-impact-oriented insights.
-- Avoid raw search dumps.
-- Use existing market signal validation and defaults.
-- Provide notification summaries only if configured.
+- `MarketSignalCaptureAdapter` gathers compact research evidence from search, community, or disclosure services, with market data as optional context only.
+- The process is `kind=market_signal_capture`, `execution_mode=llm_assisted`, notify-only, and `safety.brokerActionsAllowed=false`.
+- The adapter writes compact market signals only when the market analyst identifies durable future-impact-oriented insights.
+- Avoid raw search dumps, noisy restatements, arbitrary prompts, broker actions, and order proposals.
+- Require at least one scan scope field: `query`, `symbols`, `sectors`, or `tags`.
+- Require at least one usable research evidence source before calling the LLM; market data alone cannot drive capture.
+- Use structured output with at most three proposed signals per run.
+- Before writing, suppress near-duplicates by normalized title, overlapping source refs, or overlapping topical fields plus identical normalized summary prefix.
+- Write through `MarketSignalService` using `source=scheduled_job`, existing validation, and advisory-only semantics.
+- Notify only when at least one new signal is saved and notifications are enabled.
 
 Expected outputs:
 
 - `MarketSignalCaptureAdapter`
-- Evidence-to-signal analysis prompt
+- `MarketSignalCaptureAnalysis` and `CapturedMarketSignal` structured schemas
+- Private scheduler tool `scheduler_market_signal_capture_create`
+- Capability `scheduler_market_signal_capture`
+- Evidence-to-signal analysis guidance
 - Safe write path to `MarketSignalService`
 - Tests for signal creation, duplicate/noisy result handling, and advisory-only behavior
 
@@ -1215,10 +1225,15 @@ Integrations:
 - Reddit/community service if configured
 - SEC/disclosure service if configured
 - `MarketSignalService`
+- Scheduler agent private toolbox
+- Scheduler worker adapter registry
+- Doctor/capability display
 
 Shipping criteria:
 
-- A recurring scan can save validated market signals and optionally notify the user of saved insights.
+- A recurring or polling scan can save validated, non-duplicate market signals and optionally notify the user of saved insights.
+- The scheduler agent asks for clarification when scan scope or schedule is missing.
+- Captured signals remain advisory context only; fresh market data and broker state still come from authoritative tools.
 
 ### Wave 8: Trade Setup Monitor With Pending Proposals
 

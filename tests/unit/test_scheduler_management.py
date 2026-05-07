@@ -15,6 +15,7 @@ from t212ai.scheduler import (
     scheduler_create_process,
     scheduler_instrument_monitor_create,
     scheduler_list_processes,
+    scheduler_market_signal_capture_create,
     scheduler_market_regime_monitor_create,
     scheduler_pause_process,
     scheduler_resume_process,
@@ -517,6 +518,159 @@ def test_scheduler_market_regime_monitor_create_rejects_invalid_inputs(
         assert result.error.code == "invalid_market_regime_monitor_spec"
 
 
+def test_scheduler_market_signal_capture_create_polling_applies_defaults(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(service=service)
+
+    result = scheduler_market_signal_capture_create(
+        title=None,
+        description="Scan semiconductors for durable signals.",
+        query="semiconductor AI capex risks",
+        symbols=["nvda"],
+        sectors=["Semiconductors"],
+        tags=["AI capex"],
+        schedule_type="polling",
+        poll_every_seconds=None,
+        frequency=None,
+        time=None,
+        timezone=None,
+        days=[],
+        task_guidelines="Save only durable, future-useful market signals.",
+        max_signals=3,
+        search_time_range="day",
+        community_time_range="week",
+        market_period="1mo",
+        disclosure_since_days=30,
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert "advisory memory" in result.output
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.kind.value == "market_signal_capture"
+    assert process.execution_mode.value == "llm_assisted"
+    assert process.schedule.type.value == "polling"
+    assert process.schedule.poll_every_seconds == 3600
+    assert process.trigger["type"] == "market_signal_capture"
+    assert process.inputs["query"] == "semiconductor AI capex risks"
+    assert process.inputs["symbols"] == ["NVDA"]
+    assert process.inputs["sectors"] == ["semiconductors"]
+    assert process.inputs["tags"] == ["ai_capex"]
+    assert process.inputs["maxSignals"] == 3
+    assert process.inputs["searchTimeRange"] == "day"
+    assert process.inputs["communityTimeRange"] == "week"
+    assert process.inputs["marketPeriod"] == "1mo"
+    assert process.inputs["disclosureSinceDays"] == 30
+    assert process.action == {"type": "notify_only"}
+    assert process.lifecycle.completion_policy.value == "keep_running"
+    assert process.notification == {"enabled": True}
+    assert process.safety.broker_actions_allowed is False
+
+
+def test_scheduler_market_signal_capture_create_recurring_applies_schedule(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(service=service, default_timezone="Europe/Rome")
+
+    result = scheduler_market_signal_capture_create(
+        title="Daily bank signal capture",
+        description="Scan banks after close.",
+        query=None,
+        symbols=[],
+        sectors=["banks"],
+        tags=["rates"],
+        schedule_type="recurring",
+        poll_every_seconds=None,
+        frequency="weekdays",
+        time="22:00",
+        timezone=None,
+        days=[],
+        task_guidelines="Focus on durable margin and credit signals.",
+        max_signals=2,
+        search_time_range="week",
+        community_time_range="month",
+        market_period="3mo",
+        disclosure_since_days=45,
+        notification_enabled=False,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.schedule.type.value == "recurring"
+    assert process.schedule.frequency == "weekdays"
+    assert process.schedule.time == "22:00"
+    assert process.schedule.timezone == "Europe/Rome"
+    assert process.inputs["maxSignals"] == 2
+    assert process.notification == {"enabled": False}
+
+
+def test_scheduler_market_signal_capture_create_rejects_invalid_inputs(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+    base = {
+        "title": None,
+        "description": "",
+        "query": "rates and banks",
+        "symbols": [],
+        "sectors": ["banks"],
+        "tags": [],
+        "schedule_type": "polling",
+        "poll_every_seconds": None,
+        "frequency": None,
+        "time": None,
+        "timezone": None,
+        "days": [],
+        "task_guidelines": "",
+        "max_signals": 3,
+        "search_time_range": "day",
+        "community_time_range": "week",
+        "market_period": "1mo",
+        "disclosure_since_days": 30,
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    missing_scope = scheduler_market_signal_capture_create(
+        **{**base, "query": None, "symbols": [], "sectors": [], "tags": []}
+    )
+    unsupported_schedule = scheduler_market_signal_capture_create(
+        **{**base, "schedule_type": "one_shot"}
+    )
+    polling_too_fast = scheduler_market_signal_capture_create(
+        **{**base, "poll_every_seconds": 300}
+    )
+    invalid_max = scheduler_market_signal_capture_create(**{**base, "max_signals": 4})
+    missing_recurring_time = scheduler_market_signal_capture_create(
+        **{**base, "schedule_type": "recurring", "frequency": "daily", "time": None}
+    )
+    unsafe = scheduler_market_signal_capture_create(
+        **{**base, "broker_actions_allowed": True}
+    )
+
+    for result in (
+        missing_scope,
+        unsupported_schedule,
+        polling_too_fast,
+        invalid_max,
+        missing_recurring_time,
+        unsafe,
+    ):
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error.code == "invalid_market_signal_capture_spec"
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 
@@ -524,6 +678,7 @@ def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
         "scheduler_instrument_monitor_create",
         "scheduler_company_event_analyst_create",
         "scheduler_market_regime_monitor_create",
+        "scheduler_market_signal_capture_create",
         "scheduler_list_processes",
         "scheduler_pause_process",
         "scheduler_resume_process",

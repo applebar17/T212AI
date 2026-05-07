@@ -72,6 +72,34 @@ def _create_due_process(service: ScheduledProcessService):
     )
 
 
+def _create_due_market_signal_capture(service: ScheduledProcessService):
+    return service.create_process(
+        title="Semiconductor signal capture",
+        kind="market_signal_capture",
+        execution_mode="llm_assisted",
+        schedule={"type": "polling", "pollEverySeconds": 3600},
+        trigger={
+            "type": "market_signal_capture",
+            "query": "semiconductor AI capex risks",
+            "symbols": ["NVDA"],
+            "sectors": ["semiconductors"],
+            "tags": ["ai_capex"],
+        },
+        inputs={
+            "query": "semiconductor AI capex risks",
+            "symbols": ["NVDA"],
+            "sectors": ["semiconductors"],
+            "tags": ["ai_capex"],
+            "maxSignals": 3,
+            "searchTimeRange": "day",
+        },
+        action={"type": "notify_only"},
+        lifecycle={"completionPolicy": "keep_running"},
+        safety={"brokerActionsAllowed": False},
+        now=BASE_NOW,
+    )
+
+
 def test_scheduler_worker_returns_zero_counts_without_due_processes(tmp_path: Path) -> None:
     service = _service(tmp_path)
     worker = SchedulerWorker(service)
@@ -127,6 +155,25 @@ def test_scheduler_worker_registry_skips_instrument_monitor_without_market_data(
     assert result.runs[0].code == "market_data_unavailable"
     assert "adapter_unavailable" not in result.render_text()
     assert updated is not None
+    assert updated.failure_count == 0
+
+
+def test_scheduler_worker_registry_skips_market_signal_capture_without_memory(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    _create_due_market_signal_capture(service)
+    worker = SchedulerWorker(
+        service,
+        adapters=build_scheduler_adapter_registry(),
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+    updated = service.list_processes(kinds=["market_signal_capture"])[0]
+
+    assert result.skipped_count == 1
+    assert result.runs[0].code == "market_signal_memory_unavailable"
+    assert "adapter_unavailable" not in result.render_text()
     assert updated.failure_count == 0
 
 

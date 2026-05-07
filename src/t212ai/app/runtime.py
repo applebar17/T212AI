@@ -490,6 +490,21 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ),
             implementation=runtime.market_data_service,
         ),
+        "scheduler_market_signal_capture": CapabilityBinding(
+            capability="scheduler_market_signal_capture",
+            selected_provider=_capability_provider(runtime, "scheduler_market_signal_capture"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+                and runtime.market_signal_service is not None
+                and (
+                    runtime.search_service is not None
+                    or runtime.community_research_service is not None
+                    or runtime.disclosure_service is not None
+                )
+            ),
+            implementation=runtime.market_signal_service,
+        ),
     }
 
 

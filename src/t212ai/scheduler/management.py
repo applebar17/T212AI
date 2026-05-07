@@ -70,6 +70,10 @@ MARKET_REGIME_PROXY_LABELS = {
 }
 DEFAULT_MARKET_REGIME_PERCENT_CHANGE_BELOW = -3.0
 DEFAULT_MARKET_REGIME_DRAWDOWN_FROM_HIGH_PCT = 5.0
+MARKET_SIGNAL_CAPTURE_SCHEDULE_TYPES = frozenset({"polling", "recurring"})
+MARKET_SIGNAL_CAPTURE_FREQUENCIES = frozenset({"daily", "weekdays", "weekly"})
+DEFAULT_MARKET_SIGNAL_CAPTURE_POLL_SECONDS = 3600
+MIN_MARKET_SIGNAL_CAPTURE_POLL_SECONDS = 900
 THRESHOLD_TRIGGER_TYPES = frozenset(
     {
         "below_price",
@@ -602,6 +606,165 @@ SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_market_signal_capture_create",
+        "description": (
+            "Create one safe LLM-assisted market-signal capture process. This tool "
+            "creates only kind=market_signal_capture, executionMode=llm_assisted, "
+            "recurring or polling schedules, notify-only action, and "
+            "safety.brokerActionsAllowed=false. Use it to scan a bounded topic, "
+            "symbol list, sector list, or tag list and save only durable advisory "
+            "market signals into memory. Ask a concise clarification question instead "
+            "of calling this tool when the scan scope or schedule is missing or "
+            "ambiguous. Market signals are advisory context, not fresh market data or "
+            "broker-authoritative state."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user-facing process title.",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional concise process description.",
+                },
+                "query": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Broad research query or theme to scan.",
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Optional public symbols to scan.",
+                },
+                "sectors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Optional sectors or market themes.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Optional flexible memory tags.",
+                },
+                "schedule_type": {
+                    "type": "string",
+                    "enum": sorted(MARKET_SIGNAL_CAPTURE_SCHEDULE_TYPES),
+                    "description": "polling requires poll_every_seconds; recurring requires frequency and time.",
+                },
+                "poll_every_seconds": {
+                    "type": ["integer", "null"],
+                    "minimum": MIN_MARKET_SIGNAL_CAPTURE_POLL_SECONDS,
+                    "default": None,
+                    "description": (
+                        "Polling interval in seconds. Defaults to 3600 and must be "
+                        "at least 900 for this LLM-assisted process."
+                    ),
+                },
+                "frequency": {
+                    "type": ["string", "null"],
+                    "enum": ["daily", "weekdays", "weekly", None],
+                    "default": None,
+                    "description": "Recurring frequency.",
+                },
+                "time": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Recurring local HH:MM time.",
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "IANA timezone. Defaults to configured scheduler timezone.",
+                },
+                "days": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Weekly day names for weekly recurring schedules.",
+                },
+                "task_guidelines": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional bounded LLM guidance for the capture run.",
+                },
+                "max_signals": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3,
+                    "default": 3,
+                    "description": "Maximum market signals to create per run.",
+                },
+                "search_time_range": {
+                    "type": "string",
+                    "default": "day",
+                    "description": "Search time filter such as day, week, month, or year.",
+                },
+                "community_time_range": {
+                    "type": "string",
+                    "default": "week",
+                    "description": "Community research time filter when configured.",
+                },
+                "market_period": {
+                    "type": "string",
+                    "default": "1mo",
+                    "description": "Market-data context period when symbols are provided.",
+                },
+                "disclosure_since_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 30,
+                    "description": "SEC/disclosure lookback window in days.",
+                },
+                "notification_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether newly saved signals should notify the user.",
+                },
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be false. Broker/order execution is not supported.",
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "query",
+                "symbols",
+                "sectors",
+                "tags",
+                "schedule_type",
+                "poll_every_seconds",
+                "frequency",
+                "time",
+                "timezone",
+                "days",
+                "task_guidelines",
+                "max_signals",
+                "search_time_range",
+                "community_time_range",
+                "market_period",
+                "disclosure_since_days",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _process_id_tool(name: str, description: str) -> ToolSpec:
     return {
@@ -649,6 +812,7 @@ SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL,
     SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
     SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL,
+    SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL,
     SCHEDULER_LIST_PROCESSES_TOOL,
     SCHEDULER_PAUSE_PROCESS_TOOL,
     SCHEDULER_RESUME_PROCESS_TOOL,
@@ -704,6 +868,10 @@ def build_scheduler_agent_tool_mapping(
         ),
         "scheduler_market_regime_monitor_create": partial(
             scheduler_market_regime_monitor_create,
+            runtime=runtime,
+        ),
+        "scheduler_market_signal_capture_create": partial(
+            scheduler_market_signal_capture_create,
             runtime=runtime,
         ),
         "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
@@ -941,6 +1109,84 @@ def scheduler_market_regime_monitor_create(
             f"Lifecycle: {process.lifecycle.completion_policy.value}, "
             f"expiresAt={process.lifecycle.expires_at}. "
             "No broker action was configured."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_market_signal_capture_create", run_type="tool")
+def scheduler_market_signal_capture_create(
+    *,
+    title: str | None,
+    description: str,
+    query: str | None,
+    symbols: list[str],
+    sectors: list[str],
+    tags: list[str],
+    schedule_type: str,
+    poll_every_seconds: int | None,
+    frequency: str | None,
+    time: str | None,
+    timezone: str | None,
+    days: list[str],
+    task_guidelines: str,
+    max_signals: int,
+    search_time_range: str,
+    community_time_range: str,
+    market_period: str,
+    disclosure_since_days: int,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="scheduler",
+        tool_name="scheduler_market_signal_capture_create",
+    )
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_market_signal_capture(
+            title=title,
+            description=description,
+            query=query,
+            symbols=symbols,
+            sectors=sectors,
+            tags=tags,
+            schedule_type=schedule_type,
+            poll_every_seconds=poll_every_seconds,
+            frequency=frequency,
+            time_value=time,
+            timezone_name=timezone,
+            days=days,
+            task_guidelines=task_guidelines,
+            max_signals=max_signals,
+            search_time_range=search_time_range,
+            community_time_range=community_time_range,
+            market_period=market_period,
+            disclosure_since_days=disclosure_since_days,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _market_signal_capture_exception(exc)
+    schedule_summary = (
+        f"polling every {process.schedule.poll_every_seconds} seconds"
+        if process.schedule.type.value == "polling"
+        else (
+            f"recurring {process.schedule.frequency} at {process.schedule.time} "
+            f"{process.schedule.timezone}"
+        )
+    )
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created market-signal capture process {process.process_id}: "
+            f"{process.title}. Schedule: {schedule_summary}. Lifecycle: "
+            f"{process.lifecycle.completion_policy.value}. Max signals per run: "
+            f"{process.inputs.get('maxSignals')}. No broker action was configured. "
+            "Saved market signals are advisory memory only."
         ),
         data={"process": _process_payload(process)},
     )
@@ -1294,6 +1540,137 @@ def _create_market_regime_monitor(
     )
 
 
+def _create_market_signal_capture(
+    *,
+    title: str | None,
+    description: str,
+    query: str | None,
+    symbols: list[str],
+    sectors: list[str],
+    tags: list[str],
+    schedule_type: str,
+    poll_every_seconds: int | None,
+    frequency: str | None,
+    time_value: str | None,
+    timezone_name: str | None,
+    days: list[str],
+    task_guidelines: str,
+    max_signals: int,
+    search_time_range: str,
+    community_time_range: str,
+    market_period: str,
+    disclosure_since_days: int,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError("broker_actions_allowed must be false; broker actions are unsupported.")
+    resolved_query = str(query or "").strip()
+    resolved_symbols = _clean_symbols(symbols)
+    resolved_sectors = _clean_terms(sectors)
+    resolved_tags = _clean_terms(tags)
+    if not (resolved_query or resolved_symbols or resolved_sectors or resolved_tags):
+        raise ValueError("query, symbols, sectors, or tags are required.")
+    resolved_max_signals = _positive_int(
+        max_signals,
+        fallback=3,
+        field_name="max_signals",
+    )
+    if resolved_max_signals < 1 or resolved_max_signals > 3:
+        raise ValueError("max_signals must be between 1 and 3.")
+    resolved_schedule_type = str(schedule_type or "").strip()
+    if resolved_schedule_type not in MARKET_SIGNAL_CAPTURE_SCHEDULE_TYPES:
+        raise ValueError("schedule_type must be polling or recurring.")
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    _zone_info(tz_name)
+    if resolved_schedule_type == "polling":
+        poll_seconds = _positive_int(
+            poll_every_seconds,
+            fallback=DEFAULT_MARKET_SIGNAL_CAPTURE_POLL_SECONDS,
+            field_name="poll_every_seconds",
+        )
+        if poll_seconds < MIN_MARKET_SIGNAL_CAPTURE_POLL_SECONDS:
+            raise ValueError("poll_every_seconds must be at least 900.")
+        schedule = {"type": "polling", "pollEverySeconds": poll_seconds}
+    else:
+        resolved_frequency = str(frequency or "").strip().lower()
+        if resolved_frequency not in MARKET_SIGNAL_CAPTURE_FREQUENCIES:
+            raise ValueError("recurring schedules require frequency daily, weekdays, or weekly.")
+        resolved_time = str(time_value or "").strip()
+        if not resolved_time:
+            raise ValueError("recurring schedules require time.")
+        schedule = {
+            "type": "recurring",
+            "frequency": resolved_frequency,
+            "time": resolved_time,
+            "timezone": tz_name,
+            "days": list(days or []),
+        }
+
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = _market_signal_capture_title(
+            query=resolved_query,
+            symbols=resolved_symbols,
+            sectors=resolved_sectors,
+            tags=resolved_tags,
+        )
+
+    inputs = {
+        "query": resolved_query or None,
+        "symbols": resolved_symbols,
+        "sectors": resolved_sectors,
+        "tags": resolved_tags,
+        "maxSignals": resolved_max_signals,
+        "searchTimeRange": str(search_time_range or "day").strip() or "day",
+        "communityTimeRange": str(community_time_range or "week").strip() or "week",
+        "marketPeriod": str(market_period or "1mo").strip() or "1mo",
+        "disclosureSinceDays": _positive_int(
+            disclosure_since_days,
+            fallback=30,
+            field_name="disclosure_since_days",
+        ),
+    }
+
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="market_signal_capture",
+        execution_mode="llm_assisted",
+        schedule=schedule,
+        trigger={
+            "type": "market_signal_capture",
+            "query": resolved_query or None,
+            "symbols": resolved_symbols,
+            "sectors": resolved_sectors,
+            "tags": resolved_tags,
+        },
+        inputs=inputs,
+        llm_scope={"taskGuidelines": str(task_guidelines or "").strip()},
+        action={"type": "notify_only"},
+        notification={"enabled": bool(notification_enabled)},
+        lifecycle={"completionPolicy": "keep_running"},
+        safety={"brokerActionsAllowed": False},
+    )
+
+
+def _market_signal_capture_title(
+    *,
+    query: str,
+    symbols: list[str],
+    sectors: list[str],
+    tags: list[str],
+) -> str:
+    if query:
+        return f"Market signal capture: {query}"
+    if symbols:
+        return "Market signal capture: " + ", ".join(symbols)
+    if sectors:
+        return "Market signal capture: " + ", ".join(sectors)
+    return "Market signal capture: " + ", ".join(tags)
+
+
 def _resolve_market_proxy(
     *,
     market_label: str | None,
@@ -1326,6 +1703,27 @@ def _optional_float(value: int | float | None) -> float | None:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError("threshold values must be numeric.") from exc
+
+
+def _clean_symbols(values: list[str] | None) -> list[str]:
+    return _dedupe_terms(str(value or "").strip().upper() for value in values or [])
+
+
+def _clean_terms(values: list[str] | None) -> list[str]:
+    return _dedupe_terms(
+        str(value or "").strip().lower().replace(" ", "_") for value in values or []
+    )
+
+
+def _dedupe_terms(values) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
 
 
 def _resolve_run_at(run_at: str | None, *, timezone_name: str) -> datetime:
@@ -1493,6 +1891,25 @@ def _market_regime_exception(exc: Exception) -> ToolResult:
                 "broker_actions_allowed=false, use a negative percent_change_below "
                 "or positive drawdown_from_high_pct, and provide a valid timezone "
                 "if overriding the default."
+            ),
+            retryable=False,
+        ),
+    )
+
+
+def _market_signal_capture_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Market-signal capture creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_market_signal_capture_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide at least one scan scope field such as query, symbols, "
+                "sectors, or tags; use a polling or recurring schedule; keep "
+                "polling intervals at least 900 seconds; keep max_signals between "
+                "1 and 3; and keep broker_actions_allowed=false."
             ),
             retryable=False,
         ),

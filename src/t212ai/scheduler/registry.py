@@ -6,6 +6,7 @@ from typing import Any
 
 from t212ai.capabilities import (
     BrokerReadService,
+    CommunityResearchService,
     DisclosureService,
     MarketDataService,
     SearchService,
@@ -14,6 +15,7 @@ from t212ai.market_signals import MarketSignalService
 
 from .company_event_analyst import CompanyEventAnalystAdapter
 from .instrument_monitor import InstrumentMonitorAdapter
+from .market_signal_capture import MarketSignalCaptureAdapter
 from .market_regime_monitor import MarketRegimeMonitorAdapter
 from .models import ScheduledProcessKind
 from .worker import ScheduledProcessAdapter
@@ -24,6 +26,7 @@ def build_scheduler_adapter_registry(
     company_agent: Any | None = None,
     market_agent: Any | None = None,
     market_data_service: MarketDataService | None = None,
+    community_research_service: CommunityResearchService | None = None,
     disclosure_service: DisclosureService | None = None,
     search_service: SearchService | None = None,
     market_signal_service: MarketSignalService | None = None,
@@ -46,5 +49,13 @@ def build_scheduler_adapter_registry(
             market_agent=market_agent,
             market_data_service=market_data_service,
             search_service=search_service,
+        ),
+        ScheduledProcessKind.MARKET_SIGNAL_CAPTURE.value: MarketSignalCaptureAdapter(
+            market_agent=market_agent,
+            market_signal_service=market_signal_service,
+            search_service=search_service,
+            community_research_service=community_research_service,
+            disclosure_service=disclosure_service,
+            market_data_service=market_data_service,
         ),
     }

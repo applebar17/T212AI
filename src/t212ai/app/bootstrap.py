@@ -82,6 +82,32 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
     }
     selector_errors = _validate_selector_values(settings)
     market_data_capability = _build_market_data_capability(settings, providers)
+    market_intelligence_capability = _build_market_intelligence_capability(settings, providers)
+    disclosure_capability = _build_disclosure_capability(settings, providers)
+    community_capability = CapabilityAssessment(
+        name="research_community_context",
+        label="Research/community context",
+        available=providers["reddit"].ready
+        and settings.community_provider in VALID_COMMUNITY_PROVIDERS,
+        optional=True,
+        selected_provider=(
+            settings.community_provider
+            if settings.community_provider != "none"
+            else None
+        ),
+        reasons=_community_reasons(settings, providers["reddit"]),
+    )
+    search_capability = CapabilityAssessment(
+        name="search",
+        label="Search",
+        available=providers["searxng"].ready
+        and settings.search_provider in VALID_SEARCH_PROVIDERS,
+        optional=True,
+        selected_provider=(
+            settings.search_provider if settings.search_provider != "none" else None
+        ),
+        reasons=_search_reasons(settings, providers["searxng"]),
+    )
     capabilities = {
         "llm_reasoning": CapabilityAssessment(
             name="llm_reasoning",
@@ -127,32 +153,10 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             reasons=_broker_execution_reasons(settings, providers["broker"]),
         ),
         "market_data": market_data_capability,
-        "market_intelligence": _build_market_intelligence_capability(settings, providers),
-        "disclosure": _build_disclosure_capability(settings, providers),
-        "research_community_context": CapabilityAssessment(
-            name="research_community_context",
-            label="Research/community context",
-            available=providers["reddit"].ready
-            and settings.community_provider in VALID_COMMUNITY_PROVIDERS,
-            optional=True,
-            selected_provider=(
-                settings.community_provider
-                if settings.community_provider != "none"
-                else None
-            ),
-            reasons=_community_reasons(settings, providers["reddit"]),
-        ),
-        "search": CapabilityAssessment(
-            name="search",
-            label="Search",
-            available=providers["searxng"].ready
-            and settings.search_provider in VALID_SEARCH_PROVIDERS,
-            optional=True,
-            selected_provider=(
-                settings.search_provider if settings.search_provider != "none" else None
-            ),
-            reasons=_search_reasons(settings, providers["searxng"]),
-        ),
+        "market_intelligence": market_intelligence_capability,
+        "disclosure": disclosure_capability,
+        "research_community_context": community_capability,
+        "search": search_capability,
         "persistent_guideline_memory": CapabilityAssessment(
             name="persistent_guideline_memory",
             label="Persistent guideline memory",
@@ -247,6 +251,36 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 settings,
                 providers["llm"],
                 market_data_capability,
+            ),
+        ),
+        "scheduler_market_signal_capture": CapabilityAssessment(
+            name="scheduler_market_signal_capture",
+            label="Scheduler market signal capture",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip())
+            and (
+                disclosure_capability.available
+                or community_capability.available
+                or search_capability.available
+            ),
+            optional=True,
+            selected_provider=(
+                "llm+sql+research"
+                if providers["llm"].ready
+                and bool(str(settings.database_url or "").strip())
+                and (
+                    disclosure_capability.available
+                    or community_capability.available
+                    or search_capability.available
+                )
+                else None
+            ),
+            reasons=_scheduler_market_signal_capture_reasons(
+                settings,
+                providers["llm"],
+                disclosure_capability,
+                community_capability,
+                search_capability,
             ),
         ),
     }
@@ -369,6 +403,23 @@ def _scheduler_market_regime_reasons(
     if not market_data.available:
         reasons.append("Configure MARKET_DATA_PROVIDER to enable scheduler market-regime monitors.")
     return tuple(reasons)
+
+
+def _scheduler_market_signal_capture_reasons(
+    settings: AppSettings,
+    llm: ProviderAssessment,
+    disclosure: CapabilityAssessment,
+    community: CapabilityAssessment,
+    search: CapabilityAssessment,
+) -> tuple[str, ...]:
+    reasons = list(_scheduler_delegate_reasons(settings, llm))
+    if not bool(str(settings.database_url or "").strip()):
+        reasons.append("Set DATABASE_URL to enable SQL-backed market signal memory.")
+    if not (disclosure.available or community.available or search.available):
+        reasons.append(
+            "Enable search, community research, or disclosure evidence for scheduler market-signal capture."
+        )
+    return tuple(_unique_messages(reasons))
 
 
 def ensure_runtime_directories(settings: AppSettings) -> tuple[Path, ...]:
