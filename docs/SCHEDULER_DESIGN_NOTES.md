@@ -1137,6 +1137,14 @@ Shipping criteria:
 - User can schedule a company-event analysis and receive a concise Telegram brief at the scheduled time.
 - Missing optional services degrade gracefully with explicit caveats.
 
+Implementation notes:
+
+- Implemented as `CompanyEventAnalystAdapter`, registered under `company_event_analyst`.
+- Scheduler-agent creation is private through `scheduler_company_event_analyst_create`; the main orchestrator only delegates to the scheduler agent.
+- Runtime registry passes configured company/market agents and optional evidence services into the adapter.
+- Output is normalized through a reusable structured synthesis helper and the `CompanyEventAnalysis` schema.
+- The process is notify-only; broker/order actions remain unavailable for this wave.
+
 ### Wave 6: Conditional LLM Escalation, `market_regime_monitor`
 
 Scope:

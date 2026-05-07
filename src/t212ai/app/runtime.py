@@ -8,11 +8,14 @@ from t212ai.agent import (
     AgentReasoner,
     CalculatorAgent,
     ChatHistoryManager,
+    CompanyAnalystAgent,
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
     GroupedPlanExecutor,
     MainOrchestratorAgent,
+    MarketAnalystAgent,
     SchedulerAgent,
+    SpecialistAgents,
     build_specialist_agents,
 )
 from t212ai.alpaca import AlpacaBrokerClient, AlpacaMarketDataClient
@@ -103,7 +106,10 @@ class AppRuntime:
     configurable_planner_agent: ConfigurablePlannerAgent | None = None
     grouped_plan_executor: GroupedPlanExecutor | None = None
     agent_judge: AgentJudge | None = None
+    specialist_agents: SpecialistAgents | None = None
     main_orchestrator: MainOrchestratorAgent | None = None
+    company_agent: CompanyAnalystAgent | None = None
+    market_agent: MarketAnalystAgent | None = None
     calculator_agent: CalculatorAgent | None = None
     scheduler_agent: SchedulerAgent | None = None
     trading212_client: Trading212Client | None = None
@@ -465,6 +471,15 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ),
             implementation=runtime.scheduled_process_service,
         ),
+        "scheduler_company_event_analyst": CapabilityBinding(
+            capability="scheduler_company_event_analyst",
+            selected_provider=_capability_provider(runtime, "scheduler_company_event_analyst"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+            ),
+            implementation=runtime.scheduled_process_service,
+        ),
     }
 
 
@@ -578,6 +593,9 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             guideline_service=runtime.guideline_memory_service,
             specialists=specialists,
         )
+        runtime.specialist_agents = specialists
+        runtime.company_agent = specialists.company
+        runtime.market_agent = specialists.market
         runtime.scheduler_agent = specialists.scheduler
     except Exception as exc:  # pragma: no cover - defensive
         runtime.component_errors["main_orchestrator"] = str(exc)

@@ -1702,6 +1702,7 @@ def render_doctor_report(
         "scheduler_notifications",
         "scheduler_instrument_monitor",
         "scheduler_delegate",
+        "scheduler_company_event_analyst",
     ):
         capability = assessment.capabilities[key]
         lines.append(
@@ -1949,7 +1950,13 @@ def run_scheduler_once(runtime, *, limit: int = 100) -> object:
     worker = SchedulerWorker(
         runtime.scheduled_process_service,
         adapters=build_scheduler_adapter_registry(
+            company_agent=getattr(runtime, "company_agent", None),
+            market_agent=getattr(runtime, "market_agent", None),
             market_data_service=getattr(runtime, "market_data_service", None),
+            disclosure_service=getattr(runtime, "disclosure_service", None),
+            search_service=getattr(runtime, "search_service", None),
+            market_signal_service=getattr(runtime, "market_signal_service", None),
+            broker_read_service=getattr(runtime, "broker_read_service", None),
         ),
         notification_service=getattr(runtime, "scheduler_notification_service", None),
     )

@@ -216,6 +216,19 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
             ),
             reasons=_scheduler_delegate_reasons(settings, providers["llm"]),
         ),
+        "scheduler_company_event_analyst": CapabilityAssessment(
+            name="scheduler_company_event_analyst",
+            label="Scheduler company event analyst",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip()),
+            optional=True,
+            selected_provider=(
+                "llm+sql"
+                if providers["llm"].ready and bool(str(settings.database_url or "").strip())
+                else None
+            ),
+            reasons=_scheduler_delegate_reasons(settings, providers["llm"]),
+        ),
     }
 
     errors = _unique_messages(

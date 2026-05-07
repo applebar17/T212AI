@@ -366,6 +366,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert not runtime.capability_registry["scheduler_notifications"].ready
     assert runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert not runtime.capability_registry["scheduler_delegate"].ready
+    assert not runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.capability_registry["disclosure"].selected_provider == "sec_edgar"
     assert runtime.capability_registry["disclosure"].ready
     assert runtime.capability_registry["broker_read"].implementation is None
@@ -390,6 +391,9 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.configurable_reasoner_agent is None
     assert runtime.configurable_planner_agent is None
     assert runtime.grouped_plan_executor is None
+    assert runtime.specialist_agents is None
+    assert runtime.company_agent is None
+    assert runtime.market_agent is None
     assert runtime.calculator_agent is None
     assert runtime.scheduler_agent is None
     assert runtime.main_orchestrator is None
@@ -416,6 +420,7 @@ def test_build_runtime_disables_scheduler_when_database_is_unavailable(tmp_path:
     assert not runtime.capability_registry["scheduler_notifications"].ready
     assert not runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert not runtime.capability_registry["scheduler_delegate"].ready
+    assert not runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.scheduler_agent is None
     assert "database" in runtime.component_errors
 
@@ -466,6 +471,9 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.grouped_plan_executor is not None
     assert runtime.agent_judge is not None
     assert runtime.main_orchestrator is not None
+    assert runtime.specialist_agents is not None
+    assert runtime.company_agent is not None
+    assert runtime.market_agent is not None
     assert runtime.scheduler_agent is not None
     assert runtime.db_engine is not None
     assert runtime.db_session_factory is not None
@@ -481,6 +489,7 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.insider_manager is not None
     assert runtime.has_agent_runtime
     assert runtime.capability_registry["scheduler_delegate"].ready
+    assert runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.component_errors == {}
 
 
@@ -550,6 +559,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["scheduler_instrument_monitor"].ready
     assert runtime.capability_registry["scheduler_delegate"].ready
+    assert runtime.capability_registry["scheduler_company_event_analyst"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name

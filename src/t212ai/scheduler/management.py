@@ -39,6 +39,17 @@ INSTRUMENT_MONITOR_TRIGGER_TYPES = frozenset(
         "period_high_breakout",
     }
 )
+COMPANY_EVENT_TYPES = frozenset(
+    {
+        "earnings_report",
+        "guidance_update",
+        "filing",
+        "major_news",
+        "company_event",
+    }
+)
+COMPANY_EVENT_SCHEDULE_TYPES = frozenset({"one_shot", "recurring"})
+COMPANY_EVENT_FREQUENCIES = frozenset({"daily", "weekdays", "weekly"})
 THRESHOLD_TRIGGER_TYPES = frozenset(
     {
         "below_price",
@@ -303,6 +314,139 @@ SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_company_event_analyst_create",
+        "description": (
+            "Create one safe LLM-assisted company-event analysis process. This tool "
+            "creates only kind=company_event_analyst, executionMode=llm_assisted, "
+            "notify-only action, and safety.brokerActionsAllowed=false. Use it for "
+            "scheduled earnings, guidance, filing, major-news, or company-event "
+            "analysis. Ask a concise clarification question instead of calling this "
+            "tool when the symbol or schedule is missing or ambiguous. It never "
+            "configures broker/order actions."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user-facing process title.",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional concise process description.",
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Company or ETF symbol to analyze, such as MSFT.",
+                },
+                "event_type": {
+                    "type": "string",
+                    "enum": sorted(COMPANY_EVENT_TYPES),
+                    "default": "company_event",
+                    "description": "Company-event category to analyze.",
+                },
+                "schedule_type": {
+                    "type": "string",
+                    "enum": sorted(COMPANY_EVENT_SCHEDULE_TYPES),
+                    "description": "one_shot requires run_at; recurring requires frequency/time/timezone.",
+                },
+                "run_at": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "ISO-8601 datetime for one_shot schedules.",
+                },
+                "frequency": {
+                    "type": ["string", "null"],
+                    "enum": ["daily", "weekdays", "weekly", None],
+                    "default": None,
+                    "description": "Recurring frequency.",
+                },
+                "time": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Recurring local HH:MM time.",
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "IANA timezone. Defaults to configured scheduler timezone.",
+                },
+                "days": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "description": "Weekly day names for weekly recurring schedules.",
+                },
+                "include_market_analyst": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Set true only when the user asks for broader market impact, "
+                        "reaction, or context."
+                    ),
+                },
+                "task_guidelines": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional bounded LLM guidance for the analysis.",
+                },
+                "disclosure_since_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 30,
+                    "description": "SEC/disclosure lookback window in days.",
+                },
+                "search_time_range": {
+                    "type": "string",
+                    "default": "week",
+                    "description": "Search time filter such as day, week, month, or year.",
+                },
+                "market_period": {
+                    "type": "string",
+                    "default": "1mo",
+                    "description": "Market-data context period.",
+                },
+                "notification_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether completed analysis should notify the user.",
+                },
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Must be false. Broker/order execution is not supported.",
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "symbol",
+                "event_type",
+                "schedule_type",
+                "run_at",
+                "frequency",
+                "time",
+                "timezone",
+                "days",
+                "include_market_analyst",
+                "task_guidelines",
+                "disclosure_since_days",
+                "search_time_range",
+                "market_period",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _process_id_tool(name: str, description: str) -> ToolSpec:
     return {
@@ -348,6 +492,7 @@ SCHEDULER_MANAGEMENT_TOOLS: list[ToolSpec] = [
 ]
 SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL,
+    SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
     SCHEDULER_LIST_PROCESSES_TOOL,
     SCHEDULER_PAUSE_PROCESS_TOOL,
     SCHEDULER_RESUME_PROCESS_TOOL,
@@ -395,6 +540,10 @@ def build_scheduler_agent_tool_mapping(
     return {
         "scheduler_instrument_monitor_create": partial(
             scheduler_instrument_monitor_create,
+            runtime=runtime,
+        ),
+        "scheduler_company_event_analyst_create": partial(
+            scheduler_company_event_analyst_create,
             runtime=runtime,
         ),
         "scheduler_list_processes": partial(scheduler_list_processes, runtime=runtime),
@@ -499,6 +648,76 @@ def scheduler_instrument_monitor_create(
             f"Lifecycle: {process.lifecycle.completion_policy.value}, "
             f"expiresAt={process.lifecycle.expires_at}. "
             "No broker action was configured."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_company_event_analyst_create", run_type="tool")
+def scheduler_company_event_analyst_create(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    event_type: str,
+    schedule_type: str,
+    run_at: str | None,
+    frequency: str | None,
+    time: str | None,
+    timezone: str | None,
+    days: list[str],
+    include_market_analyst: bool,
+    task_guidelines: str,
+    disclosure_since_days: int,
+    search_time_range: str,
+    market_period: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="scheduler",
+        tool_name="scheduler_company_event_analyst_create",
+    )
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_company_event_analyst(
+            title=title,
+            description=description,
+            symbol=symbol,
+            event_type=event_type,
+            schedule_type=schedule_type,
+            run_at=run_at,
+            frequency=frequency,
+            time_value=time,
+            timezone_name=timezone,
+            days=days,
+            include_market_analyst=include_market_analyst,
+            task_guidelines=task_guidelines,
+            disclosure_since_days=disclosure_since_days,
+            search_time_range=search_time_range,
+            market_period=market_period,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _company_event_exception(exc)
+    schedule_summary = (
+        f"one-shot at {process.schedule.run_at}"
+        if process.schedule.type.value == "one_shot"
+        else (
+            f"recurring {process.schedule.frequency} at {process.schedule.time} "
+            f"{process.schedule.timezone}"
+        )
+    )
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created company-event analyst process {process.process_id}: "
+            f"{process.title}. Schedule: {schedule_summary}. Lifecycle: "
+            f"{process.lifecycle.completion_policy.value}. No broker action was configured."
         ),
         data={"process": _process_payload(process)},
     )
@@ -665,6 +884,113 @@ def _create_instrument_monitor(
     )
 
 
+def _create_company_event_analyst(
+    *,
+    title: str | None,
+    description: str,
+    symbol: str,
+    event_type: str,
+    schedule_type: str,
+    run_at: str | None,
+    frequency: str | None,
+    time_value: str | None,
+    timezone_name: str | None,
+    days: list[str],
+    include_market_analyst: bool,
+    task_guidelines: str,
+    disclosure_since_days: int,
+    search_time_range: str,
+    market_period: str,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError("broker_actions_allowed must be false; broker actions are unsupported.")
+    resolved_symbol = str(symbol or "").strip().upper()
+    if not resolved_symbol:
+        raise ValueError("symbol is required for company-event analyst creation.")
+    resolved_event_type = str(event_type or "company_event").strip()
+    if resolved_event_type not in COMPANY_EVENT_TYPES:
+        raise ValueError(f"Unsupported event_type '{event_type}'.")
+    resolved_schedule_type = str(schedule_type or "").strip()
+    if resolved_schedule_type not in COMPANY_EVENT_SCHEDULE_TYPES:
+        raise ValueError("schedule_type must be one_shot or recurring.")
+
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    _zone_info(tz_name)
+    if resolved_schedule_type == "one_shot":
+        schedule = {
+            "type": "one_shot",
+            "runAt": _resolve_run_at(run_at, timezone_name=tz_name).isoformat(),
+        }
+        completion_policy = "complete_on_first_run"
+    else:
+        resolved_frequency = str(frequency or "").strip().lower()
+        if resolved_frequency not in COMPANY_EVENT_FREQUENCIES:
+            raise ValueError("recurring schedules require frequency daily, weekdays, or weekly.")
+        resolved_time = str(time_value or "").strip()
+        if not resolved_time:
+            raise ValueError("recurring schedules require time.")
+        schedule = {
+            "type": "recurring",
+            "frequency": resolved_frequency,
+            "time": resolved_time,
+            "timezone": tz_name,
+            "days": list(days or []),
+        }
+        completion_policy = "keep_running"
+
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = f"{resolved_symbol} {resolved_event_type.replace('_', ' ')} analysis"
+
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="company_event_analyst",
+        execution_mode="llm_assisted",
+        schedule=schedule,
+        trigger={
+            "type": "company_event",
+            "symbol": resolved_symbol,
+            "eventType": resolved_event_type,
+        },
+        inputs={
+            "symbols": [resolved_symbol],
+            "eventType": resolved_event_type,
+            "disclosureSinceDays": _positive_int(
+                disclosure_since_days,
+                fallback=30,
+                field_name="disclosure_since_days",
+            ),
+            "searchTimeRange": str(search_time_range or "week").strip() or "week",
+            "marketPeriod": str(market_period or "1mo").strip() or "1mo",
+        },
+        llm_scope={
+            "taskGuidelines": str(task_guidelines or "").strip(),
+            "includeMarketAnalyst": bool(include_market_analyst),
+        },
+        action={"type": "notify_only"},
+        notification={"enabled": bool(notification_enabled)},
+        lifecycle={"completionPolicy": completion_policy},
+        safety={"brokerActionsAllowed": False},
+    )
+
+
+def _resolve_run_at(run_at: str | None, *, timezone_name: str) -> datetime:
+    raw = str(run_at or "").strip()
+    if not raw:
+        raise ValueError("one_shot schedules require run_at.")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("run_at must be a valid ISO-8601 datetime.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_zone_info(timezone_name))
+    return parsed.astimezone(timezone.utc)
+
+
 def _positive_int(value: int | None, *, fallback: int, field_name: str) -> int:
     resolved = fallback if value is None else value
     try:
@@ -780,6 +1106,24 @@ def _instrument_monitor_exception(exc: Exception) -> ToolResult:
                 "Provide symbol, a supported trigger_type, value for price or "
                 "percent-change triggers, positive poll_every_seconds if supplied, "
                 "and keep broker_actions_allowed=false."
+            ),
+            retryable=False,
+        ),
+    )
+
+
+def _company_event_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Company-event analyst creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_company_event_analyst_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide symbol and a supported one_shot or recurring schedule. "
+                "one_shot requires run_at; recurring requires frequency, time, and "
+                "timezone. Keep broker_actions_allowed=false."
             ),
             retryable=False,
         ),

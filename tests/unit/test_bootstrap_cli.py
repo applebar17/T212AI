@@ -458,6 +458,7 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert "- Scheduler notifications: unavailable" in output
     assert "- Scheduler instrument monitor: available" in output
     assert "- Scheduler delegate: unavailable" in output
+    assert "- Scheduler company event analyst: unavailable" in output
 
 
 def test_doctor_returns_nonzero_for_partial_reddit_config(tmp_path, capsys) -> None:
@@ -684,6 +685,7 @@ def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) ->
     assert result is not None
     assert calls["service"] is FakeRuntime.scheduled_process_service
     assert "instrument_monitor" in calls["adapters"]
+    assert "company_event_analyst" in calls["adapters"]
     assert calls["notification_service"] is FakeRuntime.scheduler_notification_service
     assert calls["limit"] == 7
 

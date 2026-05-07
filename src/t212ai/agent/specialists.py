@@ -1331,16 +1331,18 @@ class SchedulerAgent(BaseAgent):
                     "from natural language."
                 ),
                 guidelines=(
-                    "Use only the private scheduler tools. Create only executable "
-                    "instrument_monitor jobs; do not create company, market-regime, "
-                    "trade-setup, or unsupported process kinds. Creation must use "
-                    "executionMode=deterministic, polling schedules, "
-                    "complete_on_first_match lifecycle by default, notifications on "
-                    "by default, and brokerActionsAllowed=false. Ask one concise "
-                    "clarification question if symbol, trigger direction, or required "
-                    "threshold value is missing or ambiguous. Pause, resume, and archive "
-                    "require an exact process_id; if the user refers by symbol or title, "
-                    "list candidates and ask the user to choose. Never configure broker "
+                    "Use only the private scheduler tools. Create only supported "
+                    "instrument_monitor and company_event_analyst jobs; do not create "
+                    "market-regime, trade-setup, or unsupported process kinds. "
+                    "Instrument monitors must use deterministic polling schedules. "
+                    "Company-event analyst jobs must use llm_assisted one-shot or "
+                    "recurring schedules and notify-only action. Ask one concise "
+                    "clarification question if symbol, schedule, trigger direction, "
+                    "or required threshold value is missing or ambiguous. Set "
+                    "includeMarketAnalyst only when the user asks for broader market "
+                    "impact, reaction, or context. Pause, resume, and archive require "
+                    "an exact process_id; if the user refers by symbol or title, list "
+                    "candidates and ask the user to choose. Never configure broker "
                     "actions, order proposals, autonomous execution, or deletion. "
                     "Responses must state the action result, process_id when created or "
                     "changed, schedule/lifecycle summary, and that no broker action was "
@@ -1348,7 +1350,8 @@ class SchedulerAgent(BaseAgent):
                 ),
                 toolbox_summary=(
                     "Private scheduler tools: create deterministic instrument monitors, "
-                    "list scheduled processes, pause/resume/archive exact process ids. "
+                    "create LLM-assisted company-event analyst jobs, list scheduled "
+                    "processes, pause/resume/archive exact process ids. "
                     + render_tool_descriptions(SCHEDULER_AGENT_TOOLBOX)
                 ),
                 task_complexity=TaskComplexity.COMPLEX,

@@ -41,6 +41,7 @@ from .schemas import (
     AgentRequest,
     AgentResponse,
 )
+from .structured import StructuredAgentOutputSynthesizer
 from .specialists import (
     CalculatorAgent,
     CompanyAnalystAgent,
@@ -86,6 +87,7 @@ __all__ = [
     "PortfolioAnalystAgent",
     "SchedulerAgent",
     "SpecialistAgents",
+    "StructuredAgentOutputSynthesizer",
     "TaskComplexity",
     "ToolStep",
     "build_specialist_agents",

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     set_trace_metadata,
@@ -152,6 +153,34 @@ class BaseAgent:
         )
         del request, plan
         return None
+
+    def handle_structured(
+        self,
+        schema: type[BaseModel],
+        request: AgentRequest,
+        *,
+        response: AgentResponse | None = None,
+        instructions: str = "",
+        context: dict[str, Any] | None = None,
+        intent: AgentIntent | None = None,
+        task_complexity: TaskComplexity | None = None,
+    ) -> BaseModel:
+        from .structured import StructuredAgentOutputSynthesizer
+
+        source_response = response or self.handle(
+            request,
+            intent=intent,
+            task_complexity=task_complexity,
+        )
+        return StructuredAgentOutputSynthesizer(self.reasoner.genai).synthesize(
+            schema,
+            source_agent_name=self.name,
+            source_response=source_response,
+            user_request=request.user_message,
+            instructions=instructions,
+            context=context or {},
+            task_complexity=task_complexity or self.resolve_complexity(request.user_message),
+        )
 
     def _history_for_prompt(
         self,

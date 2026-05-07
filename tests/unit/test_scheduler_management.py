@@ -11,6 +11,7 @@ from t212ai.scheduler import (
     build_scheduler_agent_tool_mapping,
     build_scheduler_management_tool_mapping,
     scheduler_archive_process,
+    scheduler_company_event_analyst_create,
     scheduler_create_process,
     scheduler_instrument_monitor_create,
     scheduler_list_processes,
@@ -232,11 +233,148 @@ def test_scheduler_instrument_monitor_create_rejects_invalid_inputs(tmp_path: Pa
         assert result.error.code == "invalid_instrument_monitor_spec"
 
 
+def test_scheduler_company_event_analyst_create_one_shot_applies_defaults(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="UTC",
+    )
+
+    result = scheduler_company_event_analyst_create(
+        title=None,
+        description="Analyze the quarterly report after publication.",
+        symbol="msft",
+        event_type="earnings_report",
+        schedule_type="one_shot",
+        run_at="2026-05-07T22:00:00Z",
+        frequency=None,
+        time=None,
+        timezone=None,
+        days=[],
+        include_market_analyst=True,
+        task_guidelines="Focus on Azure, guidance, risks, and thesis impact.",
+        disclosure_since_days=30,
+        search_time_range="week",
+        market_period="1mo",
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert "No broker action" in result.output
+    process_id = result.data["process"]["processId"]
+    process = service.get_process(process_id)
+    assert process is not None
+    assert process.kind.value == "company_event_analyst"
+    assert process.execution_mode.value == "llm_assisted"
+    assert process.schedule.type.value == "one_shot"
+    assert process.schedule.run_at == datetime(2026, 5, 7, 22, 0, tzinfo=timezone.utc)
+    assert process.trigger == {
+        "type": "company_event",
+        "symbol": "MSFT",
+        "eventType": "earnings_report",
+    }
+    assert process.inputs["disclosureSinceDays"] == 30
+    assert process.inputs["searchTimeRange"] == "week"
+    assert process.inputs["marketPeriod"] == "1mo"
+    assert process.llm_scope["includeMarketAnalyst"] is True
+    assert process.action == {"type": "notify_only"}
+    assert process.lifecycle.completion_policy.value == "complete_on_first_run"
+    assert process.notification == {"enabled": True}
+    assert process.safety.broker_actions_allowed is False
+
+
+def test_scheduler_company_event_analyst_create_recurring_applies_defaults(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="Europe/Rome",
+    )
+
+    result = scheduler_company_event_analyst_create(
+        title="AAPL weekly filing review",
+        description="Weekly company-event scan.",
+        symbol="AAPL",
+        event_type="filing",
+        schedule_type="recurring",
+        run_at=None,
+        frequency="weekdays",
+        time="22:00",
+        timezone=None,
+        days=[],
+        include_market_analyst=False,
+        task_guidelines="Summarize only material changes.",
+        disclosure_since_days=15,
+        search_time_range="month",
+        market_period="3mo",
+        notification_enabled=False,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.schedule.type.value == "recurring"
+    assert process.schedule.frequency == "weekdays"
+    assert process.schedule.time == "22:00"
+    assert process.schedule.timezone == "Europe/Rome"
+    assert process.lifecycle.completion_policy.value == "keep_running"
+    assert process.llm_scope["includeMarketAnalyst"] is False
+    assert process.notification == {"enabled": False}
+
+
+def test_scheduler_company_event_analyst_create_rejects_invalid_inputs(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+    base = {
+        "title": None,
+        "description": "",
+        "symbol": "MSFT",
+        "event_type": "company_event",
+        "schedule_type": "one_shot",
+        "run_at": "2026-05-07T22:00:00Z",
+        "frequency": None,
+        "time": None,
+        "timezone": None,
+        "days": [],
+        "include_market_analyst": False,
+        "task_guidelines": "",
+        "disclosure_since_days": 30,
+        "search_time_range": "week",
+        "market_period": "1mo",
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    missing_symbol = scheduler_company_event_analyst_create(**{**base, "symbol": ""})
+    missing_run_at = scheduler_company_event_analyst_create(**{**base, "run_at": None})
+    unsupported_event = scheduler_company_event_analyst_create(
+        **{**base, "event_type": "arbitrary_prompt"}
+    )
+    unsafe = scheduler_company_event_analyst_create(
+        **{**base, "broker_actions_allowed": True}
+    )
+
+    for result in (missing_symbol, missing_run_at, unsupported_event, unsafe):
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error.code == "invalid_company_event_analyst_spec"
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 
     assert set(mapping) == {
         "scheduler_instrument_monitor_create",
+        "scheduler_company_event_analyst_create",
         "scheduler_list_processes",
         "scheduler_pause_process",
         "scheduler_resume_process",

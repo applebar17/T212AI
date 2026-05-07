@@ -19,6 +19,7 @@ from .models import (
 from .management import (
     SCHEDULER_AGENT_TOOLBOX,
     SCHEDULER_AGENT_TOOLS,
+    SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
     SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL,
     SCHEDULER_MANAGEMENT_TOOLBOX,
     SCHEDULER_MANAGEMENT_TOOLS,
@@ -26,6 +27,7 @@ from .management import (
     build_scheduler_agent_tool_mapping,
     build_scheduler_management_tool_mapping,
     scheduler_archive_process,
+    scheduler_company_event_analyst_create,
     scheduler_create_process,
     scheduler_instrument_monitor_create,
     scheduler_list_processes,
@@ -42,6 +44,13 @@ from .notification import (
 )
 from .orm import ScheduledProcessEventRow, ScheduledProcessRow, ScheduledProcessRunRow
 from .service import ScheduledProcessService
+from .company_event_analyst import (
+    CompanyEventAnalysis,
+    CompanyEventAnalystAdapter,
+    CompanyEventDirection,
+    CompanyEventImpactHorizon,
+    CompanyEventType,
+)
 from .worker import (
     ScheduledAdapterResult,
     ScheduledProcessAdapter,
@@ -54,6 +63,11 @@ from .registry import build_scheduler_adapter_registry
 
 __all__ = [
     "LifecycleCompletionPolicy",
+    "CompanyEventAnalysis",
+    "CompanyEventAnalystAdapter",
+    "CompanyEventDirection",
+    "CompanyEventImpactHorizon",
+    "CompanyEventType",
     "InstrumentMonitorAdapter",
     "LifecycleSpec",
     "ScheduledEventType",
@@ -79,6 +93,7 @@ __all__ = [
     "SafetySpec",
     "SCHEDULER_AGENT_TOOLBOX",
     "SCHEDULER_AGENT_TOOLS",
+    "SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL",
     "SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL",
     "SCHEDULER_MANAGEMENT_TOOLBOX",
     "SCHEDULER_MANAGEMENT_TOOLS",
@@ -93,6 +108,7 @@ __all__ = [
     "build_scheduler_management_tool_mapping",
     "build_scheduler_adapter_registry",
     "scheduler_archive_process",
+    "scheduler_company_event_analyst_create",
     "scheduler_create_process",
     "scheduler_instrument_monitor_create",
     "scheduler_list_processes",

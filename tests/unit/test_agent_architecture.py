@@ -305,6 +305,35 @@ class SchedulerGenAIClient(FakeGenAIClient):
                     broker_actions_allowed=False,
                 )
                 return _fake_chat_response(str(result.output))
+            if (
+                "quarterly report" in text
+                and "22:00" in text
+                and "scheduler_company_event_analyst_create" in tools_mapping
+            ):
+                result = tools_mapping["scheduler_company_event_analyst_create"](
+                    title=None,
+                    description="Analyze MSFT quarterly reporting after publication.",
+                    symbol="MSFT",
+                    event_type="earnings_report",
+                    schedule_type="one_shot",
+                    run_at="2026-05-07T22:00:00Z",
+                    frequency=None,
+                    time=None,
+                    timezone=None,
+                    days=[],
+                    include_market_analyst=False,
+                    task_guidelines="Focus on guidance, risks, and thesis impact.",
+                    disclosure_since_days=30,
+                    search_time_range="week",
+                    market_period="1mo",
+                    notification_enabled=True,
+                    broker_actions_allowed=False,
+                )
+                return _fake_chat_response(str(result.output))
+            if "quarterly report" in text and "scheduler_company_event_analyst_create" in tools_mapping:
+                return _fake_chat_response(
+                    "What exact date/time or recurrence should I use for this analysis?"
+                )
             if "alert me when tsla goes below" in text:
                 return _fake_chat_response(
                     "Which threshold should I use for the TSLA alert?"
@@ -1112,6 +1141,56 @@ def test_scheduler_agent_creates_instrument_monitor_through_private_tool(
     assert processes[0].trigger["type"] == "below_price"
     assert processes[0].safety.broker_actions_allowed is False
     assert "No broker action" in response.final_answer
+
+
+def test_scheduler_agent_creates_company_event_analyst_through_private_tool(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+        default_timezone="UTC",
+        default_poll_every_seconds=300,
+    )
+
+    response = agent.handle(
+        AgentRequest(
+            user_message="At 22:00 UTC analyze MSFT quarterly report",
+            chat_id="chat",
+        ),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    processes = service.list_processes(statuses=["active"], kinds=["company_event_analyst"])
+    assert response.selected_agent == "scheduler_agent"
+    assert response.metadata["workflow"] == "scheduler_delegation"
+    assert len(processes) == 1
+    assert processes[0].execution_mode.value == "llm_assisted"
+    assert processes[0].schedule.type.value == "one_shot"
+    assert processes[0].trigger["symbol"] == "MSFT"
+    assert processes[0].trigger["eventType"] == "earnings_report"
+    assert processes[0].action == {"type": "notify_only"}
+    assert processes[0].safety.broker_actions_allowed is False
+    assert "No broker action" in response.final_answer
+
+
+def test_scheduler_agent_asks_clarification_when_company_event_schedule_is_missing(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    agent = SchedulerAgent(
+        AgentReasoner(SchedulerGenAIClient()),  # type: ignore[arg-type]
+        scheduled_process_service=service,
+    )
+
+    response = agent.handle(
+        AgentRequest(user_message="analyze MSFT quarterly report", chat_id="chat"),
+        intent=AgentIntent(kind=IntentKind.MANAGE_SCHEDULED_PROCESSES),
+    )
+
+    assert "What exact date/time or recurrence" in response.final_answer
+    assert service.list_processes() == []
 
 
 def test_scheduler_agent_asks_clarification_when_threshold_is_missing(
