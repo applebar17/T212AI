@@ -9,6 +9,7 @@ from sqlalchemy import inspect, select
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.scheduler import (
     ScheduledEventType,
+    ScheduledProcessLockRow,
     ScheduledProcessRow,
     ScheduledProcessService,
     ScheduledProcessStatus,
@@ -351,6 +352,120 @@ def test_scheduler_records_skipped_run_without_failure_count(tmp_path: Path) -> 
     ]
 
 
+def test_scheduler_leases_prevent_duplicate_claims_and_allow_reclaim(
+    tmp_path: Path,
+) -> None:
+    service_a, _, session_factory = _service(tmp_path)
+    service_b = ScheduledProcessService(session_factory)
+    process = _create_process(service_a, schedule=_polling(60))
+
+    first_claims = service_a.claim_due_processes(
+        worker_id="worker-a",
+        lease_seconds=60,
+        now=BASE_NOW,
+    )
+    second_claims = service_b.claim_due_processes(
+        worker_id="worker-b",
+        lease_seconds=60,
+        now=BASE_NOW + timedelta(seconds=1),
+    )
+    reclaimed = service_b.claim_due_processes(
+        worker_id="worker-b",
+        lease_seconds=60,
+        now=BASE_NOW + timedelta(seconds=61),
+    )
+
+    assert [claim.process.process_id for claim in first_claims] == [process.process_id]
+    assert second_claims == []
+    assert [claim.process.process_id for claim in reclaimed] == [process.process_id]
+    assert reclaimed[0].worker_id == "worker-b"
+    assert service_a.release_process_lease(process.process_id, reclaimed[0].lease_token)
+    assert not service_a.release_process_lease(process.process_id, reclaimed[0].lease_token)
+
+
+def test_scheduler_recovers_stale_started_runs_but_preserves_active_leases(
+    tmp_path: Path,
+) -> None:
+    service, _, _ = _service(tmp_path)
+    stale_process = _create_process(service, title="stale", schedule=_polling(60))
+    leased_process = _create_process(service, title="leased", schedule=_polling(60))
+    stale_run = service.record_run_started(
+        stale_process.process_id,
+        now=BASE_NOW - timedelta(hours=2),
+    )
+    leased_run = service.record_run_started(
+        leased_process.process_id,
+        now=BASE_NOW - timedelta(hours=2),
+    )
+    claims = service.claim_due_processes(
+        worker_id="active-worker",
+        lease_seconds=3600,
+        now=BASE_NOW,
+        limit=10,
+    )
+    for claim in claims:
+        if claim.process.process_id == stale_process.process_id:
+            service.release_process_lease(claim.process.process_id, claim.lease_token)
+
+    dry_run = service.recover_stale_runs(
+        stale_after_seconds=3600,
+        now=BASE_NOW,
+        dry_run=True,
+    )
+    applied = service.recover_stale_runs(
+        stale_after_seconds=3600,
+        now=BASE_NOW,
+        dry_run=False,
+    )
+
+    assert dry_run.dry_run is True
+    assert stale_run.run_id in dry_run.run_ids
+    assert leased_run.run_id not in dry_run.run_ids
+    assert applied.changed_count == 1
+    recovered_run = service.list_runs(stale_process.process_id)[0]
+    untouched_run = service.list_runs(leased_process.process_id)[0]
+    recovered_process = service.get_process(stale_process.process_id)
+    assert recovered_run.status == ScheduledRunStatus.FAILED
+    assert recovered_run.error_code == "stale_run_recovered"
+    assert untouched_run.status == ScheduledRunStatus.STARTED
+    assert recovered_process.failure_count == 1
+
+
+def test_scheduler_cleanup_archived_before_and_export(tmp_path: Path) -> None:
+    service, _, _ = _service(tmp_path)
+    old_process = _create_process(service, title="old archived", schedule=_polling(60))
+    keep_process = _create_process(service, title="recent archived", schedule=_polling(60))
+    active_process = _create_process(service, title="active", schedule=_polling(60))
+    run = service.record_run_started(old_process.process_id, now=BASE_NOW)
+    service.record_run_completed(run.run_id, now=BASE_NOW + timedelta(seconds=1))
+    service.archive_process(old_process.process_id, now=BASE_NOW + timedelta(days=1))
+    service.archive_process(keep_process.process_id, now=BASE_NOW + timedelta(days=10))
+
+    dry_run = service.delete_archived_before(
+        BASE_NOW + timedelta(days=2),
+        dry_run=True,
+    )
+    assert dry_run.matched_count == 1
+    assert dry_run.changed_count == 0
+    assert dry_run.run_count == 1
+    assert dry_run.event_count >= 1
+    assert service.get_process(old_process.process_id) is not None
+
+    applied = service.delete_archived_before(
+        BASE_NOW + timedelta(days=2),
+        dry_run=False,
+    )
+    exported = service.export_processes(include_runs=True, include_events=True)
+
+    assert applied.changed_count == 1
+    assert service.get_process(old_process.process_id) is None
+    assert service.get_process(keep_process.process_id) is not None
+    assert service.get_process(active_process.process_id) is not None
+    assert exported["schema"] == "brokerai.scheduler.export.v1"
+    assert exported["processCount"] == 2
+    assert all("runs" in item and "events" in item for item in exported["processes"])
+
+
 def test_scheduler_completion_policies_and_cooldown_are_deterministic(
     tmp_path: Path,
 ) -> None:
@@ -408,3 +523,4 @@ def test_scheduler_schema_is_registered_when_package_is_imported(tmp_path: Path)
     assert inspector.has_table("scheduled_processes")
     assert inspector.has_table("scheduled_process_runs")
     assert inspector.has_table("scheduled_process_events")
+    assert inspector.has_table("scheduled_process_locks")

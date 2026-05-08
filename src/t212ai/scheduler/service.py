@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
 import json
@@ -31,7 +32,12 @@ from .models import (
     ScheduleType,
     SafetySpec,
 )
-from .orm import ScheduledProcessEventRow, ScheduledProcessRow, ScheduledProcessRunRow
+from .orm import (
+    ScheduledProcessEventRow,
+    ScheduledProcessLockRow,
+    ScheduledProcessRow,
+    ScheduledProcessRunRow,
+)
 
 
 TERMINAL_PROCESS_STATUSES = {
@@ -69,6 +75,26 @@ UNSAFE_ACTION_TYPES = {
     "place_order",
     "submit_order",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledProcessClaim:
+    process: ScheduledProcess
+    lease_token: str
+    worker_id: str
+    leased_until: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SchedulerMaintenanceResult:
+    matched_count: int = 0
+    changed_count: int = 0
+    process_ids: tuple[str, ...] = ()
+    run_ids: tuple[str, ...] = ()
+    event_count: int = 0
+    run_count: int = 0
+    dry_run: bool = True
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ScheduledProcessService:
@@ -206,6 +232,299 @@ class ScheduledProcessService:
                 )
             query = query.order_by(desc(ScheduledProcessRow.updated_at)).limit(resolved_limit)
             return [_process_model(row) for row in session.scalars(query).all()]
+
+    def claim_due_processes(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+        limit: int = 100,
+    ) -> list[ScheduledProcessClaim]:
+        resolved_worker = _required_text(worker_id, "worker_id")
+        resolved_lease_seconds = _positive_int(lease_seconds, "lease_seconds")
+        cutoff = _ensure_aware(now) if now is not None else _utc_now()
+        leased_until = cutoff + timedelta(seconds=resolved_lease_seconds)
+        resolved_limit = _safe_limit(limit, default=100, maximum=500)
+        claims: list[ScheduledProcessClaim] = []
+        with self._session_scope() as session:
+            self._expire_active_processes(session, cutoff)
+            query = (
+                select(ScheduledProcessRow)
+                .where(
+                    ScheduledProcessRow.status == ScheduledProcessStatus.ACTIVE.value,
+                    ScheduledProcessRow.next_run_at.is_not(None),
+                    ScheduledProcessRow.next_run_at <= cutoff,
+                )
+                .order_by(asc(ScheduledProcessRow.next_run_at))
+                .limit(resolved_limit)
+            )
+            for process in session.scalars(query).all():
+                lock = session.get(ScheduledProcessLockRow, process.process_id)
+                if lock is not None and _ensure_aware(lock.leased_until) > cutoff:
+                    continue
+                lease_token = _new_lease_token()
+                if lock is None:
+                    lock = ScheduledProcessLockRow(
+                        process_id=process.process_id,
+                        lease_token=lease_token,
+                        worker_id=resolved_worker,
+                        leased_until=leased_until,
+                        created_at=cutoff,
+                        updated_at=cutoff,
+                    )
+                    session.add(lock)
+                else:
+                    lock.lease_token = lease_token
+                    lock.worker_id = resolved_worker
+                    lock.leased_until = leased_until
+                    lock.updated_at = cutoff
+                claims.append(
+                    ScheduledProcessClaim(
+                        process=_process_model(process),
+                        lease_token=lease_token,
+                        worker_id=resolved_worker,
+                        leased_until=leased_until,
+                    )
+                )
+            session.flush()
+            return claims
+
+    def release_process_lease(self, process_id: str, lease_token: str) -> bool:
+        with self._session_scope() as session:
+            lock = session.get(ScheduledProcessLockRow, str(process_id))
+            if lock is None or lock.lease_token != str(lease_token):
+                return False
+            session.delete(lock)
+            session.flush()
+            return True
+
+    def recover_stale_runs(
+        self,
+        *,
+        stale_after_seconds: int,
+        now: datetime | None = None,
+        limit: int = 100,
+        dry_run: bool = False,
+    ) -> SchedulerMaintenanceResult:
+        resolved_stale_after = _positive_int(stale_after_seconds, "stale_after_seconds")
+        resolved_now = _ensure_aware(now) if now is not None else _utc_now()
+        cutoff = resolved_now - timedelta(seconds=resolved_stale_after)
+        resolved_limit = _safe_limit(limit, default=100, maximum=500)
+        matched_run_ids: list[str] = []
+        changed_run_ids: list[str] = []
+        changed_process_ids: list[str] = []
+        with self._session_scope() as session:
+            query = (
+                select(ScheduledProcessRunRow)
+                .where(
+                    ScheduledProcessRunRow.status == ScheduledRunStatus.STARTED.value,
+                    ScheduledProcessRunRow.started_at <= cutoff,
+                )
+                .order_by(asc(ScheduledProcessRunRow.started_at))
+                .limit(resolved_limit)
+            )
+            rows = list(session.scalars(query).all())
+            for row in rows:
+                lock = session.get(ScheduledProcessLockRow, row.process_id)
+                if lock is not None and _ensure_aware(lock.leased_until) > resolved_now:
+                    continue
+                matched_run_ids.append(row.run_id)
+                if dry_run:
+                    continue
+                process = _required_process_row(session, row.process_id)
+                row.status = ScheduledRunStatus.FAILED.value
+                row.finished_at = resolved_now
+                row.matched = 0
+                row.error_code = "stale_run_recovered"
+                row.error_message = (
+                    "Scheduler recovered a stale started run after worker interruption."
+                )
+                metadata = _load_json_dict(row.metadata_json)
+                metadata["staleRecoveredAt"] = resolved_now.isoformat()
+                metadata["staleCutoff"] = cutoff.isoformat()
+                row.metadata_json = _json_dict(metadata)
+                process.last_run_at = resolved_now
+                process.last_status = ScheduledRunStatus.FAILED.value
+                process.failure_count = int(process.failure_count or 0) + 1
+                process.updated_at = resolved_now
+                if process.status == ScheduledProcessStatus.ACTIVE.value:
+                    process.next_run_at = _next_run_after_completion(
+                        _schedule_model(process),
+                        _lifecycle_model(process),
+                        resolved_now,
+                        matched=False,
+                    )
+                _add_event(
+                    session,
+                    process_id=process.process_id,
+                    run_id=row.run_id,
+                    event_type=ScheduledEventType.RUN_FAILED,
+                    message=row.error_message,
+                    created_at=resolved_now,
+                    details={"errorCode": row.error_code, "recovered": True},
+                )
+                changed_run_ids.append(row.run_id)
+                changed_process_ids.append(process.process_id)
+            session.flush()
+            return SchedulerMaintenanceResult(
+                matched_count=len(matched_run_ids),
+                changed_count=len(changed_run_ids),
+                process_ids=tuple(dict.fromkeys(changed_process_ids)),
+                run_ids=tuple(matched_run_ids),
+                dry_run=bool(dry_run),
+                metadata={
+                    "staleAfterSeconds": resolved_stale_after,
+                    "cutoff": cutoff.isoformat(),
+                },
+            )
+
+    def delete_archived_before(
+        self,
+        cutoff: datetime,
+        *,
+        dry_run: bool = True,
+    ) -> SchedulerMaintenanceResult:
+        resolved_cutoff = _ensure_aware(cutoff)
+        with self._session_scope() as session:
+            processes = list(
+                session.scalars(
+                    select(ScheduledProcessRow)
+                    .where(
+                        ScheduledProcessRow.status == ScheduledProcessStatus.ARCHIVED.value,
+                        ScheduledProcessRow.updated_at <= resolved_cutoff,
+                    )
+                    .order_by(asc(ScheduledProcessRow.updated_at))
+                ).all()
+            )
+            process_ids = [row.process_id for row in processes]
+            if not process_ids:
+                return SchedulerMaintenanceResult(dry_run=bool(dry_run))
+            runs = list(
+                session.scalars(
+                    select(ScheduledProcessRunRow).where(
+                        ScheduledProcessRunRow.process_id.in_(process_ids)
+                    )
+                ).all()
+            )
+            events = list(
+                session.scalars(
+                    select(ScheduledProcessEventRow).where(
+                        ScheduledProcessEventRow.process_id.in_(process_ids)
+                    )
+                ).all()
+            )
+            locks = list(
+                session.scalars(
+                    select(ScheduledProcessLockRow).where(
+                        ScheduledProcessLockRow.process_id.in_(process_ids)
+                    )
+                ).all()
+            )
+            if not dry_run:
+                for row in [*events, *runs, *locks, *processes]:
+                    session.delete(row)
+                session.flush()
+            return SchedulerMaintenanceResult(
+                matched_count=len(process_ids),
+                changed_count=0 if dry_run else len(process_ids),
+                process_ids=tuple(process_ids),
+                run_count=len(runs),
+                event_count=len(events),
+                dry_run=bool(dry_run),
+                metadata={"cutoff": resolved_cutoff.isoformat()},
+            )
+
+    def scheduler_status(self, *, now: datetime | None = None) -> dict[str, Any]:
+        resolved_now = _ensure_aware(now) if now is not None else _utc_now()
+        with self._session_scope() as session:
+            self._expire_active_processes(session, resolved_now)
+            processes = list(session.scalars(select(ScheduledProcessRow)).all())
+            started_runs = list(
+                session.scalars(
+                    select(ScheduledProcessRunRow).where(
+                        ScheduledProcessRunRow.status == ScheduledRunStatus.STARTED.value
+                    )
+                ).all()
+            )
+            active_locks = list(
+                session.scalars(
+                    select(ScheduledProcessLockRow).where(
+                        ScheduledProcessLockRow.leased_until > resolved_now
+                    )
+                ).all()
+            )
+            due_count = sum(
+                1
+                for process in processes
+                if process.status == ScheduledProcessStatus.ACTIVE.value
+                and process.next_run_at is not None
+                and _ensure_aware(process.next_run_at) <= resolved_now
+            )
+            by_status: dict[str, int] = {}
+            by_kind: dict[str, int] = {}
+            for process in processes:
+                by_status[process.status] = by_status.get(process.status, 0) + 1
+                by_kind[process.kind] = by_kind.get(process.kind, 0) + 1
+            return {
+                "asOf": resolved_now.isoformat(),
+                "processCount": len(processes),
+                "processesByStatus": dict(sorted(by_status.items())),
+                "processesByKind": dict(sorted(by_kind.items())),
+                "dueCount": due_count,
+                "startedRunCount": len(started_runs),
+                "activeLeaseCount": len(active_locks),
+                "oldestStartedRunAt": (
+                    min(_ensure_aware(row.started_at) for row in started_runs).isoformat()
+                    if started_runs
+                    else None
+                ),
+                "nextRunAt": (
+                    min(
+                        _ensure_aware(row.next_run_at)
+                        for row in processes
+                        if row.next_run_at is not None
+                        and row.status == ScheduledProcessStatus.ACTIVE.value
+                    ).isoformat()
+                    if any(
+                        row.next_run_at is not None
+                        and row.status == ScheduledProcessStatus.ACTIVE.value
+                        for row in processes
+                    )
+                    else None
+                ),
+            }
+
+    def export_processes(
+        self,
+        *,
+        statuses: list[ScheduledProcessStatus | str] | None = None,
+        kinds: list[ScheduledProcessKind | str] | None = None,
+        include_runs: bool = False,
+        include_events: bool = False,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        processes = self.list_processes(statuses=statuses, kinds=kinds, limit=limit)
+        payload: list[dict[str, Any]] = []
+        for process in processes:
+            item = process.model_dump(by_alias=True, exclude_none=True, mode="json")
+            if include_runs:
+                item["runs"] = [
+                    run.model_dump(by_alias=True, exclude_none=True, mode="json")
+                    for run in self.list_runs(process.process_id, limit=500)
+                ]
+            if include_events:
+                item["events"] = [
+                    event.model_dump(by_alias=True, exclude_none=True, mode="json")
+                    for event in self.list_events(process.process_id, limit=500)
+                ]
+            payload.append(item)
+        return {
+            "schema": "brokerai.scheduler.export.v1",
+            "exportedAt": _utc_now().isoformat(),
+            "processCount": len(payload),
+            "processes": payload,
+        }
 
     def pause_process(
         self,
@@ -1089,6 +1408,16 @@ def _required_text(value: str, field_name: str) -> str:
     return resolved
 
 
+def _positive_int(value: int, field_name: str) -> int:
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive integer.") from exc
+    if resolved <= 0:
+        raise ValueError(f"{field_name} must be greater than zero.")
+    return resolved
+
+
 def _coerce_enum(enum_type: type[Enum], value: Any) -> Any:
     try:
         return value if isinstance(value, enum_type) else enum_type(str(value))
@@ -1125,3 +1454,7 @@ def _new_run_id() -> str:
 
 def _new_event_id() -> str:
     return f"evt_{uuid4().hex[:24]}"
+
+
+def _new_lease_token() -> str:
+    return f"lease_{uuid4().hex[:24]}"

@@ -48,8 +48,17 @@ from .notification import (
     SchedulerNotifier,
     TelegramSchedulerNotifier,
 )
-from .orm import ScheduledProcessEventRow, ScheduledProcessRow, ScheduledProcessRunRow
-from .service import ScheduledProcessService
+from .orm import (
+    ScheduledProcessEventRow,
+    ScheduledProcessLockRow,
+    ScheduledProcessRow,
+    ScheduledProcessRunRow,
+)
+from .service import (
+    ScheduledProcessClaim,
+    ScheduledProcessService,
+    SchedulerMaintenanceResult,
+)
 from .company_event_analyst import (
     CompanyEventAnalysis,
     CompanyEventAnalystAdapter,
@@ -107,11 +116,14 @@ __all__ = [
     "ScheduledProcess",
     "ScheduledProcessEvent",
     "ScheduledProcessEventRow",
+    "ScheduledProcessLockRow",
     "ScheduledProcessKind",
+    "ScheduledProcessClaim",
     "ScheduledProcessRow",
     "ScheduledProcessRun",
     "ScheduledProcessRunRow",
     "ScheduledProcessService",
+    "SchedulerMaintenanceResult",
     "ScheduledProcessSpec",
     "ScheduledProcessStatus",
     "ScheduledRunStatus",

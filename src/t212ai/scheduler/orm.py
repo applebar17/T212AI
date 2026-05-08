@@ -69,6 +69,17 @@ class ScheduledProcessRunRow(Base):
     metadata_json: Mapped[str] = mapped_column(Text)
 
 
+class ScheduledProcessLockRow(Base):
+    __tablename__ = "scheduled_process_locks"
+
+    process_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lease_token: Mapped[str] = mapped_column(String(64), index=True)
+    worker_id: Mapped[str] = mapped_column(String(128), index=True)
+    leased_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
 class ScheduledProcessEventRow(Base):
     __tablename__ = "scheduled_process_events"
 

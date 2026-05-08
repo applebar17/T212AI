@@ -1288,14 +1288,16 @@ Scope:
 - Stabilize the scheduler for long-running local use.
 - Add process catalog documentation and operational commands.
 - Add richer cleanup and observability.
+- Keep LLM-assisted jobs dynamic by default; operational controls must not make the user-facing scheduler feel rigid.
 
 Design details:
 
-- Add stale-run recovery if a worker dies mid-run.
-- Add run locking if concurrent workers become possible.
-- Add process export/import or doctor display if useful.
-- Add cleanup commands for archived/old run records.
-- Add rate limits and provider spend controls for LLM-assisted adapters.
+- Add SQL-backed process leases so concurrent local workers do not run the same due process twice.
+- Add stale-run recovery if a worker dies mid-run. Recovery marks old `started` runs failed with `stale_run_recovered`, recomputes lifecycle, and writes audit events.
+- Add process status, list, show, export, recovery, and cleanup commands.
+- Add cleanup commands for archived scheduler records only. Cleanup must default to dry-run and require `--apply` for mutation.
+- Add optional operator-only LLM spend control through `SCHEDULER_MAX_LLM_RUNS_PER_PASS`. The default is `0`, meaning unlimited.
+- Do not add new LLM-facing scheduler tools, new adapters, autonomous execution, import, or broker/order behavior changes in this wave.
 
 Expected outputs:
 
@@ -1303,7 +1305,10 @@ Expected outputs:
 - CLI management commands
 - Doctor report improvements
 - Cleanup/maintenance services
-- Regression tests for concurrency and recovery where feasible
+- Lease table and service methods for claiming/releasing due work
+- Stale-run recovery and archived-record cleanup
+- Read-only JSON export
+- Regression tests for leases, recovery, cleanup, export, CLI routing, and optional LLM cap behavior
 
 Integrations:
 
@@ -1314,6 +1319,7 @@ Integrations:
 Shipping criteria:
 
 - Scheduler can run locally for extended periods with understandable logs, predictable costs, and recoverable state.
+- Natural-language scheduler delegation remains dynamic; restrictions exist only when the operator explicitly configures them.
 
 ## Implementation Direction
 

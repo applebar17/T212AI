@@ -178,6 +178,10 @@ class AppSettings:
     database_url: str = "sqlite:///./data/t212ai.db"
     scheduler_default_timezone: str = "UTC"
     scheduler_default_poll_every_seconds: int = 300
+    scheduler_worker_id: str | None = None
+    scheduler_lease_seconds: int = 1800
+    scheduler_stale_run_after_seconds: int = 3600
+    scheduler_max_llm_runs_per_pass: int = 0
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
 
@@ -365,6 +369,22 @@ def get_app_settings(
             "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
             300,
         ),
+        scheduler_worker_id=source.get("SCHEDULER_WORKER_ID"),
+        scheduler_lease_seconds=_env_int_from_source(
+            source,
+            "SCHEDULER_LEASE_SECONDS",
+            1800,
+        ),
+        scheduler_stale_run_after_seconds=_env_int_from_source(
+            source,
+            "SCHEDULER_STALE_RUN_AFTER_SECONDS",
+            3600,
+        ),
+        scheduler_max_llm_runs_per_pass=_env_non_negative_int_from_source(
+            source,
+            "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
+            0,
+        ),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),
         live_trading_enabled=_env_bool_from_source(
             source,
@@ -387,6 +407,21 @@ def _env_int_from_source(
     except ValueError:
         return default
     return parsed if parsed > 0 else default
+
+
+def _env_non_negative_int_from_source(
+    source: Mapping[str, str],
+    name: str,
+    default: int,
+) -> int:
+    value = source.get(name)
+    if value is None or not str(value).strip():
+        return default
+    try:
+        parsed = int(str(value).strip())
+    except ValueError:
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _env_bool_from_source(

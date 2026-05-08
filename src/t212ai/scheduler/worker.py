@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
+from uuid import uuid4
 
 from t212ai.genai.tracing import set_trace_metadata, traceable
 
 from .models import ScheduledEventType, ScheduledProcess, ScheduledRunStatus
 from .notification import SchedulerNotificationService
-from .service import ScheduledProcessService
+from .service import ScheduledProcessClaim, ScheduledProcessService
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,8 @@ class SchedulerWorkerResult:
     started_at: datetime
     finished_at: datetime
     due_count: int
+    claimed_count: int = 0
+    recovered_count: int = 0
     runs: list[SchedulerProcessRunSummary] = field(default_factory=list)
 
     @property
@@ -70,10 +73,12 @@ class SchedulerWorkerResult:
             (
                 "brokerai scheduler run: "
                 f"due={self.due_count} "
+                f"claimed={self.claimed_count} "
                 f"processed={self.processed_count} "
                 f"completed={self.completed_count} "
                 f"skipped={self.skipped_count} "
-                f"failed={self.failed_count}"
+                f"failed={self.failed_count} "
+                f"recovered={self.recovered_count}"
             )
         ]
         for run in self.runs:
@@ -93,10 +98,20 @@ class SchedulerWorker:
         *,
         adapters: dict[str, ScheduledProcessAdapter] | None = None,
         notification_service: SchedulerNotificationService | None = None,
+        worker_id: str | None = None,
+        lease_seconds: int = 1800,
+        stale_run_after_seconds: int = 3600,
+        recover_stale_runs: bool = True,
+        max_llm_runs_per_pass: int = 0,
     ) -> None:
         self.service = service
         self.adapters = dict(adapters or {})
         self.notification_service = notification_service
+        self.worker_id = str(worker_id or "").strip() or f"scheduler_worker_{uuid4().hex[:8]}"
+        self.lease_seconds = max(1, int(lease_seconds))
+        self.stale_run_after_seconds = max(1, int(stale_run_after_seconds))
+        self.recover_stale_runs = bool(recover_stale_runs)
+        self.max_llm_runs_per_pass = max(0, int(max_llm_runs_per_pass))
 
     @traceable(name="scheduler.run_once", run_type="chain")
     def run_once(
@@ -106,23 +121,112 @@ class SchedulerWorker:
         now: datetime | None = None,
     ) -> SchedulerWorkerResult:
         started_at = _ensure_aware(now) if now is not None else _utc_now()
-        due_processes = self.service.list_due_processes(now=started_at, limit=limit)
+        recovered_count = 0
+        if self.recover_stale_runs:
+            recovered = self.service.recover_stale_runs(
+                stale_after_seconds=self.stale_run_after_seconds,
+                now=started_at,
+                limit=limit,
+                dry_run=False,
+            )
+            recovered_count = recovered.changed_count
+        due_count = len(self.service.list_due_processes(now=started_at, limit=limit))
+        claims = self.service.claim_due_processes(
+            worker_id=self.worker_id,
+            lease_seconds=self.lease_seconds,
+            now=started_at,
+            limit=limit,
+        )
         set_trace_metadata(
             agent_step="scheduler_run_once",
             step_kind="chain",
-            due_count=len(due_processes),
+            worker_id=self.worker_id,
+            due_count=due_count,
+            claimed_count=len(claims),
+            recovered_count=recovered_count,
             adapter_count=len(self.adapters),
+            max_llm_runs_per_pass=self.max_llm_runs_per_pass,
         )
         summaries: list[SchedulerProcessRunSummary] = []
-        for process in due_processes:
-            summaries.append(self._run_process(process, now=started_at))
+        llm_runs_started = 0
+        for claim in claims:
+            process = claim.process
+            if _is_llm_process(process) and self.max_llm_runs_per_pass > 0:
+                if llm_runs_started >= self.max_llm_runs_per_pass:
+                    summaries.append(
+                        self._skip_process_for_llm_budget(
+                            claim,
+                            now=started_at,
+                        )
+                    )
+                    continue
+                llm_runs_started += 1
+            summaries.append(self._run_claimed_process(claim, now=started_at))
         finished_at = _utc_now()
         return SchedulerWorkerResult(
             started_at=started_at,
             finished_at=finished_at,
-            due_count=len(due_processes),
+            due_count=due_count,
+            claimed_count=len(claims),
+            recovered_count=recovered_count,
             runs=summaries,
         )
+
+    def _run_claimed_process(
+        self,
+        claim: ScheduledProcessClaim,
+        *,
+        now: datetime,
+    ) -> SchedulerProcessRunSummary:
+        try:
+            return self._run_process(claim.process, now=now)
+        finally:
+            self.service.release_process_lease(
+                claim.process.process_id,
+                claim.lease_token,
+            )
+
+    def _skip_process_for_llm_budget(
+        self,
+        claim: ScheduledProcessClaim,
+        *,
+        now: datetime,
+    ) -> SchedulerProcessRunSummary:
+        try:
+            run = self.service.record_run_started(
+                claim.process.process_id,
+                due_at=claim.process.next_run_at,
+                now=now,
+                metadata={"kind": claim.process.kind.value, "workerId": self.worker_id},
+            )
+            message = (
+                "Scheduler skipped this LLM-assisted process because "
+                "SCHEDULER_MAX_LLM_RUNS_PER_PASS was reached."
+            )
+            skipped = self.service.record_run_skipped(
+                run.run_id,
+                reason_code="scheduler_llm_budget_exhausted",
+                reason_message=message,
+                metadata={
+                    "kind": claim.process.kind.value,
+                    "workerId": self.worker_id,
+                    "maxLlmRunsPerPass": self.max_llm_runs_per_pass,
+                },
+                now=now,
+            )
+            return SchedulerProcessRunSummary(
+                process_id=claim.process.process_id,
+                kind=claim.process.kind.value,
+                run_id=run.run_id,
+                status=skipped.status,
+                code=skipped.error_code,
+                message=message,
+            )
+        finally:
+            self.service.release_process_lease(
+                claim.process.process_id,
+                claim.lease_token,
+            )
 
     def _run_process(
         self,
@@ -134,7 +238,7 @@ class SchedulerWorker:
             process.process_id,
             due_at=process.next_run_at,
             now=now,
-            metadata={"kind": process.kind.value},
+            metadata={"kind": process.kind.value, "workerId": self.worker_id},
         )
         adapter = self.adapters.get(process.kind.value)
         if adapter is None:
@@ -309,3 +413,7 @@ def _ensure_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _is_llm_process(process: ScheduledProcess) -> bool:
+    return process.execution_mode.value in {"llm_assisted", "llm_planned"}

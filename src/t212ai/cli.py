@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Mapping, TextIO
 
@@ -230,6 +232,10 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "DATABASE_URL",
             "SCHEDULER_DEFAULT_TIMEZONE",
             "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
+            "SCHEDULER_WORKER_ID",
+            "SCHEDULER_LEASE_SECONDS",
+            "SCHEDULER_STALE_RUN_AFTER_SECONDS",
+            "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
         ),
     ),
     (
@@ -340,6 +346,10 @@ STORAGE_SECTION_KEYS = (
     "DATABASE_URL",
     "SCHEDULER_DEFAULT_TIMEZONE",
     "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
+    "SCHEDULER_WORKER_ID",
+    "SCHEDULER_LEASE_SECONDS",
+    "SCHEDULER_STALE_RUN_AFTER_SECONDS",
+    "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
     "GUIDELINE_MEMORY_PATH",
 )
 
@@ -434,6 +444,71 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     )
     doctor_parser.set_defaults(handler=command_doctor)
 
+    scheduler_parser = subparsers.add_parser(
+        "scheduler",
+        help="Inspect and maintain scheduled processes.",
+    )
+    scheduler_subparsers = scheduler_parser.add_subparsers(dest="scheduler_target")
+    scheduler_status_parser = scheduler_subparsers.add_parser(
+        "status",
+        help="Show scheduler operational status.",
+    )
+    scheduler_status_parser.add_argument("--env-file", default=None)
+    scheduler_status_parser.set_defaults(handler=command_scheduler_status)
+
+    scheduler_list_parser = scheduler_subparsers.add_parser(
+        "list",
+        help="List scheduled processes.",
+    )
+    scheduler_list_parser.add_argument("--env-file", default=None)
+    scheduler_list_parser.add_argument("--status", action="append", dest="statuses")
+    scheduler_list_parser.add_argument("--kind", action="append", dest="kinds")
+    scheduler_list_parser.add_argument("--limit", type=int, default=50)
+    scheduler_list_parser.set_defaults(handler=command_scheduler_list)
+
+    scheduler_show_parser = scheduler_subparsers.add_parser(
+        "show",
+        help="Show one scheduled process with recent runs/events.",
+    )
+    scheduler_show_parser.add_argument("process_id")
+    scheduler_show_parser.add_argument("--env-file", default=None)
+    scheduler_show_parser.add_argument("--runs", type=int, default=10)
+    scheduler_show_parser.add_argument("--events", type=int, default=20)
+    scheduler_show_parser.set_defaults(handler=command_scheduler_show)
+
+    scheduler_recover_parser = scheduler_subparsers.add_parser(
+        "recover-stale",
+        help="Recover stale started scheduler runs.",
+    )
+    scheduler_recover_parser.add_argument("--env-file", default=None)
+    scheduler_recover_parser.add_argument("--older-than", default="1h")
+    scheduler_recover_parser.add_argument("--dry-run", action="store_true")
+    scheduler_recover_parser.add_argument("--apply", action="store_true")
+    scheduler_recover_parser.set_defaults(handler=command_scheduler_recover_stale)
+
+    scheduler_cleanup_parser = scheduler_subparsers.add_parser(
+        "cleanup",
+        help="Delete archived scheduler records older than a cutoff.",
+    )
+    scheduler_cleanup_parser.add_argument("--env-file", default=None)
+    scheduler_cleanup_parser.add_argument("--archived-before", default="30d")
+    scheduler_cleanup_parser.add_argument("--dry-run", action="store_true")
+    scheduler_cleanup_parser.add_argument("--apply", action="store_true")
+    scheduler_cleanup_parser.set_defaults(handler=command_scheduler_cleanup)
+
+    scheduler_export_parser = scheduler_subparsers.add_parser(
+        "export",
+        help="Export scheduler process definitions and optional audit rows as JSON.",
+    )
+    scheduler_export_parser.add_argument("--env-file", default=None)
+    scheduler_export_parser.add_argument("--output", default=None)
+    scheduler_export_parser.add_argument("--status", action="append", dest="statuses")
+    scheduler_export_parser.add_argument("--kind", action="append", dest="kinds")
+    scheduler_export_parser.add_argument("--include-runs", action="store_true")
+    scheduler_export_parser.add_argument("--include-events", action="store_true")
+    scheduler_export_parser.add_argument("--limit", type=int, default=500)
+    scheduler_export_parser.set_defaults(handler=command_scheduler_export)
+
     run_parser = subparsers.add_parser(
         "run",
         help="Run operational entrypoints.",
@@ -468,6 +543,10 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         default=None,
         help="Optional .env file to load before running the scheduler.",
     )
+    run_scheduler_once_parser.add_argument("--limit", type=int, default=100)
+    run_scheduler_once_parser.add_argument("--lease-seconds", type=int, default=None)
+    run_scheduler_once_parser.add_argument("--stale-run-after", default=None)
+    run_scheduler_once_parser.add_argument("--max-llm-runs-per-pass", type=int, default=None)
     run_scheduler_once_parser.set_defaults(handler=command_run_scheduler_once)
 
     run_scheduler_parser = run_subparsers.add_parser(
@@ -484,6 +563,10 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         default="1m",
         help="Scheduler polling interval such as 30s, 1m, 15m, or 1h.",
     )
+    run_scheduler_parser.add_argument("--limit", type=int, default=100)
+    run_scheduler_parser.add_argument("--lease-seconds", type=int, default=None)
+    run_scheduler_parser.add_argument("--stale-run-after", default=None)
+    run_scheduler_parser.add_argument("--max-llm-runs-per-pass", type=int, default=None)
     run_scheduler_parser.set_defaults(handler=command_run_scheduler_worker)
 
     run_worker_parser = run_subparsers.add_parser(
@@ -561,6 +644,104 @@ def command_doctor(args: argparse.Namespace) -> int:
     smoke_results = run_provider_smoke_tests(settings, assessment) if args.smoke else None
     print(render_doctor_report(settings, assessment, preflight, smoke_results=smoke_results))
     return 0 if assessment.is_valid else 1
+
+
+def command_scheduler_status(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler status")
+    if runtime is None:
+        return 1
+    status = runtime.scheduled_process_service.scheduler_status()
+    print(render_scheduler_status(status, runtime.settings))
+    return 0
+
+
+def command_scheduler_list(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler list")
+    if runtime is None:
+        return 1
+    try:
+        processes = runtime.scheduled_process_service.list_processes(
+            statuses=args.statuses,
+            kinds=args.kinds,
+            limit=args.limit,
+        )
+    except Exception as exc:
+        print(f"brokerai scheduler list failed: {exc}")
+        return 1
+    print(render_scheduler_process_list(processes))
+    return 0
+
+
+def command_scheduler_show(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler show")
+    if runtime is None:
+        return 1
+    process = runtime.scheduled_process_service.get_process(args.process_id)
+    if process is None:
+        print(f"brokerai scheduler show failed: process {args.process_id} was not found.")
+        return 1
+    runs = runtime.scheduled_process_service.list_runs(process.process_id, limit=args.runs)
+    events = runtime.scheduled_process_service.list_events(process.process_id, limit=args.events)
+    print(render_scheduler_process_detail(process, runs, events))
+    return 0
+
+
+def command_scheduler_recover_stale(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler recover-stale")
+    if runtime is None:
+        return 1
+    try:
+        older_than_seconds = parse_duration_to_seconds(args.older_than)
+        result = runtime.scheduled_process_service.recover_stale_runs(
+            stale_after_seconds=older_than_seconds,
+            dry_run=not bool(args.apply),
+        )
+    except Exception as exc:
+        print(f"brokerai scheduler recover-stale failed: {exc}")
+        return 1
+    print(render_scheduler_maintenance_result("recover-stale", result))
+    return 0
+
+
+def command_scheduler_cleanup(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler cleanup")
+    if runtime is None:
+        return 1
+    try:
+        cutoff = _cutoff_from_duration_or_iso(args.archived_before)
+        result = runtime.scheduled_process_service.delete_archived_before(
+            cutoff,
+            dry_run=not bool(args.apply),
+        )
+    except Exception as exc:
+        print(f"brokerai scheduler cleanup failed: {exc}")
+        return 1
+    print(render_scheduler_maintenance_result("cleanup", result))
+    return 0
+
+
+def command_scheduler_export(args: argparse.Namespace) -> int:
+    runtime = _build_scheduler_runtime_for_command(args, "scheduler export")
+    if runtime is None:
+        return 1
+    try:
+        payload = runtime.scheduled_process_service.export_processes(
+            statuses=args.statuses,
+            kinds=args.kinds,
+            include_runs=bool(args.include_runs),
+            include_events=bool(args.include_events),
+            limit=args.limit,
+        )
+    except Exception as exc:
+        print(f"brokerai scheduler export failed: {exc}")
+        return 1
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
+    if args.output:
+        Path(args.output).write_text(rendered + "\n", encoding="utf-8")
+        print(f"Exported {payload['processCount']} scheduled process(es) to {args.output}.")
+    else:
+        print(rendered)
+    return 0
 
 
 def command_run_bot(args: argparse.Namespace) -> int:
@@ -664,7 +845,17 @@ def command_run_scheduler_once(args: argparse.Namespace) -> int:
         print("brokerai run scheduler-once failed: scheduler runtime is not available.")
         return 1
     try:
-        result = run_scheduler_once(runtime)
+        result = run_scheduler_once(
+            runtime,
+            limit=args.limit,
+            lease_seconds=args.lease_seconds,
+            stale_run_after_seconds=(
+                parse_duration_to_seconds(args.stale_run_after)
+                if args.stale_run_after
+                else None
+            ),
+            max_llm_runs_per_pass=args.max_llm_runs_per_pass,
+        )
     except Exception as exc:  # pragma: no cover - startup safety net
         print(f"brokerai run scheduler-once failed: {exc}")
         return 1
@@ -693,7 +884,18 @@ def command_run_scheduler_worker(args: argparse.Namespace) -> int:
         print("brokerai run scheduler failed: scheduler runtime is not available.")
         return 1
     try:
-        return run_scheduler_worker(runtime, poll_every_seconds=poll_every_seconds)
+        return run_scheduler_worker(
+            runtime,
+            poll_every_seconds=poll_every_seconds,
+            limit=args.limit,
+            lease_seconds=args.lease_seconds,
+            stale_run_after_seconds=(
+                parse_duration_to_seconds(args.stale_run_after)
+                if args.stale_run_after
+                else None
+            ),
+            max_llm_runs_per_pass=args.max_llm_runs_per_pass,
+        )
     except KeyboardInterrupt:
         print("brokerai scheduler stopped.")
         return 0
@@ -945,6 +1147,22 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS": existing_raw.get(
             "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
             str(settings.scheduler_default_poll_every_seconds),
+        ),
+        "SCHEDULER_WORKER_ID": existing_raw.get(
+            "SCHEDULER_WORKER_ID",
+            settings.scheduler_worker_id or "",
+        ),
+        "SCHEDULER_LEASE_SECONDS": existing_raw.get(
+            "SCHEDULER_LEASE_SECONDS",
+            str(settings.scheduler_lease_seconds),
+        ),
+        "SCHEDULER_STALE_RUN_AFTER_SECONDS": existing_raw.get(
+            "SCHEDULER_STALE_RUN_AFTER_SECONDS",
+            str(settings.scheduler_stale_run_after_seconds),
+        ),
+        "SCHEDULER_MAX_LLM_RUNS_PER_PASS": existing_raw.get(
+            "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
+            str(settings.scheduler_max_llm_runs_per_pass),
         ),
         "SEARXNG_BASE_URL": existing_raw.get(
             "SEARXNG_BASE_URL",
@@ -1401,6 +1619,22 @@ def apply_configuration_wizard(
                 "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
                 default=updates["SCHEDULER_DEFAULT_POLL_EVERY_SECONDS"],
             )
+            updates["SCHEDULER_WORKER_ID"] = io_runtime.prompt(
+                "SCHEDULER_WORKER_ID",
+                default=updates["SCHEDULER_WORKER_ID"],
+            )
+            updates["SCHEDULER_LEASE_SECONDS"] = io_runtime.prompt(
+                "SCHEDULER_LEASE_SECONDS",
+                default=updates["SCHEDULER_LEASE_SECONDS"],
+            )
+            updates["SCHEDULER_STALE_RUN_AFTER_SECONDS"] = io_runtime.prompt(
+                "SCHEDULER_STALE_RUN_AFTER_SECONDS",
+                default=updates["SCHEDULER_STALE_RUN_AFTER_SECONDS"],
+            )
+            updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"] = io_runtime.prompt(
+                "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
+                default=updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"],
+            )
             updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
                 "GUIDELINE_MEMORY_PATH",
                 default=updates["GUIDELINE_MEMORY_PATH"],
@@ -1750,6 +1984,15 @@ def render_doctor_report(
     lines.append(f"Disclosure provider selection: {settings.disclosure_provider}")
     lines.append(f"Community provider selection: {settings.community_provider}")
     lines.append(f"Search provider selection: {settings.search_provider}")
+    lines.append(f"Scheduler worker id: {settings.scheduler_worker_id or 'auto'}")
+    lines.append(f"Scheduler lease seconds: {settings.scheduler_lease_seconds}")
+    lines.append(
+        f"Scheduler stale run after seconds: {settings.scheduler_stale_run_after_seconds}"
+    )
+    lines.append(
+        "Scheduler max LLM runs per pass: "
+        f"{settings.scheduler_max_llm_runs_per_pass or 'unlimited'}"
+    )
     return "\n".join(lines)
 
 
@@ -1790,6 +2033,144 @@ def render_scheduler_failure(preflight) -> str:
         for warning in preflight.warnings:
             lines.append(f"- {warning}")
     return "\n".join(lines)
+
+
+def render_scheduler_status(status: Mapping[str, object], settings: AppSettings) -> str:
+    lines = [
+        "brokerai scheduler status",
+        f"asOf: {status.get('asOf')}",
+        f"processes: {status.get('processCount', 0)}",
+        f"due: {status.get('dueCount', 0)}",
+        f"startedRuns: {status.get('startedRunCount', 0)}",
+        f"activeLeases: {status.get('activeLeaseCount', 0)}",
+        f"nextRunAt: {status.get('nextRunAt') or 'none'}",
+        f"oldestStartedRunAt: {status.get('oldestStartedRunAt') or 'none'}",
+        "",
+        "operational defaults:",
+        f"- workerId: {settings.scheduler_worker_id or 'auto'}",
+        f"- leaseSeconds: {settings.scheduler_lease_seconds}",
+        f"- staleRunAfterSeconds: {settings.scheduler_stale_run_after_seconds}",
+        f"- maxLlmRunsPerPass: {settings.scheduler_max_llm_runs_per_pass or 'unlimited'}",
+    ]
+    by_status = status.get("processesByStatus") or {}
+    if isinstance(by_status, Mapping) and by_status:
+        lines.append("")
+        lines.append("by status:")
+        for key, value in by_status.items():
+            lines.append(f"- {key}: {value}")
+    by_kind = status.get("processesByKind") or {}
+    if isinstance(by_kind, Mapping) and by_kind:
+        lines.append("")
+        lines.append("by kind:")
+        for key, value in by_kind.items():
+            lines.append(f"- {key}: {value}")
+    return "\n".join(lines)
+
+
+def render_scheduler_process_list(processes) -> str:
+    if not processes:
+        return "No scheduled processes matched the provided filters."
+    lines = [f"Found {len(processes)} scheduled process(es)."]
+    for process in processes:
+        lines.append(
+            "- "
+            + " | ".join(
+                [
+                    process.process_id,
+                    process.kind.value,
+                    process.status.value,
+                    f"title={process.title}",
+                    f"nextRunAt={process.next_run_at}",
+                    f"lastStatus={process.last_status.value if process.last_status else None}",
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
+def render_scheduler_process_detail(process, runs, events) -> str:
+    lines = [
+        f"Scheduled process {process.process_id}",
+        f"title: {process.title}",
+        f"kind: {process.kind.value}",
+        f"status: {process.status.value}",
+        f"executionMode: {process.execution_mode.value}",
+        f"nextRunAt: {process.next_run_at}",
+        f"lastStatus: {process.last_status.value if process.last_status else None}",
+        f"failureCount: {process.failure_count}",
+        f"schedule: {json.dumps(process.schedule.model_dump(by_alias=True, exclude_none=True, mode='json'), sort_keys=True)}",
+        f"trigger: {json.dumps(process.trigger, sort_keys=True)}",
+        f"lifecycle: {json.dumps(process.lifecycle.model_dump(by_alias=True, exclude_none=True, mode='json'), sort_keys=True)}",
+        "",
+        f"Runs ({len(runs)}):",
+    ]
+    for run in runs:
+        code = run.error_code or "none"
+        lines.append(
+            f"- {run.run_id} {run.status.value} matched={run.matched} code={code} startedAt={run.started_at}"
+        )
+    lines.append("")
+    lines.append(f"Events ({len(events)}):")
+    for event in events:
+        lines.append(
+            f"- {event.created_at} {event.event_type.value}: {event.message}"
+        )
+    return "\n".join(lines)
+
+
+def render_scheduler_maintenance_result(operation: str, result) -> str:
+    mode = "dry-run" if result.dry_run else "applied"
+    lines = [
+        f"brokerai scheduler {operation}: {mode}",
+        f"matched={result.matched_count} changed={result.changed_count}",
+    ]
+    if result.run_count:
+        lines.append(f"runs={result.run_count}")
+    if result.event_count:
+        lines.append(f"events={result.event_count}")
+    if result.process_ids:
+        lines.append("processes: " + ", ".join(result.process_ids))
+    if result.run_ids:
+        lines.append("runs: " + ", ".join(result.run_ids))
+    return "\n".join(lines)
+
+
+def _build_scheduler_runtime_for_command(args: argparse.Namespace, command_name: str):
+    settings = load_settings_from_cli(env_file=args.env_file)
+    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    assessment = assess_settings(settings)
+    preflight = preflight_scheduler(assessment, settings)
+    if not preflight.ok:
+        print(render_scheduler_failure(preflight))
+        return None
+    if args.env_file is not None:
+        load_env_file(args.env_file, override=True)
+    ensure_runtime_directories(settings)
+    runtime = build_runtime(settings)
+    if runtime.scheduled_process_service is None:
+        print(f"brokerai {command_name} failed: scheduler runtime is not available.")
+        return None
+    return runtime
+
+
+def _cutoff_from_duration_or_iso(raw: str) -> datetime:
+    value = str(raw or "").strip()
+    if not value:
+        raise ValueError("Cutoff is required.")
+    try:
+        seconds = parse_duration_to_seconds(value)
+    except ValueError:
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                "Cutoff must be a duration such as 30d or an ISO-8601 datetime."
+            ) from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
 
 
 def update_env_file(path: Path, updates: Mapping[str, str]) -> None:
@@ -1917,8 +2298,8 @@ def parse_duration_to_seconds(raw: str) -> int:
     if not value:
         raise ValueError("Duration is required.")
     unit = value[-1]
-    if unit not in {"s", "m", "h"}:
-        raise ValueError("Duration must end with s, m, or h.")
+    if unit not in {"s", "m", "h", "d"}:
+        raise ValueError("Duration must end with s, m, h, or d.")
     amount = value[:-1]
     if not amount.isdigit():
         raise ValueError("Duration must start with an integer amount.")
@@ -1929,7 +2310,9 @@ def parse_duration_to_seconds(raw: str) -> int:
         return quantity
     if unit == "m":
         return quantity * 60
-    return quantity * 3600
+    if unit == "h":
+        return quantity * 3600
+    return quantity * 86400
 
 
 def run_reconcile_once(runtime) -> object:
@@ -1947,7 +2330,14 @@ def run_reconcile_worker(runtime, *, interval_seconds: int) -> int:
         time.sleep(interval_seconds)
 
 
-def run_scheduler_once(runtime, *, limit: int = 100) -> object:
+def run_scheduler_once(
+    runtime,
+    *,
+    limit: int = 100,
+    lease_seconds: int | None = None,
+    stale_run_after_seconds: int | None = None,
+    max_llm_runs_per_pass: int | None = None,
+) -> object:
     if runtime.scheduled_process_service is None:
         raise RuntimeError("Scheduler service is not configured.")
     worker = SchedulerWorker(
@@ -1967,14 +2357,46 @@ def run_scheduler_once(runtime, *, limit: int = 100) -> object:
             broker_provider=getattr(getattr(runtime, "settings", None), "broker_provider", "broker"),
         ),
         notification_service=getattr(runtime, "scheduler_notification_service", None),
+        worker_id=getattr(getattr(runtime, "settings", None), "scheduler_worker_id", None),
+        lease_seconds=lease_seconds
+        or getattr(getattr(runtime, "settings", None), "scheduler_lease_seconds", 1800),
+        stale_run_after_seconds=stale_run_after_seconds
+        or getattr(
+            getattr(runtime, "settings", None),
+            "scheduler_stale_run_after_seconds",
+            3600,
+        ),
+        max_llm_runs_per_pass=(
+            max_llm_runs_per_pass
+            if max_llm_runs_per_pass is not None
+            else getattr(
+                getattr(runtime, "settings", None),
+                "scheduler_max_llm_runs_per_pass",
+                0,
+            )
+        ),
     )
     return worker.run_once(limit=limit)
 
 
-def run_scheduler_worker(runtime, *, poll_every_seconds: int) -> int:
+def run_scheduler_worker(
+    runtime,
+    *,
+    poll_every_seconds: int,
+    limit: int = 100,
+    lease_seconds: int | None = None,
+    stale_run_after_seconds: int | None = None,
+    max_llm_runs_per_pass: int | None = None,
+) -> int:
     if poll_every_seconds <= 0:
         raise ValueError("poll_every_seconds must be greater than zero.")
     while True:
-        result = run_scheduler_once(runtime)
+        result = run_scheduler_once(
+            runtime,
+            limit=limit,
+            lease_seconds=lease_seconds,
+            stale_run_after_seconds=stale_run_after_seconds,
+            max_llm_runs_per_pass=max_llm_runs_per_pass,
+        )
         print(result.render_text())
         time.sleep(poll_every_seconds)

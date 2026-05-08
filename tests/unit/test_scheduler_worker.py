@@ -72,8 +72,8 @@ class FakeNotificationService:
         return object()
 
 
-def _service(tmp_path: Path) -> ScheduledProcessService:
-    engine = build_engine(f"sqlite:///{tmp_path / 'scheduler-worker.db'}")
+def _service(tmp_path: Path, name: str = "scheduler-worker.db") -> ScheduledProcessService:
+    engine = build_engine(f"sqlite:///{tmp_path / name}")
     ensure_schema(engine)
     return ScheduledProcessService(build_session_factory(engine))
 
@@ -145,7 +145,8 @@ def test_scheduler_worker_returns_zero_counts_without_due_processes(tmp_path: Pa
     assert result.skipped_count == 0
     assert result.failed_count == 0
     assert result.render_text() == (
-        "brokerai scheduler run: due=0 processed=0 completed=0 skipped=0 failed=0"
+        "brokerai scheduler run: due=0 claimed=0 processed=0 completed=0 "
+        "skipped=0 failed=0 recovered=0"
     )
 
 
@@ -316,3 +317,87 @@ def test_scheduler_worker_records_adapter_failure(tmp_path: Path) -> None:
     assert updated is not None
     assert updated.failure_count == 1
     assert updated.next_run_at == BASE_NOW + timedelta(seconds=60)
+
+
+def test_scheduler_worker_uses_leases_and_releases_after_run(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    process = _create_due_process(service)
+    worker = SchedulerWorker(
+        service,
+        adapters={"instrument_monitor": CompletingAdapter()},
+        worker_id="worker-a",
+        lease_seconds=60,
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+    claims = service.claim_due_processes(
+        worker_id="worker-b",
+        lease_seconds=60,
+        now=BASE_NOW + timedelta(seconds=61),
+    )
+
+    assert result.claimed_count == 1
+    assert result.completed_count == 1
+    assert [claim.process.process_id for claim in claims] == [process.process_id]
+
+
+def test_scheduler_worker_recovers_stale_runs_before_processing(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    process = _create_due_process(service)
+    stale_run = service.record_run_started(
+        process.process_id,
+        now=BASE_NOW - timedelta(hours=2),
+    )
+    worker = SchedulerWorker(
+        service,
+        adapters={"instrument_monitor": CompletingAdapter()},
+        stale_run_after_seconds=3600,
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+    runs = {run.run_id: run for run in service.list_runs(process.process_id)}
+
+    assert result.recovered_count == 1
+    assert runs[stale_run.run_id].status == ScheduledRunStatus.FAILED
+    assert runs[stale_run.run_id].error_code == "stale_run_recovered"
+
+
+def test_scheduler_worker_llm_cap_is_unlimited_by_default_and_optional_when_positive(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    deterministic = _create_due_process(service)
+    llm_one = _create_due_market_signal_capture(service)
+    llm_two = _create_due_trade_setup_monitor(service)
+    worker = SchedulerWorker(
+        service,
+        adapters={
+            "instrument_monitor": CompletingAdapter(),
+            "market_signal_capture": CompletingAdapter(),
+            "trade_setup_monitor": CompletingAdapter(),
+        },
+        max_llm_runs_per_pass=1,
+    )
+
+    result = worker.run_once(now=BASE_NOW)
+    by_process = {run.process_id: run for run in result.runs}
+
+    assert result.completed_count == 2
+    assert result.skipped_count == 1
+    assert by_process[deterministic.process_id].status == ScheduledRunStatus.COMPLETED
+    assert by_process[llm_one.process_id].status == ScheduledRunStatus.COMPLETED
+    assert by_process[llm_two.process_id].code == "scheduler_llm_budget_exhausted"
+
+    service = _service(tmp_path, "scheduler-worker-unlimited.db")
+    _create_due_market_signal_capture(service)
+    _create_due_trade_setup_monitor(service)
+    unlimited = SchedulerWorker(
+        service,
+        adapters={
+            "market_signal_capture": CompletingAdapter(),
+            "trade_setup_monitor": CompletingAdapter(),
+        },
+        max_llm_runs_per_pass=0,
+    ).run_once(now=BASE_NOW)
+    assert unlimited.completed_count == 2
+    assert unlimited.skipped_count == 0

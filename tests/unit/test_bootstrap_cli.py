@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+import json
 import sys
 from io import StringIO
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 from t212ai import __main__ as package_main
 from t212ai import cli
+from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
+from t212ai.scheduler import ScheduledProcessService
+
+
+def _scheduler_service(tmp_path: Path, name: str = "scheduler-cli.db") -> ScheduledProcessService:
+    engine = build_engine(f"sqlite:///{tmp_path / name}")
+    ensure_schema(engine)
+    return ScheduledProcessService(build_session_factory(engine))
+
+
+def _fake_scheduler_runtime(service: ScheduledProcessService):
+    return SimpleNamespace(
+        scheduled_process_service=service,
+        settings=cli.get_app_settings(env={}),
+    )
 
 
 def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
@@ -19,6 +35,18 @@ def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
     assert parser.parse_args(["run", "scheduler-once"]).handler is cli.command_run_scheduler_once
     assert parser.parse_args(["run", "scheduler"]).handler is cli.command_run_scheduler_worker
     assert parser.parse_args(["run", "worker"]).handler is cli.command_run_worker
+    assert parser.parse_args(["scheduler", "status"]).handler is cli.command_scheduler_status
+    assert parser.parse_args(["scheduler", "list"]).handler is cli.command_scheduler_list
+    assert (
+        parser.parse_args(["scheduler", "show", "sched_test"]).handler
+        is cli.command_scheduler_show
+    )
+    assert (
+        parser.parse_args(["scheduler", "recover-stale"]).handler
+        is cli.command_scheduler_recover_stale
+    )
+    assert parser.parse_args(["scheduler", "cleanup"]).handler is cli.command_scheduler_cleanup
+    assert parser.parse_args(["scheduler", "export"]).handler is cli.command_scheduler_export
 
 
 def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> None:
@@ -649,8 +677,9 @@ def test_run_scheduler_once_invokes_scheduler_runtime(
 
     monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
 
-    def fake_run_scheduler_once(runtime):
+    def fake_run_scheduler_once(runtime, **kwargs):
         calls["runtime"] = runtime
+        calls["kwargs"] = kwargs
         return FakeResult()
 
     monkeypatch.setattr(cli, "run_scheduler_once", fake_run_scheduler_once)
@@ -661,16 +690,18 @@ def test_run_scheduler_once_invokes_scheduler_runtime(
     assert exit_code == 0
     assert output.strip() == "scheduler ran"
     assert isinstance(calls["runtime"], FakeRuntime)
+    assert calls["kwargs"]["limit"] == 100
 
 
 def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
     class FakeWorker:
-        def __init__(self, service, *, adapters, notification_service=None):
+        def __init__(self, service, *, adapters, notification_service=None, **kwargs):
             calls["service"] = service
             calls["adapters"] = adapters
             calls["notification_service"] = notification_service
+            calls["worker_kwargs"] = kwargs
 
         def run_once(self, *, limit: int = 100):
             calls["limit"] = limit
@@ -697,6 +728,8 @@ def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) ->
     assert "market_signal_capture" in calls["adapters"]
     assert "trade_setup_monitor" in calls["adapters"]
     assert calls["notification_service"] is FakeRuntime.scheduler_notification_service
+    assert calls["worker_kwargs"]["lease_seconds"] == 1800
+    assert calls["worker_kwargs"]["max_llm_runs_per_pass"] == 0
     assert calls["limit"] == 7
 
 
@@ -710,9 +743,9 @@ def test_run_scheduler_parses_interval_and_invokes_worker(monkeypatch, tmp_path)
 
     monkeypatch.setattr(cli, "build_runtime", lambda settings=None: FakeRuntime())
 
-    def fake_run_scheduler_worker(runtime, *, poll_every_seconds: int) -> int:
+    def fake_run_scheduler_worker(runtime, **kwargs) -> int:
         calls["runtime"] = runtime
-        calls["poll_every_seconds"] = poll_every_seconds
+        calls.update(kwargs)
         return 0
 
     monkeypatch.setattr(cli, "run_scheduler_worker", fake_run_scheduler_worker)
@@ -724,12 +757,138 @@ def test_run_scheduler_parses_interval_and_invokes_worker(monkeypatch, tmp_path)
     assert exit_code == 0
     assert isinstance(calls["runtime"], FakeRuntime)
     assert calls["poll_every_seconds"] == 900
+    assert calls["limit"] == 100
+
+
+def test_scheduler_status_list_show_and_export_commands(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    service = _scheduler_service(tmp_path)
+    process = service.create_process(
+        title="TSLA watch",
+        kind="instrument_monitor",
+        execution_mode="deterministic",
+        schedule={"type": "polling", "pollEverySeconds": 60},
+        trigger={"type": "below_price", "symbol": "TSLA", "value": 180},
+        lifecycle={"completionPolicy": "keep_running"},
+    )
+    output_file = tmp_path / "scheduler-export.json"
+    monkeypatch.setattr(
+        cli,
+        "build_runtime",
+        lambda settings=None: _fake_scheduler_runtime(service),
+    )
+
+    status_code = cli.main(["scheduler", "status", "--env-file", str(env_file)])
+    list_code = cli.main(
+        [
+            "scheduler",
+            "list",
+            "--env-file",
+            str(env_file),
+            "--status",
+            "active",
+            "--kind",
+            "instrument_monitor",
+        ]
+    )
+    show_code = cli.main(
+        ["scheduler", "show", process.process_id, "--env-file", str(env_file)]
+    )
+    export_code = cli.main(
+        [
+            "scheduler",
+            "export",
+            "--env-file",
+            str(env_file),
+            "--output",
+            str(output_file),
+            "--include-runs",
+            "--include-events",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert status_code == 0
+    assert list_code == 0
+    assert show_code == 0
+    assert export_code == 0
+    assert "brokerai scheduler status" in output
+    assert process.process_id in output
+    assert "Scheduled process" in output
+    exported = json.loads(output_file.read_text(encoding="utf-8"))
+    assert exported["schema"] == "brokerai.scheduler.export.v1"
+    assert exported["processCount"] == 1
+
+
+def test_scheduler_recover_and_cleanup_default_to_dry_run_until_apply(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    service = _scheduler_service(tmp_path, "scheduler-cli-maintenance.db")
+    process = service.create_process(
+        title="TSLA watch",
+        kind="instrument_monitor",
+        execution_mode="deterministic",
+        schedule={"type": "polling", "pollEverySeconds": 60},
+        trigger={"type": "below_price", "symbol": "TSLA", "value": 180},
+        lifecycle={"completionPolicy": "keep_running"},
+    )
+    service.record_run_started(process.process_id)
+    archived = service.archive_process(process.process_id)
+    monkeypatch.setattr(
+        cli,
+        "build_runtime",
+        lambda settings=None: _fake_scheduler_runtime(service),
+    )
+
+    recover_dry = cli.main(
+        ["scheduler", "recover-stale", "--env-file", str(env_file), "--older-than", "1s"]
+    )
+    cleanup_dry = cli.main(
+        [
+            "scheduler",
+            "cleanup",
+            "--env-file",
+            str(env_file),
+            "--archived-before",
+            "2999-01-01T00:00:00Z",
+        ]
+    )
+    cleanup_apply = cli.main(
+        [
+            "scheduler",
+            "cleanup",
+            "--env-file",
+            str(env_file),
+            "--archived-before",
+            "2999-01-01T00:00:00Z",
+            "--apply",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert recover_dry == 0
+    assert cleanup_dry == 0
+    assert cleanup_apply == 0
+    assert "recover-stale: dry-run" in output
+    assert "cleanup: dry-run" in output
+    assert "cleanup: applied" in output
+    assert service.get_process(archived.process_id) is None
 
 
 def test_parse_duration_to_seconds_supports_compact_forms() -> None:
     assert cli.parse_duration_to_seconds("5m") == 300
     assert cli.parse_duration_to_seconds("1h") == 3600
     assert cli.parse_duration_to_seconds("45s") == 45
+    assert cli.parse_duration_to_seconds("2d") == 172800
 
 
 def test_package_main_delegates_to_cli(monkeypatch) -> None:

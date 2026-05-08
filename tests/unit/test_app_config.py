@@ -200,11 +200,25 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
         env={
             "SCHEDULER_DEFAULT_TIMEZONE": "Europe/Rome",
             "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS": "900",
+            "SCHEDULER_WORKER_ID": "local-worker",
+            "SCHEDULER_LEASE_SECONDS": "1200",
+            "SCHEDULER_STALE_RUN_AFTER_SECONDS": "2400",
+            "SCHEDULER_MAX_LLM_RUNS_PER_PASS": "2",
         }
     )
 
     assert settings.scheduler_default_timezone == "Europe/Rome"
     assert settings.scheduler_default_poll_every_seconds == 900
+    assert settings.scheduler_worker_id == "local-worker"
+    assert settings.scheduler_lease_seconds == 1200
+    assert settings.scheduler_stale_run_after_seconds == 2400
+    assert settings.scheduler_max_llm_runs_per_pass == 2
+
+
+def test_scheduler_max_llm_runs_per_pass_allows_unlimited_zero() -> None:
+    settings = get_app_settings(env={"SCHEDULER_MAX_LLM_RUNS_PER_PASS": "0"})
+
+    assert settings.scheduler_max_llm_runs_per_pass == 0
 
 
 def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None:
