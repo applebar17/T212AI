@@ -17,9 +17,9 @@ def render_timezone_context(
         zone = ZoneInfo(configured_timezone)
     except ZoneInfoNotFoundError:
         return (
-            f"Configured user timezone: {configured_timezone} (not recognized as an "
-            "IANA timezone). Ask for a valid IANA timezone before creating scheduled "
-            "jobs that depend on local time."
+            f"Configured user timezone: {configured_timezone} could not be resolved. "
+            "For local-time scheduling, ask the user to confirm their city or timezone "
+            "in natural language before creating the job."
         )
 
     reference_utc = now_utc or datetime.now(timezone.utc)
@@ -39,7 +39,9 @@ def render_timezone_context(
     return (
         f"Configured user timezone: {configured_timezone}. Current UTC offset for "
         f"that timezone: {offset_label} ({local_now.tzname()}). Scheduler storage "
-        "and workers operate in UTC; convert user-supplied local schedule times "
-        "through the configured timezone unless the user gives another explicit "
-        "timezone."
+        "and workers operate in UTC. When the user gives a schedule time without "
+        "another timezone, treat it as local time in the configured user timezone. "
+        "When the schedule time comes from an external source or event that has its "
+        "own timezone, preserve that source timezone and convert the final run time "
+        "to UTC."
     )
