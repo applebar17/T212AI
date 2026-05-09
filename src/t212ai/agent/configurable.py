@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
+from t212ai.app.logging import log_event
 from t212ai.genai.tracing import set_trace_metadata, set_trace_name, traceable
 
 from .planner import GroupedAgentPlan, TaskComplexity
@@ -17,6 +20,8 @@ from .schemas import AgentInvocationContext, AgentReasoningContext
 
 if TYPE_CHECKING:
     from t212ai.genai.client import GenAIClient
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ConfigurableReasonerAgent:
@@ -38,6 +43,17 @@ class ConfigurableReasonerAgent:
             step_kind="reason",
             task_complexity=invocation.task_complexity.value,
             intent_kind=invocation.intent.kind.value,
+        )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.reason.start",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="reason",
+            status="started",
+            intent_kind=invocation.intent.kind.value,
+            task_complexity=invocation.task_complexity.value,
         )
         system_prompt = build_reasoning_context_system_prompt(
             agent_name=invocation.agent_name,
@@ -64,7 +80,19 @@ class ConfigurableReasonerAgent:
             model=_model_for(self.genai, invocation.task_complexity),
             temperature=0.0,
         )
-        return AgentReasoningContext.model_validate(result)
+        context = AgentReasoningContext.model_validate(result)
+        log_event(
+            LOGGER,
+            "agent.reason.end",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="reason",
+            status="ok" if context.can_proceed else "needs_clarification",
+            duration_ms=int((time.monotonic() - start) * 1000),
+            can_proceed=context.can_proceed,
+            clarifying_question_count=len(context.clarifying_questions),
+        )
+        return context
 
 
 class ConfigurablePlannerAgent:
@@ -91,6 +119,17 @@ class ConfigurablePlannerAgent:
             step_kind="plan",
             task_complexity=invocation.task_complexity.value,
             intent_kind=invocation.intent.kind.value,
+        )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.plan.start",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="plan",
+            status="started",
+            intent_kind=invocation.intent.kind.value,
+            task_complexity=invocation.task_complexity.value,
         )
         system_prompt = build_grouped_plan_system_prompt(
             agent_name=invocation.agent_name,
@@ -121,6 +160,17 @@ class ConfigurablePlannerAgent:
         plan = GroupedAgentPlan.model_validate(result)
         if plan.task_complexity != invocation.task_complexity:
             plan = plan.model_copy(update={"task_complexity": invocation.task_complexity})
+        log_event(
+            LOGGER,
+            "agent.plan.end",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="plan",
+            status="ok",
+            duration_ms=int((time.monotonic() - start) * 1000),
+            group_count=len(plan.action_groups),
+            action_count=sum(len(group.actions) for group in plan.action_groups),
+        )
         return plan
 
 

@@ -225,12 +225,18 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
             "GENAI_CONTEXT_TOKENS_DEFAULT": "200000",
             "GENAI_CONTEXT_TOKENS_SMART": "300000",
             "GENAI_CONTEXT_TOKENS_BY_MODEL_JSON": '{"custom":250000}',
+            "APP_LOG_FORMAT": "json",
+            "APP_LOG_RETENTION_DAYS": "5",
+            "APP_LOG_THIRD_PARTY_LEVEL": "ERROR",
         }
     )
 
     assert updates["GENAI_CONTEXT_TOKENS_DEFAULT"] == "200000"
     assert updates["GENAI_CONTEXT_TOKENS_SMART"] == "300000"
     assert updates["GENAI_CONTEXT_TOKENS_BY_MODEL_JSON"] == '{"custom":250000}'
+    assert updates["APP_LOG_FORMAT"] == "json"
+    assert updates["APP_LOG_RETENTION_DAYS"] == "5"
+    assert updates["APP_LOG_THIRD_PARTY_LEVEL"] == "ERROR"
 
 
 def test_prompt_iana_timezone_accepts_configured_scheduler_timezone() -> None:

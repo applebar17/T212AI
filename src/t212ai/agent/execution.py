@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from t212ai.app.logging import log_event
 from t212ai.genai.tracing import set_trace_metadata, set_trace_name, traceable
 
 from .planner import (
@@ -26,6 +29,8 @@ from .schemas import AgentInvocationContext, AgentReasoningContext
 if TYPE_CHECKING:
     from t212ai.genai.client import GenAIClient
     from t212ai.genai.tools import ToolBox
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PlanActionExecution(BaseModel):
@@ -92,6 +97,17 @@ class GroupedPlanExecutor:
             intent_kind=invocation.intent.kind.value,
             group_count=len(grouped_plan.action_groups),
         )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.execute.start",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="execute",
+            status="started",
+            intent_kind=invocation.intent.kind.value,
+            group_count=len(grouped_plan.action_groups),
+        )
         completed_by_id: dict[str, PlanActionExecution] = {}
         forwarded_summaries: list[str] = []
         group_executions: list[PlanActionGroupExecution] = []
@@ -152,12 +168,24 @@ class GroupedPlanExecutor:
             status = "partial"
         if not group_executions:
             status = "ok" if final_answer.strip() else "error"
-        return GroupedPlanExecutionResult(
+        result = GroupedPlanExecutionResult(
             status=status,
             final_answer=final_answer.strip(),
             action_summaries=list(forwarded_summaries),
             group_executions=group_executions,
         )
+        log_event(
+            LOGGER,
+            "agent.execute.end",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="execute",
+            status=result.status,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            group_count=len(result.group_executions),
+            action_count=result.action_count,
+        )
+        return result
 
     @traceable(
         name="Plan Action Execution",
@@ -187,9 +215,36 @@ class GroupedPlanExecutor:
             risk_class=action.risk_class,
             execution_mode=group.execution_mode.value,
         )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.action.start",
+            component="agent",
+            agent_name=invocation.agent_name,
+            step="execute_action",
+            status="started",
+            action_id=action.action_id,
+            group_id=group.group_id,
+            tool_name=action.tool_name,
+            risk_class=action.risk_class,
+        )
         parallel_tool_calls = _parallel_tool_calls_for(group=group, action=action)
         if action.tool_name and action.tool_name not in toolbox.tools_by_name:
             message = f"Planned tool '{action.tool_name}' is not available."
+            log_event(
+                LOGGER,
+                "agent.action.error",
+                "warning",
+                component="agent",
+                agent_name=invocation.agent_name,
+                step="execute_action",
+                status="error",
+                action_id=action.action_id,
+                group_id=group.group_id,
+                tool_name=action.tool_name,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_code="tool_not_allowed",
+            )
             return PlanActionExecution(
                 action_id=action.action_id,
                 group_id=group.group_id,
@@ -242,7 +297,7 @@ class GroupedPlanExecutor:
             output_summary = _assistant_text(response).strip()
             if not output_summary:
                 output_summary = "Action completed but returned no assistant summary."
-            return PlanActionExecution(
+            execution = PlanActionExecution(
                 action_id=action.action_id,
                 group_id=group.group_id,
                 tool_name=action.tool_name,
@@ -252,8 +307,36 @@ class GroupedPlanExecutor:
                 output_summary=output_summary,
                 tool_calls=_summarize_tool_messages(params.get("messages")),
             )
+            log_event(
+                LOGGER,
+                "agent.action.end",
+                component="agent",
+                agent_name=invocation.agent_name,
+                step="execute_action",
+                status=execution.status,
+                action_id=action.action_id,
+                group_id=group.group_id,
+                tool_name=action.tool_name,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                tool_call_count=len(execution.tool_calls),
+            )
+            return execution
         except Exception as exc:  # pragma: no cover - safety net for live providers
             message = f"Action failed: {exc.__class__.__name__}: {exc}"
+            log_event(
+                LOGGER,
+                "agent.action.error",
+                "error",
+                component="agent",
+                agent_name=invocation.agent_name,
+                step="execute_action",
+                status="error",
+                action_id=action.action_id,
+                group_id=group.group_id,
+                tool_name=action.tool_name,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_type=exc.__class__.__name__,
+            )
             return PlanActionExecution(
                 action_id=action.action_id,
                 group_id=group.group_id,

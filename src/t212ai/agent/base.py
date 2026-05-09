@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+from t212ai.app.logging import log_event
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.genai.tracing import (
     set_trace_metadata,
@@ -21,6 +24,8 @@ from .schemas import AgentRequest, AgentResponse
 
 if TYPE_CHECKING:
     from t212ai.genai.tools import ToolBox
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -73,6 +78,18 @@ class BaseAgent:
             intent_kind=resolved_intent.kind.value,
             task_complexity=complexity.value,
         )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.start",
+            component="agent",
+            agent_name=self.name,
+            step="handle",
+            status="started",
+            chat_id=request.chat_id,
+            intent_kind=resolved_intent.kind.value,
+            task_complexity=complexity.value,
+        )
         plan = self.plan(
             request,
             intent=resolved_intent,
@@ -89,13 +106,36 @@ class BaseAgent:
                 execution_response = execution_response.model_copy(update={"plan": plan})
             execution_response.metadata.setdefault("agent", self.name)
             execution_response.metadata.setdefault("task_complexity", complexity.value)
+            log_event(
+                LOGGER,
+                "agent.end",
+                component="agent",
+                agent_name=self.name,
+                step="handle",
+                status=execution_response.metadata.get("workflow_status", "ok"),
+                selected_agent=execution_response.selected_agent,
+                chat_id=request.chat_id,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
             return execution_response
-        return AgentResponse(
+        response = AgentResponse(
             final_answer=self._format_plan_response(plan),
             selected_agent=self.name,
             plan=plan,
             metadata={"agent": self.name, "task_complexity": complexity.value},
         )
+        log_event(
+            LOGGER,
+            "agent.end",
+            component="agent",
+            agent_name=self.name,
+            step="handle",
+            status="ok",
+            selected_agent=response.selected_agent,
+            chat_id=request.chat_id,
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+        return response
 
     @traceable(
         name="Agent Plan",

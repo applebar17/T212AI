@@ -14,6 +14,7 @@ from t212ai.genai.context import (
 )
 from t212ai.genai.tokenizer import TokenCounter
 from t212ai.genai.tools.base import ToolBox, build_tool_index, render_tool_descriptions
+from t212ai.genai.models import ToolResult
 
 
 def test_chat_model_for_falls_back_to_default_when_optional_models_are_blank() -> None:
@@ -312,3 +313,31 @@ def test_message_to_dict_falls_back_when_model_dump_raises() -> None:
             },
         }
     ]
+
+
+def test_execute_tool_call_logs_structured_tool_events(caplog) -> None:
+    client = GenAIClient.__new__(GenAIClient)
+    client.logger = logging.getLogger("tests.genai.tool_logging")
+
+    def tool_fn(value: str) -> ToolResult:
+        return ToolResult(status="ok", output=f"received {value}")
+
+    tool_call = SimpleNamespace(
+        id="call_1",
+        function=SimpleNamespace(name="example_tool", arguments='{"value":"abc"}'),
+    )
+
+    with caplog.at_level(logging.INFO, logger="tests.genai.tool_logging"):
+        message = client._execute_tool_call(
+            tool_call,
+            tools_mapping={"example_tool": tool_fn},
+            tools_by_name={"example_tool": {}},
+        )
+
+    assert message["role"] == "tool"
+    records = [record for record in caplog.records if getattr(record, "event", None)]
+    assert [record.event for record in records] == ["tool.call.start", "tool.call.end"]
+    assert records[-1].event_fields["tool_name"] == "example_tool"
+    assert records[-1].event_fields["status"] == "ok"
+    assert records[-1].event_fields["arg_keys"] == ["value"]
+    assert "abc" not in str(records[-1].event_fields)

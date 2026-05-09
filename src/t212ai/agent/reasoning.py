@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING, Any, Callable
 
+from t212ai.app.logging import log_event
 from t212ai.genai.tracing import (
     set_trace_metadata,
     set_trace_name,
@@ -26,6 +29,8 @@ from .schemas import AgentCritique
 if TYPE_CHECKING:
     from t212ai.genai.client import GenAIClient
     from t212ai.genai.tools.base import ToolBox
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AgentReasoner:
@@ -56,6 +61,17 @@ class AgentReasoner:
             task_complexity=task_complexity.value,
             intent_kind=intent.kind.value if intent else None,
         )
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.plan.start",
+            component="agent",
+            agent_name=agent_name,
+            step="build_plan",
+            status="started",
+            task_complexity=task_complexity.value,
+            intent_kind=intent.kind.value if intent else None,
+        )
         system_prompt = self._build_plan_prompt(
             agent_name=agent_name,
             purpose=purpose,
@@ -81,6 +97,16 @@ class AgentReasoner:
         plan = structured_plan.to_agent_plan()
         if plan.task_complexity != task_complexity:
             plan = plan.model_copy(update={"task_complexity": task_complexity})
+        log_event(
+            LOGGER,
+            "agent.plan.end",
+            component="agent",
+            agent_name=agent_name,
+            step="build_plan",
+            status="ok",
+            duration_ms=int((time.monotonic() - start) * 1000),
+            step_count=len(plan.tool_steps),
+        )
         return plan
 
     @traceable(
@@ -147,6 +173,16 @@ class AgentReasoner:
         chat_history: ChatHistoryWindow | None = None,
         persistent_guidance: str | None = None,
     ) -> str:
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.tool_orchestration.start",
+            component="agent",
+            agent_name=agent_name,
+            step="orchestrate_with_tools",
+            status="started",
+            tool_count=len(toolbox.tools),
+        )
         system_prompt = build_orchestrator_manager_system_prompt(
             agent_name=agent_name,
             purpose=purpose,
@@ -173,12 +209,37 @@ class AgentReasoner:
             toolbox=toolbox,
             parallel_tool_calls=False,
         )
-        response = self.genai.call_openai(
-            params,
-            tools_mapping=tools_mapping,
-            toolbox=toolbox,
+        try:
+            response = self.genai.call_openai(
+                params,
+                tools_mapping=tools_mapping,
+                toolbox=toolbox,
+            )
+            text = self._assistant_text(response)
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                "agent.tool_orchestration.error",
+                "error",
+                component="agent",
+                agent_name=agent_name,
+                step="orchestrate_with_tools",
+                status="error",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_type=exc.__class__.__name__,
+            )
+            raise
+        log_event(
+            LOGGER,
+            "agent.tool_orchestration.end",
+            component="agent",
+            agent_name=agent_name,
+            step="orchestrate_with_tools",
+            status="ok",
+            duration_ms=int((time.monotonic() - start) * 1000),
+            response_length=len(text),
         )
-        return self._assistant_text(response)
+        return text
 
     def _model_for(self, task_complexity: TaskComplexity) -> str | None:
         if task_complexity == TaskComplexity.REASONING:

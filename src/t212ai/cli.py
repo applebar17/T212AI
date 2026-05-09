@@ -229,6 +229,9 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "APP_LOG_LEVEL",
             "APP_LOG_FILE_PATH",
+            "APP_LOG_FORMAT",
+            "APP_LOG_RETENTION_DAYS",
+            "APP_LOG_THIRD_PARTY_LEVEL",
             "GUIDELINE_MEMORY_PATH",
             "DATABASE_URL",
         ),
@@ -349,6 +352,9 @@ SEARCH_SECTION_KEYS = (
 STORAGE_SECTION_KEYS = (
     "APP_LOG_LEVEL",
     "APP_LOG_FILE_PATH",
+    "APP_LOG_FORMAT",
+    "APP_LOG_RETENTION_DAYS",
+    "APP_LOG_THIRD_PARTY_LEVEL",
     "DATABASE_URL",
     "GUIDELINE_MEMORY_PATH",
 )
@@ -647,7 +653,7 @@ def command_configure(args: argparse.Namespace) -> int:
 
 def command_doctor(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_run_bot(assessment)
     smoke_results = run_provider_smoke_tests(settings, assessment) if args.smoke else None
@@ -755,7 +761,7 @@ def command_scheduler_export(args: argparse.Namespace) -> int:
 
 def command_run_bot(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     logger = logging.getLogger(__name__)
     assessment = assess_settings(settings)
     preflight = preflight_run_bot(assessment)
@@ -786,7 +792,7 @@ def command_run_bot(args: argparse.Namespace) -> int:
 
 def command_run_reconcile_once(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_reconcile(assessment, settings)
     if not preflight.ok:
@@ -810,7 +816,7 @@ def command_run_reconcile_once(args: argparse.Namespace) -> int:
 
 def command_run_worker(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_reconcile(assessment, settings)
     if not preflight.ok:
@@ -840,7 +846,7 @@ def command_run_worker(args: argparse.Namespace) -> int:
 
 def command_run_scheduler_once(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_scheduler(assessment, settings)
     if not preflight.ok:
@@ -874,7 +880,7 @@ def command_run_scheduler_once(args: argparse.Namespace) -> int:
 
 def command_run_scheduler_worker(args: argparse.Namespace) -> int:
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_scheduler(assessment, settings)
     if not preflight.ok:
@@ -919,6 +925,16 @@ def load_settings_from_cli(*, env_file: str | None) -> AppSettings:
     env_path = Path(env_file)
     raw = parse_env_file(env_path) if env_path.exists() else {}
     return get_app_settings(env=raw)
+
+
+def _configure_app_logging(settings: AppSettings) -> None:
+    configure_logging(
+        settings.app_log_level,
+        file_path=settings.app_log_file_path,
+        file_format=settings.app_log_format,
+        retention_days=settings.app_log_retention_days,
+        third_party_level=settings.app_log_third_party_level,
+    )
 
 
 def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
@@ -1184,6 +1200,18 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "APP_LOG_FILE_PATH": existing_raw.get(
             "APP_LOG_FILE_PATH",
             settings.app_log_file_path,
+        ),
+        "APP_LOG_FORMAT": existing_raw.get(
+            "APP_LOG_FORMAT",
+            settings.app_log_format,
+        ),
+        "APP_LOG_RETENTION_DAYS": existing_raw.get(
+            "APP_LOG_RETENTION_DAYS",
+            str(settings.app_log_retention_days),
+        ),
+        "APP_LOG_THIRD_PARTY_LEVEL": existing_raw.get(
+            "APP_LOG_THIRD_PARTY_LEVEL",
+            settings.app_log_third_party_level,
         ),
     }
     for legacy_key in (
@@ -1616,6 +1644,18 @@ def apply_configuration_wizard(
                 "APP_LOG_FILE_PATH",
                 default=updates["APP_LOG_FILE_PATH"],
             )
+            updates["APP_LOG_FORMAT"] = io_runtime.prompt(
+                "APP_LOG_FORMAT",
+                default=updates["APP_LOG_FORMAT"],
+            )
+            updates["APP_LOG_RETENTION_DAYS"] = io_runtime.prompt(
+                "APP_LOG_RETENTION_DAYS",
+                default=updates["APP_LOG_RETENTION_DAYS"],
+            )
+            updates["APP_LOG_THIRD_PARTY_LEVEL"] = io_runtime.prompt(
+                "APP_LOG_THIRD_PARTY_LEVEL",
+                default=updates["APP_LOG_THIRD_PARTY_LEVEL"],
+            )
             updates["DATABASE_URL"] = io_runtime.prompt(
                 "DATABASE_URL",
                 default=updates["DATABASE_URL"],
@@ -2025,6 +2065,9 @@ def render_doctor_report(
     lines.append(f"Community provider selection: {settings.community_provider}")
     lines.append(f"Search provider selection: {settings.search_provider}")
     lines.append(f"Scheduler worker id: {settings.scheduler_worker_id or 'auto'}")
+    lines.append(f"App log format: {settings.app_log_format}")
+    lines.append(f"App log retention days: {settings.app_log_retention_days}")
+    lines.append(f"Third-party log level: {settings.app_log_third_party_level}")
     lines.append(f"Scheduler lease seconds: {settings.scheduler_lease_seconds}")
     lines.append(
         f"Scheduler stale run after seconds: {settings.scheduler_stale_run_after_seconds}"
@@ -2177,7 +2220,7 @@ def render_scheduler_maintenance_result(operation: str, result) -> str:
 
 def _build_scheduler_runtime_for_command(args: argparse.Namespace, command_name: str):
     settings = load_settings_from_cli(env_file=args.env_file)
-    configure_logging(settings.app_log_level, file_path=settings.app_log_file_path)
+    _configure_app_logging(settings)
     assessment = assess_settings(settings)
     preflight = preflight_scheduler(assessment, settings)
     if not preflight.ok:

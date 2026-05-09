@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+import logging
+import time
 from typing import Any
 
+from t212ai.app.logging import log_event
 from t212ai.brokers.models import (
     BrokerOrderAction,
     BrokerOrderActionRequest,
@@ -55,6 +58,8 @@ from .prompts import (
 )
 from .schemas import AgentInvocationContext, AgentRequest, AgentResponse
 from .time_context import render_timezone_context
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _empty_toolbox(name: str) -> ToolBox:
@@ -616,6 +621,23 @@ class OrderAgent(BaseAgent):
             workflow="order_action",
             action=action_request.action.value,
         )
+        start = time.monotonic()
+        tool_name = (
+            "broker_prepare_cancel_action"
+            if action_request.action == BrokerOrderAction.PREPARE_CANCEL_ORDER
+            else "broker_prepare_order_action"
+        )
+        log_event(
+            LOGGER,
+            "tool.dispatch.start",
+            component="tool",
+            agent_name=self.name,
+            step="execute_action_request",
+            tool_name=tool_name,
+            status="started",
+            action=action_request.action.value,
+            chat_id=request.chat_id,
+        )
         runtime = BrokerToolRuntime(
             broker_read_service=self.broker_read_service,
             broker_execution_service=self.broker_execution_service,
@@ -629,7 +651,7 @@ class OrderAgent(BaseAgent):
         )
         tool_mapping = build_broker_tool_mapping(runtime)
         if action_request.action == BrokerOrderAction.PREPARE_CANCEL_ORDER:
-            return tool_mapping["broker_prepare_cancel_action"](
+            result = tool_mapping["broker_prepare_cancel_action"](
                 order_ref=action_request.target_order_ref,
                 selector=(
                     action_request.cancel_selector.value
@@ -638,18 +660,34 @@ class OrderAgent(BaseAgent):
                 ),
                 reason=action_request.reason,
             )
-        return tool_mapping["broker_prepare_order_action"](
-            order_type=action_request.order_type,
-            side=action_request.side,
-            ticker=action_request.ticker,
-            quantity=action_request.quantity,
-            notional_amount=action_request.notional_amount,
-            notional_currency=action_request.notional_currency,
-            limit_price=action_request.limit_price,
-            stop_price=action_request.stop_price,
-            time_in_force=action_request.time_in_force,
-            extended_hours=action_request.extended_hours,
+        else:
+            result = tool_mapping["broker_prepare_order_action"](
+                order_type=action_request.order_type,
+                side=action_request.side,
+                ticker=action_request.ticker,
+                quantity=action_request.quantity,
+                notional_amount=action_request.notional_amount,
+                notional_currency=action_request.notional_currency,
+                limit_price=action_request.limit_price,
+                stop_price=action_request.stop_price,
+                time_in_force=action_request.time_in_force,
+                extended_hours=action_request.extended_hours,
+            )
+        log_event(
+            LOGGER,
+            "tool.dispatch.end" if result.status == "ok" else "tool.dispatch.error",
+            "info" if result.status == "ok" else "warning",
+            component="tool",
+            agent_name=self.name,
+            step="execute_action_request",
+            tool_name=tool_name,
+            status=result.status,
+            chat_id=request.chat_id,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            error_code=result.error.code if result.error else None,
+            error_type=result.error.type if result.error else None,
         )
+        return result
 
     @traceable(
         name="Order Agent Resolve Position Backed Submit Request",
@@ -997,52 +1035,79 @@ class CalculatorAgent(BaseAgent):
             workflow="calculator",
             operation=request.operation.value,
         )
+        start = time.monotonic()
         runtime = CalculatorToolRuntime(service=self.calculator_service)
         tool_mapping = build_calculator_tool_mapping(runtime)
         operation = request.operation.value
+        tool_name = f"calc_{operation}"
+        log_event(
+            LOGGER,
+            "tool.dispatch.start",
+            component="tool",
+            agent_name=self.name,
+            step="execute_calculation_request",
+            tool_name=tool_name,
+            status="started",
+            operation=operation,
+        )
         if operation == "evaluate_formula":
-            return tool_mapping["calc_evaluate_formula"](request.expression or "")
-        if operation == "sum":
-            return tool_mapping["calc_sum"](request.operands)
-        if operation == "subtract":
-            return tool_mapping["calc_subtract"](request.operands)
-        if operation == "multiply":
-            return tool_mapping["calc_multiply"](request.operands)
-        if operation == "divide":
-            return tool_mapping["calc_divide"](request.operands)
-        if operation == "quantity_from_budget_and_price":
-            return tool_mapping["calc_quantity_from_budget_and_price"](
+            result = tool_mapping["calc_evaluate_formula"](request.expression or "")
+        elif operation == "sum":
+            result = tool_mapping["calc_sum"](request.operands)
+        elif operation == "subtract":
+            result = tool_mapping["calc_subtract"](request.operands)
+        elif operation == "multiply":
+            result = tool_mapping["calc_multiply"](request.operands)
+        elif operation == "divide":
+            result = tool_mapping["calc_divide"](request.operands)
+        elif operation == "quantity_from_budget_and_price":
+            result = tool_mapping["calc_quantity_from_budget_and_price"](
                 request.budget,
                 request.price,
             )
-        if operation == "notional_from_quantity_and_price":
-            return tool_mapping["calc_notional_from_quantity_and_price"](
+        elif operation == "notional_from_quantity_and_price":
+            result = tool_mapping["calc_notional_from_quantity_and_price"](
                 request.quantity,
                 request.price,
             )
-        if operation == "position_weight":
-            return tool_mapping["calc_position_weight"](
+        elif operation == "position_weight":
+            result = tool_mapping["calc_position_weight"](
                 request.position_value,
                 request.portfolio_value,
             )
-        if operation == "rebalance_delta":
-            return tool_mapping["calc_rebalance_delta"](
+        elif operation == "rebalance_delta":
+            result = tool_mapping["calc_rebalance_delta"](
                 request.current_value,
                 request.target_weight_pct,
                 request.portfolio_value,
             )
-        if operation == "pnl_amount":
-            return tool_mapping["calc_pnl_amount"](
+        elif operation == "pnl_amount":
+            result = tool_mapping["calc_pnl_amount"](
                 request.entry_price,
                 request.current_price,
                 request.quantity,
                 request.direction.value,
             )
-        return tool_mapping["calc_pnl_percent"](
-            request.entry_price,
-            request.current_price,
-            request.direction.value,
+        else:
+            result = tool_mapping["calc_pnl_percent"](
+                request.entry_price,
+                request.current_price,
+                request.direction.value,
+            )
+        log_event(
+            LOGGER,
+            "tool.dispatch.end" if result.status == "ok" else "tool.dispatch.error",
+            "info" if result.status == "ok" else "warning",
+            component="tool",
+            agent_name=self.name,
+            step="execute_calculation_request",
+            tool_name=tool_name,
+            status=result.status,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            error_code=result.error.code if result.error else None,
+            error_type=result.error.type if result.error else None,
         )
+        return result
 
 
 class MarketAnalystAgent(BaseAgent):

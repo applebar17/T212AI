@@ -174,6 +174,9 @@ class AppSettings:
     searxng_enabled: bool = False
     app_log_level: str = "INFO"
     app_log_file_path: str = "data/logs/t212ai.log"
+    app_log_format: str = "json"
+    app_log_retention_days: int = 3
+    app_log_third_party_level: str = "WARNING"
     guideline_memory_path: str = "data/guidelines/guidelines.json"
     database_url: str = "sqlite:///./data/t212ai.db"
     scheduler_default_timezone: str = "UTC"
@@ -358,6 +361,9 @@ def get_app_settings(
         searxng_enabled=_resolve_search_provider(source) == "searxng",
         app_log_level=source.get("APP_LOG_LEVEL", "INFO"),
         app_log_file_path=source.get("APP_LOG_FILE_PATH", "data/logs/t212ai.log"),
+        app_log_format=source.get("APP_LOG_FORMAT", "json"),
+        app_log_retention_days=_env_int_from_source(source, "APP_LOG_RETENTION_DAYS", 3),
+        app_log_third_party_level=source.get("APP_LOG_THIRD_PARTY_LEVEL", "WARNING"),
         guideline_memory_path=source.get(
             "GUIDELINE_MEMORY_PATH",
             "data/guidelines/guidelines.json",

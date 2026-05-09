@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import logging
 import sys
 from types import ModuleType
 
@@ -208,7 +209,7 @@ def test_router_sends_response_for_authorized_chat() -> None:
     assert bot.sent_messages[0]["reply_to_message_id"] == 99
 
 
-def test_router_sends_concise_content_filter_error() -> None:
+def test_router_sends_concise_content_filter_error(caplog) -> None:
     class ContentFilterError(Exception):
         code = "content_filter"
 
@@ -229,12 +230,22 @@ def test_router_sends_concise_content_filter_error() -> None:
         effective_message=FakeMessage("market scan"),
     )
 
-    asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
+    with caplog.at_level(logging.INFO, logger="t212ai.telegram.bridge"):
+        asyncio.run(router.handle_update(update, FakeContext(bot=bot)))
 
     assert len(bot.sent_messages) == 1
     text = str(bot.sent_messages[0]["text"])
     assert "LLM provider blocked this request" in text
     assert "ResponsibleAIPolicyViolation" not in text
+    error_events = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "telegram.request.error"
+    ]
+    assert error_events
+    assert error_events[-1].event_fields["error_code"] == "content_filter"
+    assert error_events[-1].event_fields["status"] == "error"
+    assert "market scan" not in str(error_events[-1].event_fields)
 
 
 def test_normalize_telegram_text_removes_common_markdown() -> None:

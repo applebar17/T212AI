@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import re
+import time
 from typing import Any
 
 from pydantic import ValidationError
+from t212ai.app.logging import log_event
 from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadService
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
@@ -38,6 +41,8 @@ from .specialists import (
     SchedulerAgent,
 )
 from .time_context import render_timezone_context
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -191,35 +196,74 @@ class MainOrchestratorAgent(BaseAgent):
             agent_kind="orchestrator",
             task_complexity=(task_complexity or TaskComplexity.EASY).value,
         )
-        tool_runs: list[SpecialistToolRun] = []
-        final_answer = self._forced_order_route_answer(request, tool_runs)
-        if final_answer is None:
-            final_answer = self.reasoner.orchestrate_with_tools(
-                agent_name=self.profile.name,
-                purpose=self.profile.purpose,
-                guidelines=self.profile.guidelines,
-                toolbox_summary=self.profile.toolbox_summary,
-                user_request=request.user_message,
-                toolbox=self.orchestrator_toolbox,
-                tools_mapping=self._build_tool_mapping(request, tool_runs),
-                chat_history=self._history_for_prompt(request.history),
-                persistent_guidance=self._persistent_guidance(),
-            )
-        approval_payload = self._approval_payload(tool_runs)
-        if isinstance(approval_payload, dict) and approval_payload.get("text"):
-            final_answer = str(approval_payload["text"])
-        elif not final_answer.strip() and tool_runs:
-            final_answer = tool_runs[-1].response.final_answer
-
-        metadata, artifacts, plan, critique = self._build_response_package(tool_runs)
-        return AgentResponse(
-            final_answer=final_answer,
-            selected_agent=self.name,
-            plan=plan,
-            critique=critique,
-            metadata=metadata,
-            artifacts=artifacts,
+        start = time.monotonic()
+        log_event(
+            LOGGER,
+            "agent.start",
+            component="agent",
+            agent_name=self.name,
+            step="handle",
+            status="started",
+            chat_id=request.chat_id,
+            task_complexity=(task_complexity or TaskComplexity.EASY).value,
         )
+        tool_runs: list[SpecialistToolRun] = []
+        try:
+            final_answer = self._forced_order_route_answer(request, tool_runs)
+            if final_answer is None:
+                final_answer = self.reasoner.orchestrate_with_tools(
+                    agent_name=self.profile.name,
+                    purpose=self.profile.purpose,
+                    guidelines=self.profile.guidelines,
+                    toolbox_summary=self.profile.toolbox_summary,
+                    user_request=request.user_message,
+                    toolbox=self.orchestrator_toolbox,
+                    tools_mapping=self._build_tool_mapping(request, tool_runs),
+                    chat_history=self._history_for_prompt(request.history),
+                    persistent_guidance=self._persistent_guidance(),
+                )
+            approval_payload = self._approval_payload(tool_runs)
+            if isinstance(approval_payload, dict) and approval_payload.get("text"):
+                final_answer = str(approval_payload["text"])
+            elif not final_answer.strip() and tool_runs:
+                final_answer = tool_runs[-1].response.final_answer
+
+            metadata, artifacts, plan, critique = self._build_response_package(tool_runs)
+            response = AgentResponse(
+                final_answer=final_answer,
+                selected_agent=self.name,
+                plan=plan,
+                critique=critique,
+                metadata=metadata,
+                artifacts=artifacts,
+            )
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                "agent.error",
+                "error",
+                component="agent",
+                agent_name=self.name,
+                step="handle",
+                status="error",
+                chat_id=request.chat_id,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_type=exc.__class__.__name__,
+            )
+            raise
+        log_event(
+            LOGGER,
+            "agent.end",
+            component="agent",
+            agent_name=self.name,
+            selected_agent=response.selected_agent,
+            step="handle",
+            status=response.metadata.get("workflow_status", "ok"),
+            chat_id=request.chat_id,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            delegated_count=len(tool_runs),
+        )
+        return response
 
     @traceable(
         name="Main Orchestrator Forced Order Route",
@@ -409,6 +453,7 @@ class MainOrchestratorAgent(BaseAgent):
             intent_kind: str,
             entities: list[dict[str, str]] | None = None,
         ) -> ToolResult:
+            start = time.monotonic()
             set_trace_name(tool_name)
             set_trace_metadata(
                 agent_name=self.name,
@@ -417,6 +462,18 @@ class MainOrchestratorAgent(BaseAgent):
                 tool_name=tool_name,
                 specialist_key=specialist_key,
                 specialist_name=specialist.name,
+                intent_kind=intent_kind,
+            )
+            log_event(
+                LOGGER,
+                "agent.delegate.start",
+                component="agent",
+                agent_name=self.name,
+                step="delegate_to_specialist",
+                tool_name=tool_name,
+                selected_agent=specialist.name,
+                status="started",
+                chat_id=request.chat_id,
                 intent_kind=intent_kind,
             )
             try:
@@ -429,6 +486,21 @@ class MainOrchestratorAgent(BaseAgent):
                     }
                 )
             except ValidationError as exc:
+                log_event(
+                    LOGGER,
+                    "agent.delegate.error",
+                    "warning",
+                    component="agent",
+                    agent_name=self.name,
+                    step="delegate_to_specialist",
+                    tool_name=tool_name,
+                    selected_agent=specialist.name,
+                    status="error",
+                    chat_id=request.chat_id,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    error_type=exc.__class__.__name__,
+                    error_code="invalid_delegation_payload",
+                )
                 return ToolResult(
                     status="error",
                     error=ToolError(
@@ -440,6 +512,20 @@ class MainOrchestratorAgent(BaseAgent):
                     ),
                 )
             if delegation.intent_kind not in allowed_intents:
+                log_event(
+                    LOGGER,
+                    "agent.delegate.error",
+                    "warning",
+                    component="agent",
+                    agent_name=self.name,
+                    step="delegate_to_specialist",
+                    tool_name=tool_name,
+                    selected_agent=specialist.name,
+                    status="error",
+                    chat_id=request.chat_id,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    error_code="invalid_specialist_intent",
+                )
                 return ToolResult(
                     status="error",
                     error=ToolError(
@@ -466,6 +552,19 @@ class MainOrchestratorAgent(BaseAgent):
                 }
             )
             response = specialist.handle(delegated_request, intent=resolved_intent)
+            log_event(
+                LOGGER,
+                "agent.delegate.end",
+                component="agent",
+                agent_name=self.name,
+                step="delegate_to_specialist",
+                tool_name=tool_name,
+                selected_agent=specialist.name,
+                status=response.metadata.get("workflow_status", "ok"),
+                chat_id=request.chat_id,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                intent_kind=resolved_intent.kind.value,
+            )
             tool_runs.append(
                 SpecialistToolRun(
                     tool_name=tool_name,

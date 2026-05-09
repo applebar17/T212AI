@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterable
 from pydantic import BaseModel
 
 from t212ai.app.config import AppSettings, load_env_file
+from t212ai.app.logging import log_event
 
 from .context import (
     DEFAULT_CONTEXT_FALLBACK_TOKENS,
@@ -100,6 +101,22 @@ def _safe_float(value: Any, default: float) -> float:
         return float(str(value).strip())
     except ValueError:
         return default
+
+
+def _provider_error_code(exc: Exception) -> str | None:
+    values = [
+        getattr(exc, "code", None),
+        getattr(exc, "status_code", None),
+        getattr(exc, "body", None),
+        getattr(exc, "message", None),
+        str(exc),
+    ]
+    text = " ".join(str(value).lower() for value in values if value is not None)
+    if "contentfilter" in text or "responsibleaipolicyviolation" in text:
+        return "content_filter"
+    if getattr(exc, "code", None):
+        return str(getattr(exc, "code"))
+    return None
 
 
 @dataclass(slots=True)
@@ -368,6 +385,19 @@ class GenAIClient:
         toolbox: ToolBox | None = None,
         include_tool_meta: bool = False,
     ):
+        call_start = time.monotonic()
+        model = str(params.get("model") or "unknown")
+        log_event(
+            self.logger,
+            "llm.call.start",
+            component="genai",
+            step="call_openai",
+            status="started",
+            model=model,
+            provider="azure_openai" if self.settings.is_azure else "openai",
+            tool_count=len(params.get("tools") or (toolbox.tools if toolbox else [])),
+            message_count=len(params.get("messages") or []),
+        )
         if toolbox and "tools" not in params:
             params["tools"] = toolbox.tools
         if tools_mapping is None and (toolbox or params.get("tools")):
@@ -389,48 +419,100 @@ class GenAIClient:
             else self._call_with_retries
         )
 
-        while True:
-            self._ensure_context_budget(params)
-            response = call_fn(params)
+        try:
+            while True:
+                self._ensure_context_budget(params)
+                response = call_fn(params)
 
-            choice = response.choices[0]
-            message = choice.message
-            tool_calls = getattr(message, "tool_calls", None)
-            if not tool_calls:
-                return response
+                choice = response.choices[0]
+                message = choice.message
+                tool_calls = getattr(message, "tool_calls", None)
+                if not tool_calls:
+                    log_event(
+                        self.logger,
+                        "llm.call.end",
+                        component="genai",
+                        step="call_openai",
+                        status="ok",
+                        model=model,
+                        provider="azure_openai" if self.settings.is_azure else "openai",
+                        duration_ms=int((time.monotonic() - call_start) * 1000),
+                        tool_call_count=tool_calls_executed,
+                        message_count=len(params.get("messages") or []),
+                    )
+                    return response
 
-            params["messages"].append(self._message_to_dict(message))
+                params["messages"].append(self._message_to_dict(message))
 
-            if not tools_mapping:
-                raise ValueError("tools_mapping is required for tool calls.")
+                if not tools_mapping:
+                    raise ValueError("tools_mapping is required for tool calls.")
 
-            if self._tool_budget_exceeded(
-                start_time, tool_calls_executed, len(tool_calls)
-            ):
-                self.logger.warning(
-                    "Tool budget exceeded; completing without tools. "
-                    "tool_calls=%s limit=%s timeout=%.1fs",
-                    tool_calls_executed,
-                    self.tool_call_limit,
-                    self.tool_call_timeout_seconds,
-                )
-                tool_calls_executed += self._append_tool_budget_exceeded_messages(
-                    params,
-                    tool_calls,
-                    tool_calls_executed=tool_calls_executed,
-                    start_time=start_time,
-                )
-                return self._call_without_tools(params)
+                if self._tool_budget_exceeded(
+                    start_time, tool_calls_executed, len(tool_calls)
+                ):
+                    self.logger.warning(
+                        "Tool budget exceeded; completing without tools. "
+                        "tool_calls=%s limit=%s timeout=%.1fs",
+                        tool_calls_executed,
+                        self.tool_call_limit,
+                        self.tool_call_timeout_seconds,
+                    )
+                    log_event(
+                        self.logger,
+                        "llm.tool_budget_exceeded",
+                        "warning",
+                        component="genai",
+                        step="call_openai",
+                        status="error",
+                        model=model,
+                        tool_call_count=tool_calls_executed,
+                        tool_call_limit=self.tool_call_limit,
+                        tool_call_timeout_seconds=self.tool_call_timeout_seconds,
+                    )
+                    tool_calls_executed += self._append_tool_budget_exceeded_messages(
+                        params,
+                        tool_calls,
+                        tool_calls_executed=tool_calls_executed,
+                        start_time=start_time,
+                    )
+                    response = self._call_without_tools(params)
+                    log_event(
+                        self.logger,
+                        "llm.call.end",
+                        component="genai",
+                        step="call_openai",
+                        status="partial",
+                        model=model,
+                        provider="azure_openai" if self.settings.is_azure else "openai",
+                        duration_ms=int((time.monotonic() - call_start) * 1000),
+                        tool_call_count=tool_calls_executed,
+                    )
+                    return response
 
-            for tool_call in tool_calls:
-                tool_result = self._execute_tool_call(
-                    tool_call,
-                    tools_mapping=tools_mapping,
-                    tools_by_name=tools_by_name,
-                    include_tool_meta=include_tool_meta,
-                )
-                params["messages"].append(tool_result)
-                tool_calls_executed += 1
+                for tool_call in tool_calls:
+                    tool_result = self._execute_tool_call(
+                        tool_call,
+                        tools_mapping=tools_mapping,
+                        tools_by_name=tools_by_name,
+                        include_tool_meta=include_tool_meta,
+                    )
+                    params["messages"].append(tool_result)
+                    tool_calls_executed += 1
+        except Exception as exc:
+            log_event(
+                self.logger,
+                "llm.call.error",
+                "error",
+                component="genai",
+                step="call_openai",
+                status="error",
+                model=model,
+                provider="azure_openai" if self.settings.is_azure else "openai",
+                duration_ms=int((time.monotonic() - call_start) * 1000),
+                error_type=exc.__class__.__name__,
+                error_code=_provider_error_code(exc),
+            )
+            raise
 
     def _default_chat_model(self) -> str:
         return self.settings.chat_model_default or "gpt-4o-mini"
@@ -593,6 +675,16 @@ class GenAIClient:
             "raw_args": raw_args,
         }
 
+        start = time.monotonic()
+        log_event(
+            self.logger,
+            "tool.call.start",
+            component="tool",
+            step="execute_tool_call",
+            tool_name=fn_name,
+            status="started",
+        )
+
         if tools_by_name is not None and fn_name not in tools_by_name:
             error = ToolError(
                 message=f"Tool '{fn_name}' is not allowed for this toolbox.",
@@ -602,6 +694,17 @@ class GenAIClient:
                 details={"allowed_tools": sorted(tools_by_name.keys())},
             )
             result = ToolResult(status="error", error=error, meta=meta)
+            log_event(
+                self.logger,
+                "tool.call.error",
+                "warning",
+                component="tool",
+                step="execute_tool_call",
+                tool_name=fn_name,
+                status="error",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_code=error.code,
+            )
             return self._tool_message(
                 tool_call.id,
                 result,
@@ -617,6 +720,17 @@ class GenAIClient:
                 details={"available_tools": sorted(tools_mapping.keys())},
             )
             result = ToolResult(status="error", error=error, meta=meta)
+            log_event(
+                self.logger,
+                "tool.call.error",
+                "warning",
+                component="tool",
+                step="execute_tool_call",
+                tool_name=fn_name,
+                status="error",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_code=error.code,
+            )
             return self._tool_message(
                 tool_call.id,
                 result,
@@ -635,6 +749,18 @@ class GenAIClient:
                 details={"raw": raw_args},
             )
             result = ToolResult(status="error", error=error, meta=meta)
+            log_event(
+                self.logger,
+                "tool.call.error",
+                "warning",
+                component="tool",
+                step="execute_tool_call",
+                tool_name=fn_name,
+                status="error",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_type=exc.__class__.__name__,
+                error_code=error.code,
+            )
             return self._tool_message(
                 tool_call.id,
                 result,
@@ -642,7 +768,6 @@ class GenAIClient:
             )
 
         tool_fn = tools_mapping[fn_name]
-        start = time.monotonic()
         try:
             output = tool_fn(**args)
             result = self._normalize_tool_output(output)
@@ -661,6 +786,19 @@ class GenAIClient:
         if result.meta:
             meta.update(result.meta)
         result.meta = meta
+        log_event(
+            self.logger,
+            "tool.call.end" if result.status == "ok" else "tool.call.error",
+            "info" if result.status == "ok" else "warning",
+            component="tool",
+            step="execute_tool_call",
+            tool_name=fn_name,
+            status=result.status,
+            duration_ms=duration_ms,
+            error_type=result.error.type if result.error else None,
+            error_code=result.error.code if result.error else None,
+            arg_keys=sorted(args.keys()),
+        )
         return self._tool_message(
             tool_call.id,
             result,

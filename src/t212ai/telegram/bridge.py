@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
+from t212ai.app.logging import log_event
 from t212ai.agent.history import ChatHistoryManager
 from t212ai.agent.intents import IntentKind
 from t212ai.agent.orchestrator import AgentOrchestrator, MainOrchestratorAgent
@@ -46,6 +49,8 @@ from .models import (
     inbound_from_update,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 TelegramMessageHandler: TypeAlias = Callable[
     [TelegramInboundMessage],
     TelegramApprovalRequest
@@ -69,6 +74,7 @@ class TelegramUpdateRouter:
         run_type="chain"
     )
     async def handle_update(self, update: Any, context: Any) -> None:
+        start = time.monotonic()
         await _acknowledge_callback(update)
         inbound = inbound_from_update(update)
         if inbound is None:
@@ -77,6 +83,15 @@ class TelegramUpdateRouter:
                 agent_step="telegram_request",
                 step_kind="chain",
                 route="ignored",
+            )
+            log_event(
+                LOGGER,
+                "telegram.request.ignored",
+                component="telegram",
+                step="handle_update",
+                route="ignored",
+                status="ignored",
+                duration_ms=int((time.monotonic() - start) * 1000),
             )
             return
         set_trace_name("telegram.request")
@@ -92,8 +107,34 @@ class TelegramUpdateRouter:
             message_id=str(inbound.message_id) if inbound.message_id is not None else None,
             is_callback=bool(inbound.callback_data),
         )
+        log_event(
+            LOGGER,
+            "telegram.request.start",
+            component="telegram",
+            step="handle_update",
+            route="telegram",
+            status="started",
+            chat_id=str(inbound.chat_id),
+            user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+            message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+            is_callback=bool(inbound.callback_data),
+            text_length=len(inbound.text or ""),
+        )
         messenger = TelegramMessenger(context.bot)
         if not self.access_policy.is_allowed(inbound.chat_id, inbound.user_id):
+            log_event(
+                LOGGER,
+                "telegram.request.unauthorized",
+                "warning",
+                component="telegram",
+                step="handle_update",
+                route="telegram",
+                status="blocked",
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
             if not self.access_policy.silent_unauthorized:
                 await messenger.send_error(
                     inbound.chat_id,
@@ -109,12 +150,39 @@ class TelegramUpdateRouter:
             messenger=messenger,
         )
         if approval_handled:
+            log_event(
+                LOGGER,
+                "telegram.request.end",
+                component="telegram",
+                step="handle_update",
+                route="approval_callback",
+                status="handled",
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
             return
 
         try:
             response = await _resolve_response(self.message_handler(inbound))
         except Exception as exc:  # pragma: no cover - safety net
             if _is_content_filter_error(exc):
+                log_event(
+                    LOGGER,
+                    "telegram.request.error",
+                    "error",
+                    component="telegram",
+                    step="handle_update",
+                    route="telegram",
+                    status="error",
+                    chat_id=str(inbound.chat_id),
+                    user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                    message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    error_type=exc.__class__.__name__,
+                    error_code="content_filter",
+                )
                 await messenger.send_error(
                     inbound.chat_id,
                     (
@@ -127,6 +195,20 @@ class TelegramUpdateRouter:
                     ),
                 )
                 return
+            log_event(
+                LOGGER,
+                "telegram.request.error",
+                "error",
+                component="telegram",
+                step="handle_update",
+                route="telegram",
+                status="error",
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error_type=exc.__class__.__name__,
+            )
             await messenger.send_error(
                 inbound.chat_id,
                 (
@@ -138,6 +220,18 @@ class TelegramUpdateRouter:
             return
 
         if response is None:
+            log_event(
+                LOGGER,
+                "telegram.request.end",
+                component="telegram",
+                step="handle_update",
+                route="telegram",
+                status="no_response",
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
             return
         if isinstance(response, TelegramApprovalRequest):
             sent = await messenger.send_approval_request(response)
@@ -149,6 +243,20 @@ class TelegramUpdateRouter:
                     response.action_id,
                     _coerce_int(message_id),
                 )
+            log_event(
+                LOGGER,
+                "telegram.response.sent",
+                component="telegram",
+                step="send_response",
+                route="approval_request",
+                status="sent",
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                action_id=response.action_id,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                response_length=len(response.text or ""),
+            )
             return
         outbound = (
             response
@@ -163,6 +271,19 @@ class TelegramUpdateRouter:
                 disable_web_page_preview=outbound.disable_web_page_preview,
             )
         await messenger.send_message(inbound.chat_id, outbound)
+        log_event(
+            LOGGER,
+            "telegram.response.sent",
+            component="telegram",
+            step="send_response",
+            route="telegram",
+            status="sent",
+            chat_id=str(inbound.chat_id),
+            user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+            message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            response_length=len(outbound.text or ""),
+        )
 
     async def _handle_pending_action_resolution(
         self,
@@ -187,6 +308,19 @@ class TelegramUpdateRouter:
                 result=result,
                 projected_user_text=f"telegram button: {verb}",
                 send_followup=True,
+            )
+            log_event(
+                LOGGER,
+                "telegram.approval_callback.handled",
+                component="telegram",
+                step="pending_action_resolution",
+                route="approval_callback",
+                status=result.status.value,
+                chat_id=str(inbound.chat_id),
+                user_id=str(inbound.user_id) if inbound.user_id is not None else None,
+                message_id=str(inbound.message_id) if inbound.message_id is not None else None,
+                action_id=action_id,
+                approval_verb=verb,
             )
             return True
 
