@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Mapping, TextIO
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .app.bootstrap import (
     ConfigAssessment,
@@ -230,6 +231,11 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "APP_LOG_FILE_PATH",
             "GUIDELINE_MEMORY_PATH",
             "DATABASE_URL",
+        ),
+    ),
+    (
+        "Scheduler defaults",
+        (
             "SCHEDULER_DEFAULT_TIMEZONE",
             "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
             "SCHEDULER_WORKER_ID",
@@ -344,13 +350,16 @@ STORAGE_SECTION_KEYS = (
     "APP_LOG_LEVEL",
     "APP_LOG_FILE_PATH",
     "DATABASE_URL",
+    "GUIDELINE_MEMORY_PATH",
+)
+
+SCHEDULER_SECTION_KEYS = (
     "SCHEDULER_DEFAULT_TIMEZONE",
     "SCHEDULER_DEFAULT_POLL_EVERY_SECONDS",
     "SCHEDULER_WORKER_ID",
     "SCHEDULER_LEASE_SECONDS",
     "SCHEDULER_STALE_RUN_AFTER_SECONDS",
     "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
-    "GUIDELINE_MEMORY_PATH",
 )
 
 
@@ -1611,7 +1620,24 @@ def apply_configuration_wizard(
                 "DATABASE_URL",
                 default=updates["DATABASE_URL"],
             )
-            updates["SCHEDULER_DEFAULT_TIMEZONE"] = io_runtime.prompt(
+            updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
+                "GUIDELINE_MEMORY_PATH",
+                default=updates["GUIDELINE_MEMORY_PATH"],
+            )
+
+    _write_step_intro(
+        io_runtime,
+        "Scheduler defaults",
+        "Set the user's default timezone for local schedule requests. Scheduler "
+        "workers store and execute times in UTC after conversion.",
+    )
+    if _should_update_section(io_runtime, existing, SCHEDULER_SECTION_KEYS):
+        if io_runtime.confirm(
+            "Customize scheduler defaults?",
+            default=False,
+        ):
+            updates["SCHEDULER_DEFAULT_TIMEZONE"] = _prompt_iana_timezone(
+                io_runtime,
                 "SCHEDULER_DEFAULT_TIMEZONE",
                 default=updates["SCHEDULER_DEFAULT_TIMEZONE"],
             )
@@ -1634,10 +1660,6 @@ def apply_configuration_wizard(
             updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"] = io_runtime.prompt(
                 "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
                 default=updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"],
-            )
-            updates["GUIDELINE_MEMORY_PATH"] = io_runtime.prompt(
-                "GUIDELINE_MEMORY_PATH",
-                default=updates["GUIDELINE_MEMORY_PATH"],
             )
 
 
@@ -1788,6 +1810,24 @@ def _prompt_required(
         if str(value).strip():
             return value.strip()
         io_runtime.write("This value is required.")
+
+
+def _prompt_iana_timezone(
+    io_runtime: TerminalIO,
+    label: str,
+    *,
+    default: str = "UTC",
+) -> str:
+    while True:
+        value = io_runtime.prompt(label, default=default).strip() or "UTC"
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            io_runtime.write(
+                "Enter a valid IANA timezone such as Europe/Rome, America/New_York, or UTC."
+            )
+            continue
+        return value
 
 
 def _prompt_openai_model(

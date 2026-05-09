@@ -95,8 +95,9 @@ SCHEDULER_CREATE_PROCESS_TOOL: ToolSpec = {
         "name": "scheduler_create_process",
         "description": (
             "Create one validated scheduled process from an already-typed process "
-            "spec. Use only with explicit user intent or a configured scheduler "
-            "workflow. Direct broker execution is rejected by the scheduler service."
+            "spec for explicit user intent or a configured scheduler workflow. "
+            "Scheduler v1 supports notify/proposal workflows and leaves broker "
+            "execution outside the scheduled-process spec."
         ),
         "strict": True,
         "parameters": {
@@ -143,7 +144,7 @@ SCHEDULER_CREATE_PROCESS_TOOL: ToolSpec = {
                 "action": {
                     "type": "object",
                     "default": {},
-                    "description": "Validated action policy. Broker execution fields are rejected.",
+                    "description": "Validated action policy for notify/proposal workflows.",
                 },
                 "notification": {
                     "type": "object",
@@ -157,7 +158,7 @@ SCHEDULER_CREATE_PROCESS_TOOL: ToolSpec = {
                 "safety": {
                     "type": "object",
                     "default": {},
-                    "description": "Safety policy. brokerActionsAllowed must remain false in v1.",
+                    "description": "Safety policy for scheduler v1 broker-action status.",
                 },
             },
             "required": [
@@ -230,7 +231,7 @@ SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL: ToolSpec = {
         "name": "scheduler_instrument_monitor_create",
         "description": (
             "Create one executable deterministic instrument monitor from natural "
-            "language scheduling intent. This tool creates only kind=instrument_monitor, "
+            "language scheduling intent. This tool creates kind=instrument_monitor, "
             "executionMode=deterministic, polling schedules, and safety.brokerActionsAllowed=false. "
             "Use it for alerts such as price thresholds, percent-change thresholds, "
             "period-low breakdowns, or period-high breakouts. Ask a concise "
@@ -320,7 +321,7 @@ SCHEDULER_INSTRUMENT_MONITOR_CREATE_TOOL: ToolSpec = {
                 "broker_actions_allowed": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Must be false. Broker/order execution is not supported.",
+                    "description": "Scheduler v1 broker-action flag; use false for notify-only monitors.",
                 },
             },
             "required": [
@@ -349,7 +350,7 @@ SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL: ToolSpec = {
         "name": "scheduler_company_event_analyst_create",
         "description": (
             "Create one safe LLM-assisted company-event analysis process. This tool "
-            "creates only kind=company_event_analyst, executionMode=llm_assisted, "
+            "creates kind=company_event_analyst, executionMode=llm_assisted, "
             "notify-only action, and safety.brokerActionsAllowed=false. Use it for "
             "scheduled earnings, guidance, filing, major-news, or company-event "
             "analysis. Ask a concise clarification question instead of calling this "
@@ -449,7 +450,7 @@ SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL: ToolSpec = {
                 "broker_actions_allowed": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Must be false. Broker/order execution is not supported.",
+                    "description": "Scheduler v1 broker-action flag; use false for notify-only analysis.",
                 },
             },
             "required": [
@@ -482,7 +483,7 @@ SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL: ToolSpec = {
         "name": "scheduler_market_regime_monitor_create",
         "description": (
             "Create one safe LLM-assisted market-regime stress monitor. This tool "
-            "creates only kind=market_regime_monitor, executionMode=llm_assisted, "
+            "creates kind=market_regime_monitor, executionMode=llm_assisted, "
             "polling schedule, notify-only action, and safety.brokerActionsAllowed=false. "
             "Use it for broad market stress/crash monitoring. If the user says market, "
             "S&P, Nasdaq, Dow, Russell, or small caps, map to the configured ETF proxy. "
@@ -585,7 +586,7 @@ SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL: ToolSpec = {
                 "broker_actions_allowed": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Must be false. Broker/order execution is not supported.",
+                    "description": "Scheduler v1 broker-action flag; use false for notify-only monitors.",
                 },
             },
             "required": [
@@ -617,7 +618,7 @@ SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL: ToolSpec = {
         "name": "scheduler_market_signal_capture_create",
         "description": (
             "Create one safe LLM-assisted market-signal capture process. This tool "
-            "creates only kind=market_signal_capture, executionMode=llm_assisted, "
+            "creates kind=market_signal_capture, executionMode=llm_assisted, "
             "recurring or polling schedules, notify-only action, and "
             "safety.brokerActionsAllowed=false. Use it to scan a bounded topic, "
             "symbol list, sector list, or tag list and save only durable advisory "
@@ -740,7 +741,7 @@ SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL: ToolSpec = {
                 "broker_actions_allowed": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Must be false. Broker/order execution is not supported.",
+                    "description": "Scheduler v1 broker-action flag; use false for notify-only capture.",
                 },
             },
             "required": [
@@ -776,9 +777,9 @@ SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL: ToolSpec = {
         "name": "scheduler_trade_setup_monitor_create",
         "description": (
             "Create one guarded LLM-assisted trade setup monitor. This tool creates "
-            "only kind=trade_setup_monitor, executionMode=llm_assisted, polling "
+            "kind=trade_setup_monitor, executionMode=llm_assisted, polling "
             "schedule, notify/proposal action, and safety.brokerActionsAllowed=false. "
-            "Use it only when the user explicitly asks to monitor a setup and, if "
+            "Use it when the user explicitly asks to monitor a setup and, if "
             "proposal creation is enabled, explicitly provides or accepts risk caps. "
             "The scheduler never submits orders; any created pending action still "
             "requires Telegram button approval. Ask a concise clarification question "
@@ -865,7 +866,7 @@ SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL: ToolSpec = {
                 "broker_actions_allowed": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Must be false. Direct broker execution is not supported.",
+                    "description": "Scheduler v1 broker-action flag; use false for notify/proposal monitors.",
                 },
             },
             "required": [

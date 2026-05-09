@@ -54,6 +54,7 @@ from .prompts import (
     build_order_action_user_prompt,
 )
 from .schemas import AgentInvocationContext, AgentRequest, AgentResponse
+from .time_context import render_timezone_context
 
 
 def _empty_toolbox(name: str) -> ToolBox:
@@ -1322,6 +1323,7 @@ class SchedulerAgent(BaseAgent):
         default_timezone: str = "UTC",
         default_poll_every_seconds: int = 300,
     ) -> None:
+        timezone_context = render_timezone_context(default_timezone)
         super().__init__(
             reasoner,
             AgentProfile(
@@ -1331,25 +1333,24 @@ class SchedulerAgent(BaseAgent):
                     "from natural language."
                 ),
                 guidelines=(
-                    "Use only the private scheduler tools. Create only supported "
+                    f"{timezone_context} "
+                    "Use the private scheduler tools for scheduler changes. Create supported "
                     "instrument_monitor, company_event_analyst, "
                     "market_regime_monitor, market_signal_capture, and "
-                    "trade_setup_monitor jobs; do not create unsupported process "
-                    "kinds. "
-                    "Instrument monitors must use deterministic polling schedules. "
-                    "Company-event analyst jobs must use llm_assisted one-shot or "
-                    "recurring schedules and notify-only action. Market-regime "
-                    "monitors must use llm_assisted polling schedules, notify-only "
-                    "action, ETF proxies for broad labels, and default vague stress "
+                    "trade_setup_monitor jobs. Instrument monitors use deterministic "
+                    "polling schedules. Company-event analyst jobs use llm_assisted "
+                    "one-shot or recurring schedules and notify-only action. "
+                    "Market-regime monitors use llm_assisted polling schedules, "
+                    "notify-only action, ETF proxies for broad labels, and default vague stress "
                     "requests to SPY, percent_change_below=-3, and "
                     "drawdown_from_high_pct=5 unless a clearer market label maps to "
-                    "QQQ, DIA, or IWM. Market-signal capture jobs must use "
+                    "QQQ, DIA, or IWM. Market-signal capture jobs use "
                     "llm_assisted recurring or polling schedules, notify-only action, "
                     "and a bounded scan scope from query, symbols, sectors, or tags; "
-                    "captured signals are advisory memory only, not fresh market data "
-                    "or broker-authoritative state. Trade-setup monitors must evaluate "
+                    "captured signals are advisory memory, not fresh market data "
+                    "or broker-authoritative state. Trade-setup monitors evaluate "
                     "a deterministic instrument trigger first; proposal creation is "
-                    "disabled unless explicitly requested, requires allowed symbols, "
+                    "available only when explicitly requested, requires allowed symbols, "
                     "sides, order types, max notional or quantity caps, and one "
                     "approval chat target, and still never submits an order. Ask one "
                     "concise clarification question if symbol, schedule, market/proxy "
@@ -1359,11 +1360,12 @@ class SchedulerAgent(BaseAgent):
                     "includeMarketAnalyst only when the user asks for broader market "
                     "impact, reaction, or context. Pause, resume, and archive require "
                     "an exact process_id; if the user refers by symbol or title, list "
-                    "candidates and ask the user to choose. Never configure broker "
-                    "actions, autonomous execution, direct broker submission, or deletion. "
+                    "candidates and ask the user to choose. Scheduler v1 is notify/proposal "
+                    "oriented and does not configure broker actions, autonomous execution, "
+                    "direct broker submission, or deletion. "
                     "Responses must state the action result, process_id when created or "
-                    "changed, schedule/lifecycle summary, and that no broker action was "
-                    "configured. For trade-setup monitors, also state whether pending "
+                    "changed, schedule/lifecycle summary, and broker-action status. "
+                    "For trade-setup monitors, also state whether pending "
                     "proposal creation is enabled and that future execution requires "
                     "Telegram button approval."
                 ),

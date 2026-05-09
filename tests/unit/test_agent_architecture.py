@@ -1237,6 +1237,22 @@ def test_scheduler_agent_creates_instrument_monitor_through_private_tool(
     assert "No broker action" in response.final_answer
 
 
+def test_scheduler_agent_prompt_includes_configured_timezone(
+    tmp_path: Path,
+) -> None:
+    service = _scheduler_service(tmp_path)
+    reasoner = AgentReasoner(SchedulerGenAIClient())  # type: ignore[arg-type]
+    agent = SchedulerAgent(
+        reasoner,
+        scheduled_process_service=service,
+        default_timezone="Europe/Rome",
+        default_poll_every_seconds=300,
+    )
+
+    assert "Configured user timezone: Europe/Rome" in agent.profile.guidelines
+    assert "Scheduler storage and workers operate in UTC" in agent.profile.guidelines
+
+
 def test_scheduler_agent_creates_company_event_analyst_through_private_tool(
     tmp_path: Path,
 ) -> None:

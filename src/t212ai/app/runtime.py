@@ -634,6 +634,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             runtime.agent_reasoner,
             guideline_service=runtime.guideline_memory_service,
             specialists=specialists,
+            scheduler_default_timezone=runtime.settings.scheduler_default_timezone,
         )
         runtime.specialist_agents = specialists
         runtime.company_agent = specialists.company

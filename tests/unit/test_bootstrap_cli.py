@@ -72,6 +72,7 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "n",
             "n",
             "n",
+            "n",
         ]
     )
     io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
@@ -136,6 +137,7 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "2",
             "reddit-user",
             "reddit-password",
+            "n",
             "n",
         ]
     )
@@ -231,6 +233,19 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
     assert updates["GENAI_CONTEXT_TOKENS_BY_MODEL_JSON"] == '{"custom":250000}'
 
 
+def test_prompt_iana_timezone_accepts_configured_scheduler_timezone() -> None:
+    responses = iter(["Europe/Rome"])
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+
+    value = cli._prompt_iana_timezone(  # noqa: SLF001
+        io_runtime,
+        "SCHEDULER_DEFAULT_TIMEZONE",
+        default="UTC",
+    )
+
+    assert value == "Europe/Rome"
+
+
 def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     updates = cli.build_managed_env_values({})
     responses = iter(
@@ -243,6 +258,7 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
             "",
             "alpaca-paper-key",
             "alpaca-paper-secret",
+            "n",
             "n",
             "n",
             "n",
@@ -280,6 +296,7 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
             "n",
             "n",
             "n",
+            "n",
         ]
     )
     io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
@@ -309,6 +326,7 @@ def test_apply_configuration_wizard_supports_trading212_environment_specific_cre
             "y",
             "n",
             "3",
+            "n",
             "n",
             "n",
             "n",
@@ -367,6 +385,7 @@ def test_apply_configuration_wizard_can_skip_existing_sections_and_explains_sear
             "3",
             "n",
             "1",
+            "n",
             "n",
             "n",
             "n",

@@ -37,6 +37,7 @@ from .specialists import (
     PortfolioAnalystAgent,
     SchedulerAgent,
 )
+from .time_context import render_timezone_context
 
 
 @dataclass(slots=True)
@@ -128,7 +129,9 @@ class MainOrchestratorAgent(BaseAgent):
         *,
         guideline_service: GuidelineMemoryService | None = None,
         specialists: SpecialistAgents | None = None,
+        scheduler_default_timezone: str = "UTC",
     ) -> None:
+        timezone_context = render_timezone_context(scheduler_default_timezone)
         super().__init__(
             reasoner,
             AgentProfile(
@@ -147,7 +150,8 @@ class MainOrchestratorAgent(BaseAgent):
                     "Preserve safety boundaries for orders, approvals, and broker actions. "
                     "Natural-language messages can request or discuss side effects, but "
                     "pending side effects are approved or rejected only through Telegram "
-                    "button callbacks."
+                    "button callbacks. "
+                    f"{timezone_context}"
                 ),
                 toolbox_summary=(
                     "Delegation tools: portfolio_analyst, order_agent, market_analyst, "
