@@ -45,6 +45,7 @@ from .structured import StructuredAgentOutputSynthesizer
 from .specialists import (
     CalculatorAgent,
     CompanyAnalystAgent,
+    LogDiagnosticAgent,
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
@@ -77,6 +78,7 @@ __all__ = [
     "GroupedAgentPlan",
     "InMemoryChatHistoryStore",
     "MainOrchestratorAgent",
+    "LogDiagnosticAgent",
     "MarketAnalystAgent",
     "OrderAgent",
     "PlanActionExecution",

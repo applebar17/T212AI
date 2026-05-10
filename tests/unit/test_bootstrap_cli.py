@@ -228,6 +228,10 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
             "APP_LOG_FORMAT": "json",
             "APP_LOG_RETENTION_DAYS": "5",
             "APP_LOG_THIRD_PARTY_LEVEL": "ERROR",
+            "LOG_DIAGNOSTIC_AGENT_ENABLED": "true",
+            "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": "7",
+            "LOG_DIAGNOSTIC_MAX_RECORDS": "250",
+            "LOG_DIAGNOSTIC_MAX_BYTES": "131072",
         }
     )
 
@@ -237,6 +241,10 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
     assert updates["APP_LOG_FORMAT"] == "json"
     assert updates["APP_LOG_RETENTION_DAYS"] == "5"
     assert updates["APP_LOG_THIRD_PARTY_LEVEL"] == "ERROR"
+    assert updates["LOG_DIAGNOSTIC_AGENT_ENABLED"] == "true"
+    assert updates["LOG_DIAGNOSTIC_MAX_TOOL_CALLS"] == "7"
+    assert updates["LOG_DIAGNOSTIC_MAX_RECORDS"] == "250"
+    assert updates["LOG_DIAGNOSTIC_MAX_BYTES"] == "131072"
 
 
 def test_prompt_iana_timezone_accepts_configured_scheduler_timezone() -> None:

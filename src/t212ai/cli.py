@@ -232,6 +232,10 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "APP_LOG_FORMAT",
             "APP_LOG_RETENTION_DAYS",
             "APP_LOG_THIRD_PARTY_LEVEL",
+            "LOG_DIAGNOSTIC_AGENT_ENABLED",
+            "LOG_DIAGNOSTIC_MAX_TOOL_CALLS",
+            "LOG_DIAGNOSTIC_MAX_RECORDS",
+            "LOG_DIAGNOSTIC_MAX_BYTES",
             "GUIDELINE_MEMORY_PATH",
             "DATABASE_URL",
         ),
@@ -355,6 +359,10 @@ STORAGE_SECTION_KEYS = (
     "APP_LOG_FORMAT",
     "APP_LOG_RETENTION_DAYS",
     "APP_LOG_THIRD_PARTY_LEVEL",
+    "LOG_DIAGNOSTIC_AGENT_ENABLED",
+    "LOG_DIAGNOSTIC_MAX_TOOL_CALLS",
+    "LOG_DIAGNOSTIC_MAX_RECORDS",
+    "LOG_DIAGNOSTIC_MAX_BYTES",
     "DATABASE_URL",
     "GUIDELINE_MEMORY_PATH",
 )
@@ -1212,6 +1220,22 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "APP_LOG_THIRD_PARTY_LEVEL": existing_raw.get(
             "APP_LOG_THIRD_PARTY_LEVEL",
             settings.app_log_third_party_level,
+        ),
+        "LOG_DIAGNOSTIC_AGENT_ENABLED": existing_raw.get(
+            "LOG_DIAGNOSTIC_AGENT_ENABLED",
+            _bool_to_env(settings.log_diagnostic_agent_enabled),
+        ),
+        "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": existing_raw.get(
+            "LOG_DIAGNOSTIC_MAX_TOOL_CALLS",
+            str(settings.log_diagnostic_max_tool_calls),
+        ),
+        "LOG_DIAGNOSTIC_MAX_RECORDS": existing_raw.get(
+            "LOG_DIAGNOSTIC_MAX_RECORDS",
+            str(settings.log_diagnostic_max_records),
+        ),
+        "LOG_DIAGNOSTIC_MAX_BYTES": existing_raw.get(
+            "LOG_DIAGNOSTIC_MAX_BYTES",
+            str(settings.log_diagnostic_max_bytes),
         ),
     }
     for legacy_key in (

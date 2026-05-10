@@ -207,6 +207,10 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
             "APP_LOG_FORMAT": "json",
             "APP_LOG_RETENTION_DAYS": "5",
             "APP_LOG_THIRD_PARTY_LEVEL": "ERROR",
+            "LOG_DIAGNOSTIC_AGENT_ENABLED": "true",
+            "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": "7",
+            "LOG_DIAGNOSTIC_MAX_RECORDS": "250",
+            "LOG_DIAGNOSTIC_MAX_BYTES": "131072",
         }
     )
 
@@ -218,6 +222,11 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
     assert settings.scheduler_max_llm_runs_per_pass == 2
     assert settings.app_log_format == "json"
     assert settings.app_log_retention_days == 5
+    assert settings.app_log_third_party_level == "ERROR"
+    assert settings.log_diagnostic_agent_enabled is True
+    assert settings.log_diagnostic_max_tool_calls == 7
+    assert settings.log_diagnostic_max_records == 250
+    assert settings.log_diagnostic_max_bytes == 131072
     assert settings.app_log_third_party_level == "ERROR"
 
 

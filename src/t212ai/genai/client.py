@@ -384,9 +384,11 @@ class GenAIClient:
         tools_mapping: dict[str, Callable[..., Any]] | None = None,
         toolbox: ToolBox | None = None,
         include_tool_meta: bool = False,
+        max_tool_calls: int | None = None,
     ):
         call_start = time.monotonic()
         model = str(params.get("model") or "unknown")
+        tool_call_limit = self._resolve_tool_call_limit(max_tool_calls)
         log_event(
             self.logger,
             "llm.call.start",
@@ -448,13 +450,16 @@ class GenAIClient:
                     raise ValueError("tools_mapping is required for tool calls.")
 
                 if self._tool_budget_exceeded(
-                    start_time, tool_calls_executed, len(tool_calls)
+                    start_time,
+                    tool_calls_executed,
+                    len(tool_calls),
+                    tool_call_limit=tool_call_limit,
                 ):
                     self.logger.warning(
                         "Tool budget exceeded; completing without tools. "
                         "tool_calls=%s limit=%s timeout=%.1fs",
                         tool_calls_executed,
-                        self.tool_call_limit,
+                        tool_call_limit,
                         self.tool_call_timeout_seconds,
                     )
                     log_event(
@@ -466,7 +471,7 @@ class GenAIClient:
                         status="error",
                         model=model,
                         tool_call_count=tool_calls_executed,
-                        tool_call_limit=self.tool_call_limit,
+                        tool_call_limit=tool_call_limit,
                         tool_call_timeout_seconds=self.tool_call_timeout_seconds,
                     )
                     tool_calls_executed += self._append_tool_budget_exceeded_messages(
@@ -474,6 +479,7 @@ class GenAIClient:
                         tool_calls,
                         tool_calls_executed=tool_calls_executed,
                         start_time=start_time,
+                        tool_call_limit=tool_call_limit,
                     )
                     response = self._call_without_tools(params)
                     log_event(
@@ -634,10 +640,13 @@ class GenAIClient:
         start_time: float,
         tool_calls_executed: int,
         new_calls: int,
+        *,
+        tool_call_limit: int | None = None,
     ) -> bool:
+        resolved_limit = self.tool_call_limit if tool_call_limit is None else tool_call_limit
         if (
-            self.tool_call_limit
-            and tool_calls_executed + new_calls > self.tool_call_limit
+            resolved_limit
+            and tool_calls_executed + new_calls > resolved_limit
         ):
             return True
         if self.tool_call_timeout_seconds:
@@ -867,6 +876,7 @@ class GenAIClient:
         *,
         tool_calls_executed: int,
         start_time: float,
+        tool_call_limit: int,
     ) -> int:
         elapsed = max(0.0, time.monotonic() - start_time)
         appended = 0
@@ -884,7 +894,7 @@ class GenAIClient:
                 details={
                     "tool": fn_name,
                     "executed_calls": tool_calls_executed,
-                    "tool_call_limit": self.tool_call_limit,
+                    "tool_call_limit": tool_call_limit,
                     "tool_call_timeout_seconds": self.tool_call_timeout_seconds,
                     "elapsed_seconds": round(elapsed, 3),
                 },
@@ -903,6 +913,14 @@ class GenAIClient:
             )
             appended += 1
         return appended
+
+    def _resolve_tool_call_limit(self, max_tool_calls: int | None) -> int:
+        if max_tool_calls is None:
+            return self.tool_call_limit
+        try:
+            return max(0, int(max_tool_calls))
+        except (TypeError, ValueError):
+            return self.tool_call_limit
 
     def _get_tool_mapping(self) -> dict[str, Callable[..., Any]]:
         if self._tool_mapping is not None:

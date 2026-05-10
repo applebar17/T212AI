@@ -20,6 +20,7 @@ class IntentKind(StrEnum):
     CALCULATE = "calculate"
     MANAGE_GUIDELINES = "manage_guidelines"
     MANAGE_SCHEDULED_PROCESSES = "manage_scheduled_processes"
+    DEBUG_LOGS = "debug_logs"
     HELP = "help"
     UNKNOWN = "unknown"
 

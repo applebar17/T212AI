@@ -35,6 +35,7 @@ from .schemas import AgentRequest, AgentResponse, OrchestratorDelegationRequest
 from .specialists import (
     CalculatorAgent,
     CompanyAnalystAgent,
+    LogDiagnosticAgent,
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
@@ -54,6 +55,7 @@ class SpecialistAgents:
     guideline_memory: GuidelineMemoryAgent
     calculator: CalculatorAgent
     scheduler: SchedulerAgent | None = None
+    log_diagnostic: LogDiagnosticAgent | None = None
 
     def by_key(self) -> dict[str, BaseAgent]:
         agents: dict[str, BaseAgent] = {
@@ -66,6 +68,8 @@ class SpecialistAgents:
         }
         if self.scheduler is not None:
             agents["scheduler"] = self.scheduler
+        if self.log_diagnostic is not None:
+            agents["log_diagnostic"] = self.log_diagnostic
         return agents
 
 
@@ -123,6 +127,11 @@ _SPECIALIST_TOOL_CONFIGS: tuple[tuple[str, str, tuple[IntentKind, ...]], ...] = 
         "delegate_to_scheduler_agent",
         "scheduler",
         (IntentKind.MANAGE_SCHEDULED_PROCESSES,),
+    ),
+    (
+        "delegate_to_log_diagnostic_agent",
+        "log_diagnostic",
+        (IntentKind.DEBUG_LOGS,),
     ),
 )
 
@@ -732,6 +741,7 @@ def build_specialist_agents(
     pending_action_service: PendingActionService | None = None,
     proposal_service: ProposalService | None = None,
     scheduled_process_service: ScheduledProcessService | None = None,
+    log_diagnostic_agent: LogDiagnosticAgent | None = None,
     scheduler_default_timezone: str = "UTC",
     scheduler_default_poll_every_seconds: int = 300,
     portfolio_toolbox_summary: str | None = None,
@@ -798,6 +808,7 @@ def build_specialist_agents(
             if scheduled_process_service is not None
             else None
         ),
+        log_diagnostic=log_diagnostic_agent,
     )
 
 

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import datetime, timezone
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -37,6 +38,11 @@ STANDARD_EVENT_FIELDS = (
 
 _SECRET_KEY_PATTERN = re.compile(
     r"(api[_-]?key|secret|token|authorization|password|credential|refresh[_-]?token)",
+    re.IGNORECASE,
+)
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"\b(api[_-]?key|secret|token|authorization|password|credential|refresh[_-]?token)"
+    r"\s*=\s*[^,\s]+",
     re.IGNORECASE,
 )
 _BEARER_PATTERN = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
@@ -135,10 +141,13 @@ def log_event(
 class JsonLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": self.formatTime(record, self.datefmt),
+            "timestamp": datetime.fromtimestamp(
+                record.created,
+                tz=timezone.utc,
+            ).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
-            "message": _redact(record.getMessage()),
+            "message": redact_log_value(record.getMessage()),
         }
         event = getattr(record, "event", None)
         if event:
@@ -153,7 +162,7 @@ class JsonLogFormatter(logging.Formatter):
                 }
             )
         if record.exc_info:
-            payload["exception"] = _redact(self.formatException(record.exc_info))
+            payload["exception"] = redact_log_value(self.formatException(record.exc_info))
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str)
 
 
@@ -163,28 +172,36 @@ def _configure_noisy_loggers(level: int) -> None:
         logger.setLevel(level)
 
 
-def _redact(value: Any) -> Any:
+def redact_log_value(value: Any) -> Any:
     if isinstance(value, dict):
         return {
             str(key): (
                 "[REDACTED]"
                 if _SECRET_KEY_PATTERN.search(str(key))
-                else _redact(item)
+                else redact_log_value(item)
             )
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return [_redact(item) for item in value]
+        return [redact_log_value(item) for item in value]
     if isinstance(value, str):
-        return _redact_text(value)
+        return redact_log_text(value)
     return value
 
 
-def _redact_text(value: str) -> str:
+def redact_log_text(value: str) -> str:
     text = _BEARER_PATTERN.sub("Bearer [REDACTED]", value)
+    text = _SECRET_ASSIGNMENT_PATTERN.sub(
+        lambda match: _redact_assignment(match.group(0)),
+        text,
+    )
     text = _BOT_TOKEN_PATTERN.sub("/bot[REDACTED]", text)
     text = _URL_PATTERN.sub(lambda match: _redact_url_query(match.group(0)), text)
     return text
+
+
+def _redact(value: Any) -> Any:
+    return redact_log_value(value)
 
 
 def _redact_url_query(text: str) -> str:
@@ -206,3 +223,8 @@ def _redact_url_query(text: str) -> str:
             split.fragment,
         )
     )
+
+
+def _redact_assignment(text: str) -> str:
+    key, _, _value = text.partition("=")
+    return f"{key.strip()}=[REDACTED]"

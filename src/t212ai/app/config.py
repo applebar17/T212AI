@@ -177,6 +177,10 @@ class AppSettings:
     app_log_format: str = "json"
     app_log_retention_days: int = 3
     app_log_third_party_level: str = "WARNING"
+    log_diagnostic_agent_enabled: bool = False
+    log_diagnostic_max_tool_calls: int = 10
+    log_diagnostic_max_records: int = 500
+    log_diagnostic_max_bytes: int = 262_144
     guideline_memory_path: str = "data/guidelines/guidelines.json"
     database_url: str = "sqlite:///./data/t212ai.db"
     scheduler_default_timezone: str = "UTC"
@@ -364,6 +368,26 @@ def get_app_settings(
         app_log_format=source.get("APP_LOG_FORMAT", "json"),
         app_log_retention_days=_env_int_from_source(source, "APP_LOG_RETENTION_DAYS", 3),
         app_log_third_party_level=source.get("APP_LOG_THIRD_PARTY_LEVEL", "WARNING"),
+        log_diagnostic_agent_enabled=_env_bool_from_source(
+            source,
+            "LOG_DIAGNOSTIC_AGENT_ENABLED",
+            False,
+        ),
+        log_diagnostic_max_tool_calls=_env_non_negative_int_from_source(
+            source,
+            "LOG_DIAGNOSTIC_MAX_TOOL_CALLS",
+            10,
+        ),
+        log_diagnostic_max_records=_env_int_from_source(
+            source,
+            "LOG_DIAGNOSTIC_MAX_RECORDS",
+            500,
+        ),
+        log_diagnostic_max_bytes=_env_int_from_source(
+            source,
+            "LOG_DIAGNOSTIC_MAX_BYTES",
+            262_144,
+        ),
         guideline_memory_path=source.get(
             "GUIDELINE_MEMORY_PATH",
             "data/guidelines/guidelines.json",

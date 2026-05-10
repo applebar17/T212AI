@@ -12,6 +12,7 @@ from t212ai.agent import (
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
     GroupedPlanExecutor,
+    LogDiagnosticAgent,
     MainOrchestratorAgent,
     MarketAnalystAgent,
     SchedulerAgent,
@@ -42,6 +43,7 @@ from t212ai.data_sources.alpha_vantage import AlphaVantageClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
 from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
 from t212ai.data_sources.yahoo import YahooFinanceClient
+from t212ai.diagnostics import LogFileNavigator
 from t212ai.genai import GenAIClient, genai_settings_from_app_settings
 from t212ai.genai.tools import build_toolboxes
 from t212ai.guidelines.service import (
@@ -112,6 +114,7 @@ class AppRuntime:
     market_agent: MarketAnalystAgent | None = None
     calculator_agent: CalculatorAgent | None = None
     scheduler_agent: SchedulerAgent | None = None
+    log_diagnostic_agent: LogDiagnosticAgent | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
     alpaca_broker_client: AlpacaBrokerClient | None = None
@@ -577,6 +580,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
     if runtime.agent_reasoner is None:
         return
     try:
+        log_diagnostic_agent = _build_log_diagnostic_agent(runtime)
         specialists = build_specialist_agents(
             runtime.agent_reasoner,
             guideline_service=runtime.guideline_memory_service,
@@ -594,6 +598,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             pending_action_service=runtime.pending_action_service,
             proposal_service=runtime.proposal_service,
             scheduled_process_service=runtime.scheduled_process_service,
+            log_diagnostic_agent=log_diagnostic_agent,
             scheduler_default_timezone=runtime.settings.scheduler_default_timezone,
             scheduler_default_poll_every_seconds=_positive_int_setting(
                 runtime.settings.scheduler_default_poll_every_seconds,
@@ -640,8 +645,25 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
         runtime.company_agent = specialists.company
         runtime.market_agent = specialists.market
         runtime.scheduler_agent = specialists.scheduler
+        runtime.log_diagnostic_agent = specialists.log_diagnostic
     except Exception as exc:  # pragma: no cover - defensive
         runtime.component_errors["main_orchestrator"] = str(exc)
+
+
+def _build_log_diagnostic_agent(runtime: AppRuntime) -> LogDiagnosticAgent | None:
+    if not runtime.settings.log_diagnostic_agent_enabled:
+        return None
+    navigator = LogFileNavigator(
+        runtime.settings.app_log_file_path,
+        max_records=runtime.settings.log_diagnostic_max_records,
+        max_bytes=runtime.settings.log_diagnostic_max_bytes,
+    )
+    return LogDiagnosticAgent(
+        runtime.agent_reasoner,
+        guideline_service=runtime.guideline_memory_service,
+        navigator=navigator,
+        max_tool_calls=runtime.settings.log_diagnostic_max_tool_calls,
+    )
 
 
 def _collect_startup_notes(assessment: ConfigAssessment) -> tuple[str, ...]:

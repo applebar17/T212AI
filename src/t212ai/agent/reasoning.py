@@ -172,6 +172,7 @@ class AgentReasoner:
         tools_mapping: dict[str, Callable[..., Any]],
         chat_history: ChatHistoryWindow | None = None,
         persistent_guidance: str | None = None,
+        max_tool_calls: int | None = None,
     ) -> str:
         start = time.monotonic()
         log_event(
@@ -210,10 +211,15 @@ class AgentReasoner:
             parallel_tool_calls=False,
         )
         try:
+            call_kwargs: dict[str, Any] = {
+                "tools_mapping": tools_mapping,
+                "toolbox": toolbox,
+            }
+            if max_tool_calls is not None:
+                call_kwargs["max_tool_calls"] = max_tool_calls
             response = self.genai.call_openai(
                 params,
-                tools_mapping=tools_mapping,
-                toolbox=toolbox,
+                **call_kwargs,
             )
             text = self._assistant_text(response)
         except Exception as exc:
