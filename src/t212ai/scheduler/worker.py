@@ -113,7 +113,7 @@ class SchedulerWorker:
         self.recover_stale_runs = bool(recover_stale_runs)
         self.max_llm_runs_per_pass = max(0, int(max_llm_runs_per_pass))
 
-    @traceable(name="scheduler.run_once", run_type="chain")
+    # @traceable(name="scheduler.run_once", run_type="chain")
     def run_once(
         self,
         *,
