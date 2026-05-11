@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 
 ALPACA_MARKET_DATA_BASE_URL = "https://data.alpaca.markets"
+ALPACA_STREAM_BASE_URL = "wss://stream.data.alpaca.markets"
+ALPACA_STREAM_SANDBOX_BASE_URL = "wss://stream.data.sandbox.alpaca.markets"
 ALPACA_PAPER_TRADING_BASE_URL = "https://paper-api.alpaca.markets"
 ALPACA_LIVE_TRADING_BASE_URL = "https://api.alpaca.markets"
 
@@ -41,6 +43,8 @@ class AlpacaBaseClient:
     api_secret: str
     environment: str = "paper"
     market_data_base_url: str = ALPACA_MARKET_DATA_BASE_URL
+    stream_base_url: str = ALPACA_STREAM_BASE_URL
+    stream_sandbox_base_url: str = ALPACA_STREAM_SANDBOX_BASE_URL
     paper_trading_base_url: str = ALPACA_PAPER_TRADING_BASE_URL
     live_trading_base_url: str = ALPACA_LIVE_TRADING_BASE_URL
     data_feed: str = "iex"
@@ -61,6 +65,8 @@ class AlpacaBaseClient:
             api_secret=resolved.alpaca_api_secret,
             environment=resolved.alpaca_environment,
             market_data_base_url=resolved.alpaca_market_data_base_url,
+            stream_base_url=resolved.alpaca_stream_base_url,
+            stream_sandbox_base_url=resolved.alpaca_stream_sandbox_base_url,
             paper_trading_base_url=resolved.alpaca_paper_trading_base_url,
             live_trading_base_url=resolved.alpaca_live_trading_base_url,
             data_feed=resolved.alpaca_data_feed,

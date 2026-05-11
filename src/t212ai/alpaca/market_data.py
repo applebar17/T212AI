@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -16,6 +17,41 @@ from .base import AlpacaApiError, AlpacaBaseClient
 
 class AlpacaMarketDataClient(AlpacaBaseClient):
     provider_name = "alpaca"
+
+    def stream_client(self):
+        from .streaming import AlpacaStreamClient
+
+        return AlpacaStreamClient.from_client(self)
+
+    def news_stream_url(self, *, sandbox: bool = False) -> str:
+        return self.stream_client().news_stream_url(sandbox=sandbox)
+
+    def stock_stream_url(
+        self,
+        *,
+        feed: str | None = None,
+        sandbox: bool = False,
+    ) -> str:
+        return self.stream_client().stock_stream_url(feed=feed, sandbox=sandbox)
+
+    def test_stream_url(self, *, sandbox: bool = False) -> str:
+        return self.stream_client().test_stream_url(sandbox=sandbox)
+
+    async def stream_news(
+        self,
+        *,
+        sandbox: bool = False,
+        raise_on_error: bool = True,
+    ) -> AsyncIterator[Any]:
+        from .streaming import AlpacaStreamSubscription
+
+        async for event in self.stream_client().connect_and_subscribe(
+            AlpacaStreamSubscription.news_all(),
+            stream="news",
+            sandbox=sandbox,
+            raise_on_error=raise_on_error,
+        ):
+            yield event
 
     def search_symbols(
         self,

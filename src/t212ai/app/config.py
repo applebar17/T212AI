@@ -9,6 +9,8 @@ from t212ai.alpaca.base import (
     ALPACA_LIVE_TRADING_BASE_URL,
     ALPACA_MARKET_DATA_BASE_URL,
     ALPACA_PAPER_TRADING_BASE_URL,
+    ALPACA_STREAM_BASE_URL,
+    ALPACA_STREAM_SANDBOX_BASE_URL,
 )
 
 
@@ -154,6 +156,8 @@ class AppSettings:
     alpaca_api_secret: str | None = None
     alpaca_environment: str = "paper"
     alpaca_market_data_base_url: str = ALPACA_MARKET_DATA_BASE_URL
+    alpaca_stream_base_url: str = ALPACA_STREAM_BASE_URL
+    alpaca_stream_sandbox_base_url: str = ALPACA_STREAM_SANDBOX_BASE_URL
     alpaca_paper_trading_base_url: str = ALPACA_PAPER_TRADING_BASE_URL
     alpaca_live_trading_base_url: str = ALPACA_LIVE_TRADING_BASE_URL
     alpaca_data_feed: str = "iex"
@@ -328,6 +332,14 @@ def get_app_settings(
         alpaca_market_data_base_url=source.get(
             "ALPACA_MARKET_DATA_BASE_URL",
             ALPACA_MARKET_DATA_BASE_URL,
+        ),
+        alpaca_stream_base_url=source.get(
+            "ALPACA_STREAM_BASE_URL",
+            ALPACA_STREAM_BASE_URL,
+        ),
+        alpaca_stream_sandbox_base_url=source.get(
+            "ALPACA_STREAM_SANDBOX_BASE_URL",
+            ALPACA_STREAM_SANDBOX_BASE_URL,
         ),
         alpaca_paper_trading_base_url=source.get(
             "ALPACA_PAPER_TRADING_BASE_URL",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -183,6 +184,8 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ALPACA_API_KEY",
             "ALPACA_API_SECRET",
             "ALPACA_MARKET_DATA_BASE_URL",
+            "ALPACA_STREAM_BASE_URL",
+            "ALPACA_STREAM_SANDBOX_BASE_URL",
             "ALPACA_PAPER_TRADING_BASE_URL",
             "ALPACA_LIVE_TRADING_BASE_URL",
             "ALPACA_DATA_FEED",
@@ -598,6 +601,45 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     run_scheduler_parser.add_argument("--max-llm-runs-per-pass", type=int, default=None)
     run_scheduler_parser.set_defaults(handler=command_run_scheduler_worker)
 
+    run_alpaca_news_stream_parser = run_subparsers.add_parser(
+        "alpaca-news-stream",
+        help="Capture Alpaca real-time news websocket events to a JSONL file.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Optional .env file to load before connecting to Alpaca.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--symbols",
+        action="append",
+        default=None,
+        help="Optional local symbol filter. Can be passed multiple times.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--output",
+        default="data/alpaca_stream/news_stream.jsonl",
+        help="JSONL output file path.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--max-events",
+        type=int,
+        default=None,
+        help="Stop after writing this many matching news events.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--seconds",
+        type=float,
+        default=None,
+        help="Stop after this many seconds if no max-events limit is reached.",
+    )
+    run_alpaca_news_stream_parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        help="Use Alpaca's sandbox stream host.",
+    )
+    run_alpaca_news_stream_parser.set_defaults(handler=command_run_alpaca_news_stream)
+
     run_worker_parser = run_subparsers.add_parser(
         "worker",
         help="Run the broker reconciliation worker loop.",
@@ -933,6 +975,38 @@ def command_run_scheduler_worker(args: argparse.Namespace) -> int:
         return 1
 
 
+def command_run_alpaca_news_stream(args: argparse.Namespace) -> int:
+    settings = load_settings_from_cli(env_file=args.env_file)
+    _configure_app_logging(settings)
+    if not settings.alpaca_api_key or not settings.alpaca_api_secret:
+        print(
+            "brokerai run alpaca-news-stream failed: Alpaca API credentials are missing."
+        )
+        return 1
+    try:
+        from .alpaca import AlpacaStreamClient, capture_alpaca_news_stream
+
+        client = AlpacaStreamClient.from_settings(settings)
+        result = asyncio.run(
+            capture_alpaca_news_stream(
+                client,
+                args.output,
+                symbols=args.symbols or [],
+                max_events=args.max_events,
+                seconds=args.seconds,
+                sandbox=bool(args.sandbox),
+            )
+        )
+    except KeyboardInterrupt:
+        print("brokerai alpaca news stream stopped.")
+        return 0
+    except Exception as exc:  # pragma: no cover - live stream safety net
+        print(f"brokerai run alpaca-news-stream failed: {exc}")
+        return 1
+    print(result.render_text())
+    return 0
+
+
 def load_settings_from_cli(*, env_file: str | None) -> AppSettings:
     if env_file is None:
         return get_app_settings()
@@ -1117,6 +1191,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "ALPACA_MARKET_DATA_BASE_URL": existing_raw.get(
             "ALPACA_MARKET_DATA_BASE_URL",
             settings.alpaca_market_data_base_url,
+        ),
+        "ALPACA_STREAM_BASE_URL": existing_raw.get(
+            "ALPACA_STREAM_BASE_URL",
+            settings.alpaca_stream_base_url,
+        ),
+        "ALPACA_STREAM_SANDBOX_BASE_URL": existing_raw.get(
+            "ALPACA_STREAM_SANDBOX_BASE_URL",
+            settings.alpaca_stream_sandbox_base_url,
         ),
         "ALPACA_PAPER_TRADING_BASE_URL": existing_raw.get(
             "ALPACA_PAPER_TRADING_BASE_URL",

@@ -15,14 +15,6 @@ from .protocols import (
     MarketIntelligenceService,
     SearchService,
 )
-from .services import (
-    AlpacaMarketDataService,
-    AlphaVantageMarketIntelligenceService,
-    EdgarDisclosureService,
-    SearxngSearchService,
-    YahooMarketDataService,
-)
-
 __all__ = [
     "AlpacaMarketDataService",
     "AlphaVantageMarketIntelligenceService",
@@ -41,3 +33,29 @@ __all__ = [
     "SearxngSearchService",
     "YahooMarketDataService",
 ]
+
+
+def __getattr__(name: str):
+    if name in {
+        "AlpacaMarketDataService",
+        "AlphaVantageMarketIntelligenceService",
+        "EdgarDisclosureService",
+        "SearxngSearchService",
+        "YahooMarketDataService",
+    }:
+        from .services import (
+            AlpacaMarketDataService,
+            AlphaVantageMarketIntelligenceService,
+            EdgarDisclosureService,
+            SearxngSearchService,
+            YahooMarketDataService,
+        )
+
+        return {
+            "AlpacaMarketDataService": AlpacaMarketDataService,
+            "AlphaVantageMarketIntelligenceService": AlphaVantageMarketIntelligenceService,
+            "EdgarDisclosureService": EdgarDisclosureService,
+            "SearxngSearchService": SearxngSearchService,
+            "YahooMarketDataService": YahooMarketDataService,
+        }[name]
+    raise AttributeError(name)

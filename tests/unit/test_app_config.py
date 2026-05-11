@@ -273,6 +273,8 @@ def test_get_app_settings_supports_explicit_alpaca_market_data_provider() -> Non
             "ALPACA_LIVE_API_SECRET": "alpaca-live-secret",
             "ALPACA_ENVIRONMENT": "live",
             "ALPACA_DATA_FEED": "sip",
+            "ALPACA_STREAM_BASE_URL": "wss://stream.example",
+            "ALPACA_STREAM_SANDBOX_BASE_URL": "wss://sandbox-stream.example",
         }
     )
 
@@ -281,6 +283,8 @@ def test_get_app_settings_supports_explicit_alpaca_market_data_provider() -> Non
     assert settings.alpaca_api_secret == "alpaca-live-secret"
     assert settings.alpaca_environment == "live"
     assert settings.alpaca_data_feed == "sip"
+    assert settings.alpaca_stream_base_url == "wss://stream.example"
+    assert settings.alpaca_stream_sandbox_base_url == "wss://sandbox-stream.example"
     assert not settings.yahoo_enabled
 
 
