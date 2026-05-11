@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
 import logging
 from types import SimpleNamespace
 
-from t212ai.genai.client import GenAIClient, GenAISettings
+import pytest
+
+from t212ai.genai.client import (
+    GenAIClient,
+    GenAISettings,
+    _llm_prompt_diagnostics,
+    _provider_error_details,
+)
 from t212ai.genai.context import (
     ContextBudgetResolver,
     GenAIContextManager,
@@ -341,3 +349,131 @@ def test_execute_tool_call_logs_structured_tool_events(caplog) -> None:
     assert records[-1].event_fields["status"] == "ok"
     assert records[-1].event_fields["arg_keys"] == ["value"]
     assert "abc" not in str(records[-1].event_fields)
+
+
+def test_provider_error_details_extracts_azure_content_filter_metadata() -> None:
+    exc = SimpleNamespace(
+        body={
+            "error": {
+                "message": "The response was filtered.",
+                "code": "contentfilter",
+                "status": 400,
+                "innererror": {
+                    "code": "ResponsibleAIPolicyViolation",
+                    "contentfilterresult": {
+                        "hate": {"filtered": False, "severity": "safe"},
+                        "jailbreak": {"filtered": True, "detected": True},
+                        "selfharm": {"filtered": False, "severity": "safe"},
+                    },
+                },
+            }
+        }
+    )
+
+    details = _provider_error_details(exc)  # type: ignore[arg-type]
+
+    assert details["error_code"] == "content_filter"
+    assert details["provider_error_code"] == "contentfilter"
+    assert details["provider_policy_code"] == "ResponsibleAIPolicyViolation"
+    assert details["content_filter_categories"] == ["jailbreak"]
+    assert details["content_filter_blocked_categories"] == ["jailbreak"]
+    assert details["content_filter_detected_categories"] == ["jailbreak"]
+    assert details["content_filter_category_status"]["hate"] == {
+        "filtered": False,
+        "severity": "safe",
+    }
+
+
+def test_llm_prompt_diagnostics_summarizes_shape_without_raw_content() -> None:
+    params = {
+        "model": "model-a",
+        "messages": [
+            {"role": "system", "content": "secret system prompt"},
+            {"role": "user", "content": "study portfolio and propose opportunities"},
+            {"role": "assistant", "content": "summary"},
+        ],
+        "tools": [
+            {"type": "function", "function": {"name": "delegate_to_market_analyst"}},
+            {"type": "function", "function": {"name": "delegate_to_broker_agent"}},
+        ],
+    }
+
+    diagnostics = _llm_prompt_diagnostics(params)
+
+    assert diagnostics["message_count"] == 3
+    assert diagnostics["message_role_counts"] == {
+        "system": 1,
+        "user": 1,
+        "assistant": 1,
+    }
+    assert diagnostics["tool_count"] == 2
+    assert diagnostics["tool_names"] == [
+        "delegate_to_broker_agent",
+        "delegate_to_market_analyst",
+    ]
+    assert diagnostics["last_user_chars"] == len(
+        "study portfolio and propose opportunities"
+    )
+    rendered = json.dumps(diagnostics)
+    assert "secret system prompt" not in rendered
+    assert "study portfolio" not in rendered
+    assert len(str(diagnostics["prompt_fingerprint"])) == 16
+
+
+def test_call_openai_logs_content_filter_diagnostics_without_raw_content(caplog) -> None:
+    class ContentFilterError(Exception):
+        body = {
+            "error": {
+                "message": "The response was filtered.",
+                "code": "contentfilter",
+                "status": 400,
+                "innererror": {
+                    "code": "ResponsibleAIPolicyViolation",
+                    "contentfilterresult": {
+                        "hate": {"filtered": False, "severity": "safe"},
+                        "jailbreak": {"filtered": True, "detected": True},
+                    },
+                },
+            }
+        }
+
+    class FakeCompletions:
+        def create(self, **_params):
+            raise ContentFilterError("ResponsibleAIPolicyViolation contentfilter")
+
+    client = GenAIClient.__new__(GenAIClient)
+    client.settings = GenAISettings(chat_model_default="model-a", is_azure=True)
+    client.logger = logging.getLogger("tests.genai.content_filter")
+    client.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+    client.max_retries = 1
+    client.retry_backoff_seconds = 0
+    client.tool_call_limit = 8
+    client.tool_call_timeout_seconds = 30.0
+    client._ensure_context_budget = lambda _params: None
+    params = {
+        "model": "model-a",
+        "messages": [
+            {"role": "system", "content": "secret system prompt"},
+            {"role": "user", "content": "study portfolio and propose opportunities"},
+        ],
+    }
+
+    with caplog.at_level(logging.INFO, logger="tests.genai.content_filter"):
+        with pytest.raises(ContentFilterError):
+            client.call_openai(params)
+
+    records = [record for record in caplog.records if getattr(record, "event", None)]
+    events = [record.event for record in records]
+    assert events == ["llm.call.start", "llm.content_filter", "llm.call.error"]
+    content_filter_fields = records[1].event_fields
+    assert content_filter_fields["error_code"] == "content_filter"
+    assert content_filter_fields["content_filter_categories"] == ["jailbreak"]
+    assert content_filter_fields["provider_policy_code"] == (
+        "ResponsibleAIPolicyViolation"
+    )
+    assert content_filter_fields["message_count"] == 2
+    rendered_fields = str(content_filter_fields)
+    assert "secret system prompt" not in rendered_fields
+    assert "study portfolio" not in rendered_fields
