@@ -232,6 +232,9 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
             "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": "7",
             "LOG_DIAGNOSTIC_MAX_RECORDS": "250",
             "LOG_DIAGNOSTIC_MAX_BYTES": "131072",
+            "SCHEDULER_EMBEDDED_WORKER_ENABLED": "false",
+            "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS": "30",
+            "SCHEDULER_EMBEDDED_WORKER_LIMIT": "25",
         }
     )
 
@@ -245,6 +248,9 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
     assert updates["LOG_DIAGNOSTIC_MAX_TOOL_CALLS"] == "7"
     assert updates["LOG_DIAGNOSTIC_MAX_RECORDS"] == "250"
     assert updates["LOG_DIAGNOSTIC_MAX_BYTES"] == "131072"
+    assert updates["SCHEDULER_EMBEDDED_WORKER_ENABLED"] == "false"
+    assert updates["SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS"] == "30"
+    assert updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"] == "25"
 
 
 def test_prompt_iana_timezone_accepts_configured_scheduler_timezone() -> None:
@@ -727,6 +733,8 @@ def test_run_scheduler_once_invokes_scheduler_runtime(
 
 
 def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) -> None:
+    import t212ai.app.scheduler_worker as scheduler_worker_module
+
     calls: dict[str, object] = {}
 
     class FakeWorker:
@@ -749,7 +757,7 @@ def test_run_scheduler_once_registers_instrument_monitor_adapter(monkeypatch) ->
         pending_action_service = object()
         proposal_service = object()
 
-    monkeypatch.setattr(cli, "SchedulerWorker", FakeWorker)
+    monkeypatch.setattr(scheduler_worker_module, "SchedulerWorker", FakeWorker)
 
     result = cli.run_scheduler_once(FakeRuntime(), limit=7)
 

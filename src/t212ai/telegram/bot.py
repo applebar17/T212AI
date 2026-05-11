@@ -7,6 +7,10 @@ from typing import Any
 
 from t212ai.app.config import AppSettings, get_app_settings
 from t212ai.app.runtime import AppRuntime, build_runtime
+from t212ai.app.scheduler_worker import (
+    EmbeddedSchedulerWorker,
+    build_embedded_scheduler_worker,
+)
 
 from .auth import TelegramAccessPolicy
 from .bridge import (
@@ -23,6 +27,7 @@ class TelegramBotService:
     access_policy: TelegramAccessPolicy
     message_handler: TelegramMessageHandler = field(default_factory=build_default_message_handler)
     runtime: AppRuntime | None = None
+    scheduler_worker: EmbeddedSchedulerWorker | None = None
 
     @classmethod
     def from_settings(
@@ -42,6 +47,7 @@ class TelegramBotService:
             message_handler=message_handler
             or build_agent_message_handler_if_configured(runtime=resolved_runtime),
             runtime=resolved_runtime,
+            scheduler_worker=build_embedded_scheduler_worker(resolved_runtime),
         )
 
     def build_application(self) -> Any:
@@ -70,4 +76,10 @@ class TelegramBotService:
 
     def run_polling(self) -> None:
         application = self.build_application()
-        application.run_polling()
+        if self.scheduler_worker is not None:
+            self.scheduler_worker.start()
+        try:
+            application.run_polling()
+        finally:
+            if self.scheduler_worker is not None:
+                self.scheduler_worker.stop()

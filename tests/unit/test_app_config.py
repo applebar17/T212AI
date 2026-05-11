@@ -204,6 +204,9 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
             "SCHEDULER_LEASE_SECONDS": "1200",
             "SCHEDULER_STALE_RUN_AFTER_SECONDS": "2400",
             "SCHEDULER_MAX_LLM_RUNS_PER_PASS": "2",
+            "SCHEDULER_EMBEDDED_WORKER_ENABLED": "false",
+            "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS": "30",
+            "SCHEDULER_EMBEDDED_WORKER_LIMIT": "25",
             "APP_LOG_FORMAT": "json",
             "APP_LOG_RETENTION_DAYS": "5",
             "APP_LOG_THIRD_PARTY_LEVEL": "ERROR",
@@ -220,6 +223,9 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
     assert settings.scheduler_lease_seconds == 1200
     assert settings.scheduler_stale_run_after_seconds == 2400
     assert settings.scheduler_max_llm_runs_per_pass == 2
+    assert settings.scheduler_embedded_worker_enabled is False
+    assert settings.scheduler_embedded_worker_poll_every_seconds == 30
+    assert settings.scheduler_embedded_worker_limit == 25
     assert settings.app_log_format == "json"
     assert settings.app_log_retention_days == 5
     assert settings.app_log_third_party_level == "ERROR"

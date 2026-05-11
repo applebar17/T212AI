@@ -189,6 +189,9 @@ class AppSettings:
     scheduler_lease_seconds: int = 1800
     scheduler_stale_run_after_seconds: int = 3600
     scheduler_max_llm_runs_per_pass: int = 0
+    scheduler_embedded_worker_enabled: bool = True
+    scheduler_embedded_worker_poll_every_seconds: int = 60
+    scheduler_embedded_worker_limit: int = 100
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
 
@@ -414,6 +417,21 @@ def get_app_settings(
             source,
             "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
             0,
+        ),
+        scheduler_embedded_worker_enabled=_env_bool_from_source(
+            source,
+            "SCHEDULER_EMBEDDED_WORKER_ENABLED",
+            True,
+        ),
+        scheduler_embedded_worker_poll_every_seconds=_env_int_from_source(
+            source,
+            "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
+            60,
+        ),
+        scheduler_embedded_worker_limit=_env_int_from_source(
+            source,
+            "SCHEDULER_EMBEDDED_WORKER_LIMIT",
+            100,
         ),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),
         live_trading_enabled=_env_bool_from_source(

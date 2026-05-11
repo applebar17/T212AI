@@ -30,13 +30,13 @@ from .app.config import (
 )
 from .app.logging import configure_logging
 from .app.runtime import build_runtime
+from .app.scheduler_worker import run_scheduler_once as run_runtime_scheduler_once
 from .genai.context import (
     DEFAULT_CONTEXT_FALLBACK_TOKENS,
     MIN_CONFIGURABLE_CONTEXT_TOKENS,
     ModelContextRegistry,
     parse_context_token_value,
 )
-from .scheduler import SchedulerWorker, build_scheduler_adapter_registry
 
 
 LLM_PROVIDER_OPTIONS = (
@@ -249,6 +249,9 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "SCHEDULER_LEASE_SECONDS",
             "SCHEDULER_STALE_RUN_AFTER_SECONDS",
             "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
+            "SCHEDULER_EMBEDDED_WORKER_ENABLED",
+            "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
+            "SCHEDULER_EMBEDDED_WORKER_LIMIT",
         ),
     ),
     (
@@ -374,6 +377,9 @@ SCHEDULER_SECTION_KEYS = (
     "SCHEDULER_LEASE_SECONDS",
     "SCHEDULER_STALE_RUN_AFTER_SECONDS",
     "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
+    "SCHEDULER_EMBEDDED_WORKER_ENABLED",
+    "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
+    "SCHEDULER_EMBEDDED_WORKER_LIMIT",
 )
 
 
@@ -1197,6 +1203,18 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
             str(settings.scheduler_max_llm_runs_per_pass),
         ),
+        "SCHEDULER_EMBEDDED_WORKER_ENABLED": existing_raw.get(
+            "SCHEDULER_EMBEDDED_WORKER_ENABLED",
+            _bool_to_env(settings.scheduler_embedded_worker_enabled),
+        ),
+        "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS": existing_raw.get(
+            "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
+            str(settings.scheduler_embedded_worker_poll_every_seconds),
+        ),
+        "SCHEDULER_EMBEDDED_WORKER_LIMIT": existing_raw.get(
+            "SCHEDULER_EMBEDDED_WORKER_LIMIT",
+            str(settings.scheduler_embedded_worker_limit),
+        ),
         "SEARXNG_BASE_URL": existing_raw.get(
             "SEARXNG_BASE_URL",
             settings.searxng_base_url or "",
@@ -1724,6 +1742,21 @@ def apply_configuration_wizard(
             updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"] = io_runtime.prompt(
                 "SCHEDULER_MAX_LLM_RUNS_PER_PASS",
                 default=updates["SCHEDULER_MAX_LLM_RUNS_PER_PASS"],
+            )
+            updates["SCHEDULER_EMBEDDED_WORKER_ENABLED"] = _bool_to_env(
+                io_runtime.confirm(
+                    "Run the scheduler worker inside the Telegram bot process?",
+                    default=updates["SCHEDULER_EMBEDDED_WORKER_ENABLED"].lower()
+                    in {"1", "true", "yes", "y", "on"},
+                )
+            )
+            updates["SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS"] = io_runtime.prompt(
+                "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
+                default=updates["SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS"],
+            )
+            updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"] = io_runtime.prompt(
+                "SCHEDULER_EMBEDDED_WORKER_LIMIT",
+                default=updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"],
             )
 
 
@@ -2445,45 +2478,13 @@ def run_scheduler_once(
     stale_run_after_seconds: int | None = None,
     max_llm_runs_per_pass: int | None = None,
 ) -> object:
-    if runtime.scheduled_process_service is None:
-        raise RuntimeError("Scheduler service is not configured.")
-    worker = SchedulerWorker(
-        runtime.scheduled_process_service,
-        adapters=build_scheduler_adapter_registry(
-            company_agent=getattr(runtime, "company_agent", None),
-            market_agent=getattr(runtime, "market_agent", None),
-            market_data_service=getattr(runtime, "market_data_service", None),
-            community_research_service=getattr(runtime, "community_research_service", None),
-            disclosure_service=getattr(runtime, "disclosure_service", None),
-            search_service=getattr(runtime, "search_service", None),
-            market_signal_service=getattr(runtime, "market_signal_service", None),
-            broker_read_service=getattr(runtime, "broker_read_service", None),
-            broker_execution_service=getattr(runtime, "broker_execution_service", None),
-            pending_action_service=getattr(runtime, "pending_action_service", None),
-            proposal_service=getattr(runtime, "proposal_service", None),
-            broker_provider=getattr(getattr(runtime, "settings", None), "broker_provider", "broker"),
-        ),
-        notification_service=getattr(runtime, "scheduler_notification_service", None),
-        worker_id=getattr(getattr(runtime, "settings", None), "scheduler_worker_id", None),
-        lease_seconds=lease_seconds
-        or getattr(getattr(runtime, "settings", None), "scheduler_lease_seconds", 1800),
-        stale_run_after_seconds=stale_run_after_seconds
-        or getattr(
-            getattr(runtime, "settings", None),
-            "scheduler_stale_run_after_seconds",
-            3600,
-        ),
-        max_llm_runs_per_pass=(
-            max_llm_runs_per_pass
-            if max_llm_runs_per_pass is not None
-            else getattr(
-                getattr(runtime, "settings", None),
-                "scheduler_max_llm_runs_per_pass",
-                0,
-            )
-        ),
+    return run_runtime_scheduler_once(
+        runtime,
+        limit=limit,
+        lease_seconds=lease_seconds,
+        stale_run_after_seconds=stale_run_after_seconds,
+        max_llm_runs_per_pass=max_llm_runs_per_pass,
     )
-    return worker.run_once(limit=limit)
 
 
 def run_scheduler_worker(

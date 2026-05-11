@@ -312,6 +312,37 @@ def test_bot_service_can_be_configured_without_importing_telegram_package() -> N
     assert service.access_policy.is_allowed(123)
 
 
+def test_bot_service_runs_embedded_scheduler_around_polling() -> None:
+    calls: list[str] = []
+
+    class FakeSchedulerWorker:
+        def start(self) -> bool:
+            calls.append("start")
+            return True
+
+        def stop(self) -> None:
+            calls.append("stop")
+
+    class FakeApplication:
+        def run_polling(self) -> None:
+            calls.append("poll")
+
+    class TestBotService(TelegramBotService):
+        def build_application(self):
+            return FakeApplication()
+
+    service = TestBotService(
+        token="token",
+        access_policy=TelegramAccessPolicy.from_allowed_chat_id(123),
+        message_handler=lambda _message: "ok",
+        scheduler_worker=FakeSchedulerWorker(),
+    )
+
+    service.run_polling()
+
+    assert calls == ["start", "poll", "stop"]
+
+
 def test_router_sends_approval_request_and_attaches_message_id(tmp_path, monkeypatch) -> None:
     pending_action_service, _broker = _pending_action_service(tmp_path)
     fake_telegram = ModuleType("telegram")
