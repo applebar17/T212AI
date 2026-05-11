@@ -8,6 +8,7 @@ from t212ai.agent import (
     AgentReasoner,
     CalculatorAgent,
     ChatHistoryManager,
+    ChatHistoryJournal,
     CompanyAnalystAgent,
     ConfigurablePlannerAgent,
     ConfigurableReasonerAgent,
@@ -294,6 +295,7 @@ def _build_scheduler_notification_stack(runtime: AppRuntime) -> None:
             runtime.scheduled_process_service,
             notifier=notifier,
             pending_action_service=runtime.pending_action_service,
+            chat_history_journal=ChatHistoryJournal(runtime.history_manager),
         )
     except Exception as exc:
         runtime.component_errors["scheduler_notifications"] = str(exc)

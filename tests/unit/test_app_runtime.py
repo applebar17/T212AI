@@ -448,6 +448,7 @@ def test_build_runtime_wires_scheduler_notifications_when_telegram_is_configured
     assert runtime.scheduled_process_service is not None
     assert runtime.scheduler_notification_service is not None
     assert runtime.telegram_scheduler_notifier is not None
+    assert runtime.scheduler_notification_service.chat_history_journal is not None
     assert runtime.capability_registry["scheduler_notifications"].ready
     assert runtime.capability_registry["scheduler_notifications"].selected_provider == "telegram"
 

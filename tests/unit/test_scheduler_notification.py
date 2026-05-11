@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+from t212ai.agent.history import ChatHistoryJournal, ChatHistoryManager
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.scheduler import (
     ScheduledEventType,
@@ -132,6 +133,36 @@ def test_scheduler_notification_service_records_queued_and_sent_events(
     ]
     assert events[-2].details["messagePreview"] == "TSLA crossed the configured threshold."
     assert events[-1].details["result"]["sentCount"] == 1
+
+
+def test_scheduler_notification_service_records_sent_message_in_chat_history(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    process = _create_process(service)
+    run = service.record_run_started(process.process_id, now=BASE_NOW)
+    history = ChatHistoryManager()
+    notification_service = SchedulerNotificationService(
+        service,
+        notifier=SendingNotifier(),
+        chat_history_journal=ChatHistoryJournal(history),
+    )
+
+    notification_service.send_process_notification(
+        process_id=process.process_id,
+        run_id=run.run_id,
+        message="TSLA crossed the configured threshold.",
+    )
+
+    window = history.get_context_window(123)
+    assert len(window.messages) == 1
+    assert window.messages[0].role == "assistant"
+    assert window.messages[0].content == "TSLA crossed the configured threshold."
+    assert window.messages[0].metadata["source"] == "scheduler"
+    assert window.messages[0].metadata["process_id"] == process.process_id
+    assert window.messages[0].metadata["run_id"] == run.run_id
+    assert window.messages[0].metadata["notification_status"] == "sent"
+    assert window.messages[0].metadata["notification_kind"] == "message"
 
 
 def test_scheduler_notification_service_records_send_failure(tmp_path: Path) -> None:
@@ -287,3 +318,39 @@ def test_scheduler_notification_service_attaches_approval_message_id(
 
     assert result.status == SchedulerNotificationStatus.SENT
     assert pending.attached == [("pa_test", 1)]
+
+
+def test_scheduler_notification_service_records_approval_text_in_chat_history(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_telegram_module(monkeypatch)
+    service = _service(tmp_path)
+    process = _create_process(service)
+    history = ChatHistoryManager()
+    notification_service = SchedulerNotificationService(
+        service,
+        notifier=TelegramSchedulerNotifier(
+            token="telegram-token",
+            chat_ids=(123,),
+            bot_factory=lambda _token: FakeTelegramBot(),
+        ),
+        chat_history_journal=ChatHistoryJournal(history),
+    )
+
+    result = notification_service.send_process_notification(
+        process_id=process.process_id,
+        message="Fallback message.",
+        approval_payload={
+            "actionId": "pa_test",
+            "text": "Approve this guarded proposal.",
+            "approveCallbackData": "pa:approve:pa_test",
+            "rejectCallbackData": "pa:reject:pa_test",
+        },
+    )
+
+    window = history.get_context_window(123)
+    assert result.status == SchedulerNotificationStatus.SENT
+    assert window.messages[0].content == "Approve this guarded proposal."
+    assert window.messages[0].metadata["notification_kind"] == "approval"
+    assert window.messages[0].metadata["action_id"] == "pa_test"

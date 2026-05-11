@@ -12,6 +12,7 @@ from .guideline_memory import GuidelineMemoryAgent
 from .history import (
     ChatHistoryManager,
     ChatHistoryMessage,
+    ChatHistoryJournal,
     ChatHistoryPolicy,
     ChatHistoryWindow,
     InMemoryChatHistoryStore,
@@ -66,6 +67,7 @@ __all__ = [
     "BaseAgent",
     "ChatHistoryManager",
     "ChatHistoryMessage",
+    "ChatHistoryJournal",
     "ChatHistoryPolicy",
     "ChatHistoryWindow",
     "CalculatorAgent",

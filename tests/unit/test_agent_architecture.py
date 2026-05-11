@@ -12,6 +12,7 @@ from t212ai.agent import (
     AgentReasoningContext,
     AgentReasoner,
     AgentRequest,
+    ChatHistoryJournal,
     ChatHistoryManager,
     ChatHistoryMessage,
     ChatHistoryPolicy,
@@ -758,6 +759,27 @@ def test_chat_history_retains_and_selects_recent_messages() -> None:
     assert window.retained_count == 3
     assert window.selected_count == 2
     assert [message.content for message in window.messages] == ["three", "four"]
+
+
+def test_chat_history_journal_records_visible_app_messages_with_metadata() -> None:
+    manager = ChatHistoryManager()
+    journal = ChatHistoryJournal(manager)
+
+    journal.record_outbound(
+        123,
+        "Scheduled scan completed.",
+        source="scheduler",
+        metadata={"process_id": "sched_test", "run_id": 42, "none": None},
+    )
+
+    window = manager.get_context_window(123)
+    assert window.messages[0].role == "assistant"
+    assert window.messages[0].content == "Scheduled scan completed."
+    assert window.messages[0].metadata == {
+        "source": "scheduler",
+        "process_id": "sched_test",
+        "run_id": "42",
+    }
 
 
 def test_reasoner_selects_smart_model_for_critical_tasks() -> None:

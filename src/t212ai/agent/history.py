@@ -149,3 +149,51 @@ class ChatHistoryManager:
         )
         self.store.append(message)
         return message
+
+
+class ChatHistoryJournal:
+    """Shared boundary for app-visible chat history writes."""
+
+    def __init__(self, manager: ChatHistoryManager) -> None:
+        self.manager = manager
+
+    def record_inbound(
+        self,
+        chat_id: str | int,
+        content: str,
+        *,
+        source: str,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatHistoryMessage:
+        return self.manager.record_user_message(
+            chat_id,
+            content,
+            metadata=_journal_metadata(source=source, metadata=metadata),
+        )
+
+    def record_outbound(
+        self,
+        chat_id: str | int,
+        content: str,
+        *,
+        source: str,
+        metadata: dict[str, object] | None = None,
+    ) -> ChatHistoryMessage:
+        return self.manager.record_assistant_message(
+            chat_id,
+            content,
+            metadata=_journal_metadata(source=source, metadata=metadata),
+        )
+
+
+def _journal_metadata(
+    *,
+    source: str,
+    metadata: dict[str, object] | None,
+) -> dict[str, str]:
+    normalized = {"source": str(source)}
+    for key, value in (metadata or {}).items():
+        if value is None:
+            continue
+        normalized[str(key)] = str(value)
+    return normalized

@@ -9,6 +9,7 @@ import threading
 from typing import Any, Callable, Protocol
 
 from t212ai.app.config import AppSettings
+from t212ai.agent.history import ChatHistoryJournal
 from t212ai.genai.tracing import set_trace_metadata, traceable
 from t212ai.pending_actions import PendingActionService
 
@@ -81,10 +82,12 @@ class SchedulerNotificationService:
         *,
         notifier: SchedulerNotifier | None = None,
         pending_action_service: PendingActionService | None = None,
+        chat_history_journal: ChatHistoryJournal | None = None,
     ) -> None:
         self.scheduler_service = scheduler_service
         self.notifier = notifier
         self.pending_action_service = pending_action_service
+        self.chat_history_journal = chat_history_journal
 
     @traceable(name="scheduler.notification.send", run_type="chain")
     def send_process_notification(
@@ -151,6 +154,7 @@ class SchedulerNotificationService:
             )
         self._record_result(request, result)
         self._attach_approval_message_id(request, result)
+        self._record_chat_history(request, result)
         return result
 
     def _record_result(
@@ -204,6 +208,33 @@ class SchedulerNotificationService:
             except Exception:
                 return
             return
+
+    def _record_chat_history(
+        self,
+        request: SchedulerNotificationRequest,
+        result: SchedulerNotificationResult,
+    ) -> None:
+        if self.chat_history_journal is None or not result.sent_chat_ids:
+            return
+        text = _history_text(request)
+        metadata = {
+            "process_id": request.process_id,
+            "notification_status": result.status.value,
+            "notification_kind": "approval" if request.approval_payload else "message",
+        }
+        if request.run_id:
+            metadata["run_id"] = request.run_id
+        if request.approval_payload:
+            action_id = str(request.approval_payload.get("actionId") or "").strip()
+            if action_id:
+                metadata["action_id"] = action_id
+        for chat_id in result.sent_chat_ids:
+            self.chat_history_journal.record_outbound(
+                chat_id,
+                text,
+                source="scheduler",
+                metadata=metadata,
+            )
 
 
 class TelegramSchedulerNotifier:
@@ -444,3 +475,11 @@ def _preview(value: str, *, limit: int = 180) -> str:
     if len(compact) <= limit:
         return compact
     return compact[:limit].rstrip() + "..."
+
+
+def _history_text(request: SchedulerNotificationRequest) -> str:
+    if request.approval_payload:
+        text = str(request.approval_payload.get("text") or "").strip()
+        if text:
+            return text
+    return request.message
