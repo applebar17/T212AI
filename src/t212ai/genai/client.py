@@ -235,12 +235,40 @@ def _content_filter_summary(
         if detected:
             detected_categories.append(str(category))
 
+    summary = _content_filter_status_summary(
+        categories=categories,
+        blocked_categories=blocked_categories,
+        detected_categories=detected_categories,
+    )
     return {
+        "content_filter_triggered": bool(categories),
+        "content_filter_summary": summary,
         "content_filter_categories": categories,
         "content_filter_blocked_categories": blocked_categories,
         "content_filter_detected_categories": detected_categories,
         "content_filter_category_status": category_status,
     }
+
+
+def _content_filter_status_summary(
+    *,
+    categories: list[str],
+    blocked_categories: list[str],
+    detected_categories: list[str],
+) -> str | None:
+    if not categories:
+        return None
+    blocked = set(blocked_categories)
+    detected = set(detected_categories)
+    parts: list[str] = []
+    for category in categories:
+        flags = []
+        if category in blocked:
+            flags.append("filtered")
+        if category in detected:
+            flags.append("detected")
+        parts.append(f"{category}({','.join(flags)})" if flags else category)
+    return "; ".join(parts)
 
 
 def _llm_prompt_diagnostics(

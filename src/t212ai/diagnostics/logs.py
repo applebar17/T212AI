@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from t212ai.app.logging import redact_log_text, redact_log_value
-
 
 LOG_FIELD_NAMES = (
     "timestamp",
@@ -30,6 +30,17 @@ LOG_FIELD_NAMES = (
     "chat_id",
     "message_id",
     "request_id",
+    "model",
+    "provider",
+    "provider_error_code",
+    "provider_policy_code",
+    "content_filter_triggered",
+    "content_filter_summary",
+    "content_filter_categories",
+    "content_filter_blocked_categories",
+    "content_filter_detected_categories",
+    "prompt_fingerprint",
+    "toolbox_name",
 )
 
 
@@ -52,6 +63,17 @@ class LogRecordView(BaseModel):
     chat_id: str | None = None
     message_id: str | None = None
     request_id: str | None = None
+    model: str | None = None
+    provider: str | None = None
+    provider_error_code: str | None = None
+    provider_policy_code: str | None = None
+    content_filter_triggered: str | None = None
+    content_filter_summary: str | None = None
+    content_filter_categories: str | None = None
+    content_filter_blocked_categories: str | None = None
+    content_filter_detected_categories: str | None = None
+    prompt_fingerprint: str | None = None
+    toolbox_name: str | None = None
     message: str | None = None
 
 
@@ -275,14 +297,14 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         except ValueError:
             continue
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     for fmt in ("%Y-%m-%d %H:%M:%S,%f", "%Y-%m-%d %H:%M:%S"):
         try:
             parsed = datetime.strptime(raw, fmt)
         except ValueError:
             continue
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return None
 
 

@@ -13,16 +13,16 @@ from t212ai.genai.client import (
     _provider_error_details,
 )
 from t212ai.genai.context import (
+    PRIOR_CONTEXT_SUMMARY_HEADER,
     ContextBudgetResolver,
     GenAIContextManager,
     ModelContextRegistry,
-    PRIOR_CONTEXT_SUMMARY_HEADER,
     parse_context_token_value,
     parse_context_tokens_by_model_json,
 )
+from t212ai.genai.models import ToolResult
 from t212ai.genai.tokenizer import TokenCounter
 from t212ai.genai.tools.base import ToolBox, build_tool_index, render_tool_descriptions
-from t212ai.genai.models import ToolResult
 
 
 def test_chat_model_for_falls_back_to_default_when_optional_models_are_blank() -> None:
@@ -375,6 +375,8 @@ def test_provider_error_details_extracts_azure_content_filter_metadata() -> None
     assert details["error_code"] == "content_filter"
     assert details["provider_error_code"] == "contentfilter"
     assert details["provider_policy_code"] == "ResponsibleAIPolicyViolation"
+    assert details["content_filter_triggered"] is True
+    assert details["content_filter_summary"] == "jailbreak(filtered,detected)"
     assert details["content_filter_categories"] == ["jailbreak"]
     assert details["content_filter_blocked_categories"] == ["jailbreak"]
     assert details["content_filter_detected_categories"] == ["jailbreak"]
@@ -469,11 +471,17 @@ def test_call_openai_logs_content_filter_diagnostics_without_raw_content(caplog)
     assert events == ["llm.call.start", "llm.content_filter", "llm.call.error"]
     content_filter_fields = records[1].event_fields
     assert content_filter_fields["error_code"] == "content_filter"
+    assert content_filter_fields["content_filter_triggered"] is True
+    assert content_filter_fields["content_filter_summary"] == "jailbreak(filtered,detected)"
     assert content_filter_fields["content_filter_categories"] == ["jailbreak"]
     assert content_filter_fields["provider_policy_code"] == (
         "ResponsibleAIPolicyViolation"
     )
     assert content_filter_fields["message_count"] == 2
+    call_error_fields = records[2].event_fields
+    assert call_error_fields["error_code"] == "content_filter"
+    assert call_error_fields["content_filter_summary"] == "jailbreak(filtered,detected)"
+    assert call_error_fields["content_filter_categories"] == ["jailbreak"]
     rendered_fields = str(content_filter_fields)
     assert "secret system prompt" not in rendered_fields
     assert "study portfolio" not in rendered_fields

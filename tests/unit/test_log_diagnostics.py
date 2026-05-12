@@ -155,7 +155,15 @@ def test_log_file_navigator_tail_query_context_counts_and_malformed_lines(
                 "step": "call_openai",
                 "status": "error",
                 "error_type": "BadRequestError",
-                "error_code": "contentfilter",
+                "error_code": "content_filter",
+                "provider_error_code": "contentfilter",
+                "provider_policy_code": "ResponsibleAIPolicyViolation",
+                "content_filter_triggered": True,
+                "content_filter_summary": "jailbreak(filtered,detected)",
+                "content_filter_categories": ["jailbreak"],
+                "content_filter_blocked_categories": ["jailbreak"],
+                "content_filter_detected_categories": ["jailbreak"],
+                "prompt_fingerprint": "abc123",
                 "chat_id": "123",
                 "message": "provider failed https://example.test?a=1&api_key=super-secret",
             },
@@ -181,10 +189,15 @@ def test_log_file_navigator_tail_query_context_counts_and_malformed_lines(
         since="2026-05-10T10:00:30Z",
         until="2026-05-10T10:01:30Z",
         level="ERROR",
-        contains="contentfilter",
+        contains="jailbreak",
     )
     assert len(query.records) == 1
-    assert query.records[0].error_code == "contentfilter"
+    assert query.records[0].error_code == "content_filter"
+    assert query.records[0].provider_error_code == "contentfilter"
+    assert query.records[0].provider_policy_code == "ResponsibleAIPolicyViolation"
+    assert query.records[0].content_filter_summary == "jailbreak(filtered,detected)"
+    assert query.records[0].content_filter_categories == "['jailbreak']"
+    assert query.records[0].prompt_fingerprint == "abc123"
     assert "super-secret" not in (query.records[0].message or "")
 
     context = navigator.context(line_number=query.records[0].line_number, before=1, after=1)
@@ -192,7 +205,7 @@ def test_log_file_navigator_tail_query_context_counts_and_malformed_lines(
     assert "token=secret" not in (context.records[0].message or "")
 
     counts = navigator.counts(group_by="error_code", chat_id="123")
-    assert {"value": "contentfilter", "count": 1} in counts["counts"]
+    assert {"value": "content_filter", "count": 1} in counts["counts"]
 
 
 def test_diagnostic_tool_reports_missing_log_file(tmp_path: Path) -> None:

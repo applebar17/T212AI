@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools.base import ToolBox, build_tool_index
 
 from .logs import LogFileNavigator, LogQueryResult
-
 
 _FILTER_PROPERTIES: dict[str, dict[str, Any]] = {
     "level": {
@@ -82,6 +82,44 @@ _FILTER_PROPERTIES: dict[str, dict[str, Any]] = {
         "type": ["string", "null"],
         "default": None,
         "description": "Exact request id filter when present.",
+    },
+    "model": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact LLM model or deployment name filter when present.",
+    },
+    "provider": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact provider filter, for example azure_openai or openai.",
+    },
+    "provider_error_code": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact raw provider error code filter when present.",
+    },
+    "provider_policy_code": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": (
+            "Exact provider policy code filter, for example "
+            "ResponsibleAIPolicyViolation."
+        ),
+    },
+    "content_filter_summary": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact compact content-filter summary filter when present.",
+    },
+    "prompt_fingerprint": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact safe prompt fingerprint filter when present.",
+    },
+    "toolbox_name": {
+        "type": ["string", "null"],
+        "default": None,
+        "description": "Exact toolbox name filter when present.",
     },
     "contains": {
         "type": ["string", "null"],
