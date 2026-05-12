@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
@@ -10,13 +10,14 @@ from t212ai.scheduler import (
     SchedulerManagementRuntime,
     build_scheduler_agent_tool_mapping,
     build_scheduler_management_tool_mapping,
+    scheduler_alpaca_news_monitor_create,
     scheduler_archive_process,
     scheduler_company_event_analyst_create,
     scheduler_create_process,
     scheduler_instrument_monitor_create,
     scheduler_list_processes,
-    scheduler_market_signal_capture_create,
     scheduler_market_regime_monitor_create,
+    scheduler_market_signal_capture_create,
     scheduler_pause_process,
     scheduler_resume_process,
     scheduler_trade_setup_monitor_create,
@@ -125,7 +126,7 @@ def test_scheduler_instrument_monitor_create_applies_defaults(tmp_path: Path) ->
         service=service,
         default_timezone="UTC",
         default_poll_every_seconds=300,
-        clock=lambda: datetime(2026, 5, 7, 10, 30, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 5, 7, 10, 30, tzinfo=UTC),
     )
 
     result = scheduler_instrument_monitor_create(
@@ -157,7 +158,7 @@ def test_scheduler_instrument_monitor_create_applies_defaults(tmp_path: Path) ->
     assert process.schedule.poll_every_seconds == 300
     assert process.trigger == {"type": "below_price", "symbol": "TSLA", "value": 180.0}
     assert process.lifecycle.completion_policy.value == "complete_on_first_match"
-    assert process.lifecycle.expires_at == datetime(2026, 5, 7, 23, 59, 59, tzinfo=timezone.utc)
+    assert process.lifecycle.expires_at == datetime(2026, 5, 7, 23, 59, 59, tzinfo=UTC)
     assert process.notification == {"enabled": True}
     assert process.safety.broker_actions_allowed is False
 
@@ -274,7 +275,7 @@ def test_scheduler_company_event_analyst_create_one_shot_applies_defaults(
     assert process.kind.value == "company_event_analyst"
     assert process.execution_mode.value == "llm_assisted"
     assert process.schedule.type.value == "one_shot"
-    assert process.schedule.run_at == datetime(2026, 5, 7, 22, 0, tzinfo=timezone.utc)
+    assert process.schedule.run_at == datetime(2026, 5, 7, 22, 0, tzinfo=UTC)
     assert process.trigger == {
         "type": "company_event",
         "symbol": "MSFT",
@@ -380,7 +381,7 @@ def test_scheduler_market_regime_monitor_create_applies_defaults_and_proxy_mappi
         service=service,
         default_timezone="UTC",
         default_poll_every_seconds=300,
-        clock=lambda: datetime(2026, 5, 7, 10, 30, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 5, 7, 10, 30, tzinfo=UTC),
     )
 
     result = scheduler_market_regime_monitor_create(
@@ -427,7 +428,7 @@ def test_scheduler_market_regime_monitor_create_applies_defaults_and_proxy_mappi
     assert process.inputs["searchTimeRange"] == "day"
     assert process.action == {"type": "notify_only"}
     assert process.lifecycle.completion_policy.value == "complete_on_first_match"
-    assert process.lifecycle.expires_at == datetime(2026, 5, 7, 23, 59, 59, tzinfo=timezone.utc)
+    assert process.lifecycle.expires_at == datetime(2026, 5, 7, 23, 59, 59, tzinfo=UTC)
     assert process.notification == {"enabled": True}
     assert process.safety.broker_actions_allowed is False
 
@@ -816,10 +817,87 @@ def test_scheduler_trade_setup_monitor_create_rejects_missing_caps_or_unsafe_pol
         assert result.error.code == "invalid_trade_setup_monitor_spec"
 
 
+def test_scheduler_alpaca_news_monitor_create_builds_manual_monitor(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="Europe/Rome",
+        clock=lambda: datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
+        chat_id="5527868809",
+        user_id=5527868809,
+    )
+
+    result = scheduler_alpaca_news_monitor_create(
+        title=None,
+        description="Monitor rare-earth names for material news.",
+        symbols=["mp", "usar", "MP"],
+        start_at=None,
+        end_at=None,
+        duration_minutes=90,
+        timezone="Europe/Rome",
+        task_guidelines="Focus on material company-specific catalysts only.",
+        order_proposals_enabled=True,
+        max_events_per_minute=12,
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.kind.value == "alpaca_news_monitor"
+    assert process.execution_mode.value == "llm_assisted"
+    assert process.schedule.type.value == "manual"
+    assert process.trigger == {"type": "alpaca_news_stream", "symbols": ["MP", "USAR"]}
+    assert process.inputs["symbols"] == ["MP", "USAR"]
+    assert process.inputs["timezone"] == "Europe/Rome"
+    assert process.inputs["orderProposalsEnabled"] is True
+    assert process.inputs["maxEventsPerMinute"] == 12
+    assert process.inputs["chatId"] == "5527868809"
+    assert process.inputs["userId"] == 5527868809
+    assert process.notification == {"enabled": True, "chatId": "5527868809"}
+    assert process.safety.broker_actions_allowed is False
+    assert process.lifecycle.completion_policy.value == "complete_on_first_run"
+    assert "Broker execution remains approval-button gated." in result.output
+
+
+def test_scheduler_alpaca_news_monitor_create_rejects_missing_window_or_symbols(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(service=_service(tmp_path))
+    base = {
+        "title": None,
+        "description": "",
+        "symbols": ["MP"],
+        "start_at": None,
+        "end_at": None,
+        "duration_minutes": 30,
+        "timezone": None,
+        "task_guidelines": "",
+        "order_proposals_enabled": True,
+        "max_events_per_minute": 10,
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    missing_symbols = scheduler_alpaca_news_monitor_create(**{**base, "symbols": []})
+    missing_window = scheduler_alpaca_news_monitor_create(
+        **{**base, "duration_minutes": None}
+    )
+
+    for result in (missing_symbols, missing_window):
+        assert result.status == "error"
+        assert result.error is not None
+        assert result.error.code == "invalid_alpaca_news_monitor_spec"
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 
     assert set(mapping) == {
+        "scheduler_alpaca_news_monitor_create",
         "scheduler_instrument_monitor_create",
         "scheduler_company_event_analyst_create",
         "scheduler_market_regime_monitor_create",
@@ -831,3 +909,4 @@ def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
         "scheduler_archive_process",
     }
     assert "scheduler_create_process" not in SCHEDULER_AGENT_TOOLBOX.tools_by_name
+    assert "scheduler_alpaca_news_monitor_create" in SCHEDULER_AGENT_TOOLBOX.tools_by_name

@@ -1,12 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
-from t212ai.agent.intents import AgentIntent, IntentKind
+from t212ai.agent.intents import IntentKind
 from t212ai.agent.planner import StructuredAgentPlan
+from t212ai.app.config import get_app_settings
+from t212ai.app.runtime import build_runtime
+from t212ai.brokers.trading212.models import (
+    AccountSummary,
+    Cash,
+    Investments,
+    Order,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PaginatedResponseHistoricalOrder,
+    TimeValidity,
+)
 from t212ai.capabilities import (
     BrokerExecutionService,
     BrokerReadService,
@@ -14,20 +27,6 @@ from t212ai.capabilities import (
     DisclosureService,
     MarketDataService,
     MarketIntelligenceService,
-)
-from t212ai.app.config import get_app_settings
-from t212ai.app.runtime import build_runtime
-from t212ai.brokers.trading212.models import (
-    AccountSummary,
-    Cash,
-    Investments,
-    PaginatedResponseHistoricalOrder,
-    Order,
-    OrderSide,
-    OrderStatus,
-    OrderType,
-    PortfolioSnapshot,
-    TimeValidity,
 )
 from t212ai.telegram.bridge import build_agent_message_handler_if_configured
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
@@ -102,7 +101,7 @@ class FakeRuntimeGenAIClient:
 
 
 class FakeTrading212Client:
-    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=UTC)
 
     @classmethod
     def from_settings(cls, settings=None):
@@ -240,8 +239,15 @@ class FakeAlpacaMarketDataClient:
         )
 
 
+class FakeAlpacaStreamClient:
+    @classmethod
+    def from_settings(cls, settings=None):
+        del settings
+        return cls()
+
+
 class FakeAlpacaBrokerClient:
-    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+    reviewed_at = datetime(2026, 4, 27, 12, 0, tzinfo=UTC)
 
     @classmethod
     def from_settings(cls, settings=None):
@@ -271,7 +277,14 @@ class FakeAlpacaBrokerClient:
             }
         ]
 
-    def list_orders(self, *, status: str, limit: int | None = None, ticker: str | None = None, cursor=None):
+    def list_orders(
+        self,
+        *,
+        status: str,
+        limit: int | None = None,
+        ticker: str | None = None,
+        cursor=None,
+    ):
         del limit, ticker, cursor
         if status == "open":
             return [
@@ -501,6 +514,38 @@ def test_build_runtime_wires_agent_stack_when_llm_is_configured(
     assert runtime.capability_registry["scheduler_market_signal_capture"].ready
     assert not runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.component_errors == {}
+
+
+def test_build_runtime_wires_alpaca_news_monitor_stack(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import t212ai.app.runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "GenAIClient", FakeRuntimeGenAIClient)
+    monkeypatch.setattr(runtime_module, "AlpacaStreamClient", FakeAlpacaStreamClient)
+    settings = get_app_settings(
+        env={
+            "LLM_PROVIDER": "openai",
+            "OPENAI_API_KEY": "openai-key",
+            "ALPACA_API_KEY": "alpaca-key",
+            "ALPACA_API_SECRET": "alpaca-secret",
+            "GUIDELINE_MEMORY_PATH": str(tmp_path / "guidelines.json"),
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+        }
+    )
+
+    runtime = build_runtime(settings)
+
+    assert runtime.alpaca_stream_client is not None
+    assert runtime.capability_registry["scheduler_alpaca_news_monitor"].ready
+    assert runtime.news_judge_agent is not None
+    assert runtime.alpaca_news_stream_supervisor is not None
+    assert runtime.main_orchestrator is not None
+    assert (
+        "scheduler_alpaca_news_monitor_create"
+        in runtime.main_orchestrator.profile.toolbox.tools_by_name
+    )
 
 
 def test_build_runtime_builds_optional_provider_stacks(

@@ -214,6 +214,10 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
             "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": "7",
             "LOG_DIAGNOSTIC_MAX_RECORDS": "250",
             "LOG_DIAGNOSTIC_MAX_BYTES": "131072",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED": "false",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS": "45",
+            "ALPACA_NEWS_STREAM_LEASE_SECONDS": "150",
+            "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS": "8",
         }
     )
 
@@ -233,6 +237,10 @@ def test_get_app_settings_loads_scheduler_defaults() -> None:
     assert settings.log_diagnostic_max_tool_calls == 7
     assert settings.log_diagnostic_max_records == 250
     assert settings.log_diagnostic_max_bytes == 131072
+    assert settings.alpaca_news_stream_supervisor_enabled is False
+    assert settings.alpaca_news_stream_supervisor_poll_seconds == 45
+    assert settings.alpaca_news_stream_lease_seconds == 150
+    assert settings.alpaca_news_judge_max_tool_calls == 8
     assert settings.app_log_third_party_level == "ERROR"
 
 

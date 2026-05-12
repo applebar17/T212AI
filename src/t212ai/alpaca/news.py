@@ -44,8 +44,8 @@ def clean_alpaca_news_event(
     )
     source = _clean_field(news.source, limit=120)
     url = _clean_field(news.url, limit=1_500)
-    headline = _clean_field(news.headline)
-    summary = _clean_field(news.summary)
+    headline = _clean_html_text(news.headline, limit=DEFAULT_FIELD_LIMIT)
+    summary = _clean_html_text(news.summary, limit=DEFAULT_FIELD_LIMIT)
     content_text = _clean_html_text(news.content, limit=content_limit)
     symbols = _clean_symbols(news.symbols)
     return CleanedNewsPacket(

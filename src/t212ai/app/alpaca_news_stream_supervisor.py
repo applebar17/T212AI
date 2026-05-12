@@ -10,10 +10,12 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
-from t212ai.agent import AgentRequest, AgentResponse, ChatHistoryJournal, ChatHistoryManager
+from t212ai.agent.history import ChatHistoryJournal, ChatHistoryManager
+from t212ai.agent.news_judge import NewsIngestionJudgeAgent
+from t212ai.agent.schemas import AgentRequest, AgentResponse
 from t212ai.alpaca import (
     AlpacaStreamClient,
     AlpacaStreamEvent,
@@ -22,17 +24,9 @@ from t212ai.alpaca import (
     clean_alpaca_news_event,
 )
 from t212ai.app.logging import log_event
-from t212ai.scheduler import (
-    ScheduledEventType,
-    ScheduledProcess,
-    ScheduledProcessClaim,
-    ScheduledProcessService,
-    SchedulerNotificationService,
-)
-
-if TYPE_CHECKING:
-    from t212ai.agent import NewsIngestionJudgeAgent
-
+from t212ai.scheduler.models import ScheduledEventType, ScheduledProcess
+from t212ai.scheduler.notification import SchedulerNotificationService
+from t212ai.scheduler.service import ScheduledProcessClaim, ScheduledProcessService
 
 LOGGER = logging.getLogger(__name__)
 

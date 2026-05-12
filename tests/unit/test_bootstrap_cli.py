@@ -232,6 +232,10 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
             "LOG_DIAGNOSTIC_MAX_TOOL_CALLS": "7",
             "LOG_DIAGNOSTIC_MAX_RECORDS": "250",
             "LOG_DIAGNOSTIC_MAX_BYTES": "131072",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED": "false",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS": "45",
+            "ALPACA_NEWS_STREAM_LEASE_SECONDS": "150",
+            "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS": "8",
             "SCHEDULER_EMBEDDED_WORKER_ENABLED": "false",
             "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS": "30",
             "SCHEDULER_EMBEDDED_WORKER_LIMIT": "25",
@@ -248,6 +252,10 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
     assert updates["LOG_DIAGNOSTIC_MAX_TOOL_CALLS"] == "7"
     assert updates["LOG_DIAGNOSTIC_MAX_RECORDS"] == "250"
     assert updates["LOG_DIAGNOSTIC_MAX_BYTES"] == "131072"
+    assert updates["ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED"] == "false"
+    assert updates["ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS"] == "45"
+    assert updates["ALPACA_NEWS_STREAM_LEASE_SECONDS"] == "150"
+    assert updates["ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS"] == "8"
     assert updates["SCHEDULER_EMBEDDED_WORKER_ENABLED"] == "false"
     assert updates["SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS"] == "30"
     assert updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"] == "25"
@@ -596,7 +604,7 @@ def test_run_bot_valid_preflight_invokes_telegram_service(
 
     assert exit_code == 0
     assert calls["ran"] is True
-    assert getattr(calls["settings"], "llm_provider") == "openai"
+    assert calls["settings"].llm_provider == "openai"
     assert calls["runtime"] is not None
 
 
