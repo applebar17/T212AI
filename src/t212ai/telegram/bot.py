@@ -11,6 +11,7 @@ from t212ai.app.scheduler_worker import (
     EmbeddedSchedulerWorker,
     build_embedded_scheduler_worker,
 )
+from t212ai.app.alpaca_news_stream_supervisor import AlpacaNewsStreamSupervisor
 
 from .auth import TelegramAccessPolicy
 from .bridge import (
@@ -28,6 +29,7 @@ class TelegramBotService:
     message_handler: TelegramMessageHandler = field(default_factory=build_default_message_handler)
     runtime: AppRuntime | None = None
     scheduler_worker: EmbeddedSchedulerWorker | None = None
+    alpaca_news_stream_supervisor: AlpacaNewsStreamSupervisor | None = None
 
     @classmethod
     def from_settings(
@@ -48,6 +50,7 @@ class TelegramBotService:
             or build_agent_message_handler_if_configured(runtime=resolved_runtime),
             runtime=resolved_runtime,
             scheduler_worker=build_embedded_scheduler_worker(resolved_runtime),
+            alpaca_news_stream_supervisor=resolved_runtime.alpaca_news_stream_supervisor,
         )
 
     def build_application(self) -> Any:
@@ -78,8 +81,12 @@ class TelegramBotService:
         application = self.build_application()
         if self.scheduler_worker is not None:
             self.scheduler_worker.start()
+        if self.alpaca_news_stream_supervisor is not None:
+            self.alpaca_news_stream_supervisor.start()
         try:
             application.run_polling()
         finally:
+            if self.alpaca_news_stream_supervisor is not None:
+                self.alpaca_news_stream_supervisor.stop()
             if self.scheduler_worker is not None:
                 self.scheduler_worker.stop()

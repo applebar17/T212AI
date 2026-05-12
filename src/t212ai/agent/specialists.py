@@ -39,11 +39,11 @@ from t212ai.pending_actions import (
     PendingActionService,
 )
 from t212ai.proposals import ProposalService
-from t212ai.scheduler import (
+from t212ai.scheduler.management import (
     SCHEDULER_AGENT_TOOLBOX,
-    ScheduledProcessService,
     build_scheduler_agent_tool_mapping,
 )
+from t212ai.scheduler.service import ScheduledProcessService
 from t212ai.workflows import (
     PendingOrdersReviewWorkflow,
     PortfolioSummaryWorkflow,
@@ -1407,7 +1407,9 @@ class SchedulerAgent(BaseAgent):
                     "Use the private scheduler tools for scheduler changes. Create supported "
                     "instrument_monitor, company_event_analyst, "
                     "market_regime_monitor, market_signal_capture, and "
-                    "trade_setup_monitor jobs. Instrument monitors use deterministic "
+                    "trade_setup_monitor jobs, plus bounded Alpaca real-time news "
+                    "monitors when the user asks to stream/monitor live company news. "
+                    "Instrument monitors use deterministic "
                     "polling schedules. Company-event analyst jobs use llm_assisted "
                     "one-shot or recurring schedules and notify-only action. "
                     "Market-regime monitors use llm_assisted polling schedules, "
@@ -1443,7 +1445,8 @@ class SchedulerAgent(BaseAgent):
                     "Private scheduler tools: create deterministic instrument monitors, "
                     "create LLM-assisted company-event analyst jobs, create "
                     "conditional market-regime stress monitors, create market-signal "
-                    "capture scans, create guarded trade setup monitors, list scheduled "
+                    "capture scans, create bounded Alpaca news stream monitors, "
+                    "create guarded trade setup monitors, list scheduled "
                     "processes, pause/resume/archive exact process ids. "
                     + render_tool_descriptions(SCHEDULER_AGENT_TOOLBOX)
                 ),

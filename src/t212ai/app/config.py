@@ -196,6 +196,10 @@ class AppSettings:
     scheduler_embedded_worker_enabled: bool = True
     scheduler_embedded_worker_poll_every_seconds: int = 60
     scheduler_embedded_worker_limit: int = 100
+    alpaca_news_stream_supervisor_enabled: bool = True
+    alpaca_news_stream_supervisor_poll_seconds: int = 30
+    alpaca_news_stream_lease_seconds: int = 120
+    alpaca_news_judge_max_tool_calls: int = 10
     searxng_base_url: str | None = None
     live_trading_enabled: bool = False
 
@@ -444,6 +448,26 @@ def get_app_settings(
             source,
             "SCHEDULER_EMBEDDED_WORKER_LIMIT",
             100,
+        ),
+        alpaca_news_stream_supervisor_enabled=_env_bool_from_source(
+            source,
+            "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED",
+            True,
+        ),
+        alpaca_news_stream_supervisor_poll_seconds=_env_int_from_source(
+            source,
+            "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS",
+            30,
+        ),
+        alpaca_news_stream_lease_seconds=_env_int_from_source(
+            source,
+            "ALPACA_NEWS_STREAM_LEASE_SECONDS",
+            120,
+        ),
+        alpaca_news_judge_max_tool_calls=_env_non_negative_int_from_source(
+            source,
+            "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS",
+            10,
         ),
         searxng_base_url=source.get("SEARXNG_BASE_URL"),
         live_trading_enabled=_env_bool_from_source(

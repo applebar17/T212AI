@@ -18,6 +18,7 @@ from .history import (
     InMemoryChatHistoryStore,
 )
 from .judge import AgentJudge
+from .news_judge import NewsIngestionJudgeAgent, NewsJudgeDependencies, NewsJudgeResult
 from .orchestrator import (
     AgentOrchestrator,
     MainOrchestratorAgent,
@@ -82,6 +83,9 @@ __all__ = [
     "MainOrchestratorAgent",
     "LogDiagnosticAgent",
     "MarketAnalystAgent",
+    "NewsIngestionJudgeAgent",
+    "NewsJudgeDependencies",
+    "NewsJudgeResult",
     "OrderAgent",
     "PlanActionExecution",
     "PlanActionGroupExecution",

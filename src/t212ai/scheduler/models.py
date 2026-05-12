@@ -22,6 +22,7 @@ class ScheduledProcessKind(StrEnum):
     WATCHLIST_BRIEFING = "watchlist_briefing"
     FILING_OR_INSIDER_MONITOR = "filing_or_insider_monitor"
     PORTFOLIO_ATTENTION_MONITOR = "portfolio_attention_monitor"
+    ALPACA_NEWS_MONITOR = "alpaca_news_monitor"
 
 
 class ScheduledExecutionMode(StrEnum):

@@ -299,6 +299,68 @@ class ScheduledProcessService:
             session.flush()
             return True
 
+    def claim_process(
+        self,
+        process_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> ScheduledProcessClaim | None:
+        resolved_worker = _required_text(worker_id, "worker_id")
+        resolved_lease_seconds = _positive_int(lease_seconds, "lease_seconds")
+        resolved_now = _ensure_aware(now) if now is not None else _utc_now()
+        leased_until = resolved_now + timedelta(seconds=resolved_lease_seconds)
+        with self._session_scope() as session:
+            row = session.get(ScheduledProcessRow, str(process_id))
+            if row is None or row.status != ScheduledProcessStatus.ACTIVE.value:
+                return None
+            lock = session.get(ScheduledProcessLockRow, row.process_id)
+            if lock is not None and _ensure_aware(lock.leased_until) > resolved_now:
+                return None
+            lease_token = _new_lease_token()
+            if lock is None:
+                lock = ScheduledProcessLockRow(
+                    process_id=row.process_id,
+                    lease_token=lease_token,
+                    worker_id=resolved_worker,
+                    leased_until=leased_until,
+                    created_at=resolved_now,
+                    updated_at=resolved_now,
+                )
+                session.add(lock)
+            else:
+                lock.lease_token = lease_token
+                lock.worker_id = resolved_worker
+                lock.leased_until = leased_until
+                lock.updated_at = resolved_now
+            session.flush()
+            return ScheduledProcessClaim(
+                process=_process_model(row),
+                lease_token=lease_token,
+                worker_id=resolved_worker,
+                leased_until=leased_until,
+            )
+
+    def refresh_process_lease(
+        self,
+        process_id: str,
+        lease_token: str,
+        *,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> bool:
+        resolved_lease_seconds = _positive_int(lease_seconds, "lease_seconds")
+        resolved_now = _ensure_aware(now) if now is not None else _utc_now()
+        with self._session_scope() as session:
+            lock = session.get(ScheduledProcessLockRow, str(process_id))
+            if lock is None or lock.lease_token != str(lease_token):
+                return False
+            lock.leased_until = resolved_now + timedelta(seconds=resolved_lease_seconds)
+            lock.updated_at = resolved_now
+            session.flush()
+            return True
+
     def recover_stale_runs(
         self,
         *,

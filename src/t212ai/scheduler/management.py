@@ -8,7 +8,7 @@ access to arbitrary scheduler internals.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from typing import Any, Callable
@@ -116,6 +116,7 @@ SCHEDULER_CREATE_PROCESS_TOOL: ToolSpec = {
                         "watchlist_briefing",
                         "filing_or_insider_monitor",
                         "portfolio_attention_monitor",
+                        "alpaca_news_monitor",
                     ],
                 },
                 "execution_mode": {
@@ -213,6 +214,7 @@ SCHEDULER_LIST_PROCESSES_TOOL: ToolSpec = {
                             "watchlist_briefing",
                             "filing_or_insider_monitor",
                             "portfolio_attention_monitor",
+                            "alpaca_news_monitor",
                         ],
                     },
                     "default": None,
@@ -771,6 +773,116 @@ SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL: ToolSpec = {
     },
 }
 
+SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
+    "type": "function",
+    "function": {
+        "name": "scheduler_alpaca_news_monitor_create",
+        "description": (
+            "Create one bounded Alpaca real-time news stream monitor. This creates "
+            "kind=alpaca_news_monitor, executionMode=llm_assisted, manual schedule, "
+            "and a stream worker that invokes the News Ingestion Judge for each "
+            "received news event in scope. Provide symbols and either end_at or "
+            "duration_minutes. Broker order proposals may be prepared by downstream "
+            "agents, but any execution still requires Telegram approval buttons."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional user-facing monitor title.",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional concise monitor description.",
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ticker symbols to subscribe/filter for the stream.",
+                },
+                "start_at": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": (
+                        "Optional ISO-8601 start datetime. If omitted, monitoring "
+                        "starts as soon as the supervisor sees the process."
+                    ),
+                },
+                "end_at": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Optional ISO-8601 end datetime for the stream window.",
+                },
+                "duration_minutes": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "default": None,
+                    "description": (
+                        "Alternative bounded duration in minutes. Required when "
+                        "end_at is omitted."
+                    ),
+                },
+                "timezone": {
+                    "type": ["string", "null"],
+                    "default": None,
+                    "description": "Timezone for naive start/end datetimes.",
+                },
+                "task_guidelines": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional user guidance for judging streamed news.",
+                },
+                "order_proposals_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": (
+                        "Whether the News Judge may ask the order agent to prepare "
+                        "order proposals when market relevance supports it."
+                    ),
+                },
+                "max_events_per_minute": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120,
+                    "default": 30,
+                    "description": "Per-process cap on news events sent to the LLM judge.",
+                },
+                "notification_enabled": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether user-visible judge results should notify Telegram.",
+                },
+                "broker_actions_allowed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Scheduler safety flag. Use false; execution remains approval-gated."
+                    ),
+                },
+            },
+            "required": [
+                "title",
+                "description",
+                "symbols",
+                "start_at",
+                "end_at",
+                "duration_minutes",
+                "timezone",
+                "task_guidelines",
+                "order_proposals_enabled",
+                "max_events_per_minute",
+                "notification_enabled",
+                "broker_actions_allowed",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -948,6 +1060,7 @@ SCHEDULER_AGENT_TOOLS: list[ToolSpec] = [
     SCHEDULER_COMPANY_EVENT_ANALYST_CREATE_TOOL,
     SCHEDULER_MARKET_REGIME_MONITOR_CREATE_TOOL,
     SCHEDULER_MARKET_SIGNAL_CAPTURE_CREATE_TOOL,
+    SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL,
     SCHEDULER_TRADE_SETUP_MONITOR_CREATE_TOOL,
     SCHEDULER_LIST_PROCESSES_TOOL,
     SCHEDULER_PAUSE_PROCESS_TOOL,
@@ -1012,6 +1125,10 @@ def build_scheduler_agent_tool_mapping(
         ),
         "scheduler_market_signal_capture_create": partial(
             scheduler_market_signal_capture_create,
+            runtime=runtime,
+        ),
+        "scheduler_alpaca_news_monitor_create": partial(
+            scheduler_alpaca_news_monitor_create,
             runtime=runtime,
         ),
         "scheduler_trade_setup_monitor_create": partial(
@@ -1331,6 +1448,62 @@ def scheduler_market_signal_capture_create(
             f"{process.lifecycle.completion_policy.value}. Max signals per run: "
             f"{process.inputs.get('maxSignals')}. No broker action was configured. "
             "Saved market signals are advisory memory only."
+        ),
+        data={"process": _process_payload(process)},
+    )
+
+
+@traceable(name="scheduler_alpaca_news_monitor_create", run_type="tool")
+def scheduler_alpaca_news_monitor_create(
+    *,
+    title: str | None,
+    description: str,
+    symbols: list[str],
+    start_at: str | None,
+    end_at: str | None,
+    duration_minutes: int | None,
+    timezone: str | None,
+    task_guidelines: str,
+    order_proposals_enabled: bool,
+    max_events_per_minute: int,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ToolResult:
+    set_trace_metadata(
+        provider="scheduler",
+        tool_name="scheduler_alpaca_news_monitor_create",
+    )
+    if runtime.service is None:
+        return _missing_service()
+    try:
+        process = _create_alpaca_news_monitor(
+            title=title,
+            description=description,
+            symbols=symbols,
+            start_at=start_at,
+            end_at=end_at,
+            duration_minutes=duration_minutes,
+            timezone_name=timezone,
+            task_guidelines=task_guidelines,
+            order_proposals_enabled=order_proposals_enabled,
+            max_events_per_minute=max_events_per_minute,
+            notification_enabled=notification_enabled,
+            broker_actions_allowed=broker_actions_allowed,
+            runtime=runtime,
+        )
+    except Exception as exc:
+        return _alpaca_news_monitor_exception(exc)
+    inputs = process.inputs
+    symbols_label = ", ".join(inputs.get("symbols") or [])
+    return ToolResult(
+        status="ok",
+        output=(
+            f"Created Alpaca news monitor {process.process_id}: {process.title}. "
+            f"Symbols: {symbols_label}. Window: {inputs.get('startAt')} to "
+            f"{inputs.get('endAt')} UTC. Notifications: "
+            f"{'enabled' if process.notification.get('enabled') else 'disabled'}. "
+            "Broker execution remains approval-button gated."
         ),
         data={"process": _process_payload(process)},
     )
@@ -1879,6 +2052,89 @@ def _create_market_signal_capture(
     )
 
 
+def _create_alpaca_news_monitor(
+    *,
+    title: str | None,
+    description: str,
+    symbols: list[str],
+    start_at: str | None,
+    end_at: str | None,
+    duration_minutes: int | None,
+    timezone_name: str | None,
+    task_guidelines: str,
+    order_proposals_enabled: bool,
+    max_events_per_minute: int,
+    notification_enabled: bool,
+    broker_actions_allowed: bool,
+    runtime: SchedulerManagementRuntime,
+) -> ScheduledProcess:
+    if broker_actions_allowed:
+        raise ValueError(
+            "broker_actions_allowed must be false; stream monitors may prepare "
+            "approval-gated proposals but never execute broker actions."
+        )
+    resolved_symbols = _clean_symbols(symbols)
+    if not resolved_symbols:
+        raise ValueError("At least one symbol is required for Alpaca news monitoring.")
+    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    _zone_info(tz_name)
+    start = _resolve_optional_datetime(
+        start_at,
+        timezone_name=tz_name,
+        fallback=runtime.clock(),
+        field_name="start_at",
+    )
+    end = _resolve_stream_end_at(
+        end_at=end_at,
+        duration_minutes=duration_minutes,
+        timezone_name=tz_name,
+        start=start,
+    )
+    if end <= start:
+        raise ValueError("Alpaca news monitor end_at must be after start_at.")
+    resolved_max_events = _positive_int(
+        max_events_per_minute,
+        fallback=30,
+        field_name="max_events_per_minute",
+    )
+    if resolved_max_events > 120:
+        raise ValueError("max_events_per_minute must be between 1 and 120.")
+    resolved_title = str(title or "").strip()
+    if not resolved_title:
+        resolved_title = "Alpaca news monitor: " + ", ".join(resolved_symbols)
+
+    return runtime.service.create_process(
+        title=resolved_title,
+        description=str(description or "").strip(),
+        kind="alpaca_news_monitor",
+        execution_mode="llm_assisted",
+        schedule={"type": "manual"},
+        trigger={"type": "alpaca_news_stream", "symbols": resolved_symbols},
+        inputs={
+            "symbols": resolved_symbols,
+            "startAt": start.isoformat(),
+            "endAt": end.isoformat(),
+            "timezone": tz_name,
+            "taskGuidelines": str(task_guidelines or "").strip(),
+            "orderProposalsEnabled": bool(order_proposals_enabled),
+            "maxEventsPerMinute": resolved_max_events,
+            "chatId": runtime.chat_id,
+            "userId": runtime.user_id,
+        },
+        llm_scope={
+            "taskGuidelines": str(task_guidelines or "").strip(),
+            "orderProposalsEnabled": bool(order_proposals_enabled),
+        },
+        action={
+            "type": "judge_news",
+            "orderProposalsEnabled": bool(order_proposals_enabled),
+        },
+        notification={"enabled": bool(notification_enabled), "chatId": runtime.chat_id},
+        lifecycle={"completionPolicy": "complete_on_first_run", "expiresAt": end.isoformat()},
+        safety={"brokerActionsAllowed": False},
+    )
+
+
 def _market_signal_capture_title(
     *,
     query: str,
@@ -2104,6 +2360,53 @@ def _resolve_run_at(run_at: str | None, *, timezone_name: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _resolve_optional_datetime(
+    value: str | None,
+    *,
+    timezone_name: str,
+    fallback: datetime,
+    field_name: str,
+) -> datetime:
+    raw = str(value or "").strip()
+    if not raw:
+        resolved = fallback
+        if resolved.tzinfo is None:
+            resolved = resolved.replace(tzinfo=timezone.utc)
+        return resolved.astimezone(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid ISO-8601 datetime.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_zone_info(timezone_name))
+    return parsed.astimezone(timezone.utc)
+
+
+def _resolve_stream_end_at(
+    *,
+    end_at: str | None,
+    duration_minutes: int | None,
+    timezone_name: str,
+    start: datetime,
+) -> datetime:
+    raw_end = str(end_at or "").strip()
+    if raw_end:
+        return _resolve_optional_datetime(
+            raw_end,
+            timezone_name=timezone_name,
+            fallback=start,
+            field_name="end_at",
+        )
+    if duration_minutes is None:
+        raise ValueError("Provide end_at or duration_minutes for a bounded news monitor.")
+    minutes = _positive_int(
+        duration_minutes,
+        fallback=60,
+        field_name="duration_minutes",
+    )
+    return start + timedelta(minutes=minutes)
+
+
 def _positive_int(value: int | None, *, fallback: int, field_name: str) -> int:
     resolved = fallback if value is None else value
     try:
@@ -2275,6 +2578,23 @@ def _market_signal_capture_exception(exc: Exception) -> ToolResult:
                 "sectors, or tags; use a polling or recurring schedule; keep "
                 "polling intervals at least 900 seconds; keep max_signals between "
                 "1 and 3; and keep broker_actions_allowed=false."
+            ),
+            retryable=False,
+        ),
+    )
+
+
+def _alpaca_news_monitor_exception(exc: Exception) -> ToolResult:
+    return ToolResult(
+        status="error",
+        output=f"Alpaca news monitor creation failed. Reason: {exc}.",
+        error=ToolError(
+            message=str(exc),
+            code="invalid_alpaca_news_monitor_spec",
+            type=exc.__class__.__name__,
+            hint=(
+                "Provide at least one ticker symbol and a bounded stream window "
+                "using end_at or duration_minutes. Keep broker_actions_allowed=false."
             ),
             retryable=False,
         ),

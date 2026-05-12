@@ -16,11 +16,14 @@ from t212ai.agent import (
     LogDiagnosticAgent,
     MainOrchestratorAgent,
     MarketAnalystAgent,
+    NewsIngestionJudgeAgent,
+    NewsJudgeDependencies,
     SchedulerAgent,
     SpecialistAgents,
     build_specialist_agents,
 )
-from t212ai.alpaca import AlpacaBrokerClient, AlpacaMarketDataClient
+from t212ai.alpaca import AlpacaBrokerClient, AlpacaMarketDataClient, AlpacaStreamClient
+from t212ai.app.alpaca_news_stream_supervisor import AlpacaNewsStreamSupervisor
 from t212ai.alpaca.broker import AlpacaBrokerService
 from t212ai.agent.tooling import SpecialistTooling, build_specialist_tooling
 from t212ai.brokers.trading212 import Trading212BrokerService, Trading212Client
@@ -116,6 +119,8 @@ class AppRuntime:
     calculator_agent: CalculatorAgent | None = None
     scheduler_agent: SchedulerAgent | None = None
     log_diagnostic_agent: LogDiagnosticAgent | None = None
+    news_judge_agent: NewsIngestionJudgeAgent | None = None
+    alpaca_news_stream_supervisor: AlpacaNewsStreamSupervisor | None = None
     trading212_client: Trading212Client | None = None
     trading212_service: Trading212BrokerService | None = None
     alpaca_broker_client: AlpacaBrokerClient | None = None
@@ -126,6 +131,7 @@ class AppRuntime:
     pending_orders_review_workflow: PendingOrdersReviewWorkflow | None = None
     yahoo_client: YahooFinanceClient | None = None
     alpaca_market_data_client: AlpacaMarketDataClient | None = None
+    alpaca_stream_client: AlpacaStreamClient | None = None
     market_data_service: MarketDataService | None = None
     alpha_vantage_client: AlphaVantageClient | None = None
     market_intelligence_service: MarketIntelligenceService | None = None
@@ -212,6 +218,7 @@ def build_runtime(settings: AppSettings | None = None) -> AppRuntime:
     _build_calculator_stack(runtime)
     _build_reconciliation_stack(runtime)
     _build_agent_stack(runtime)
+    _build_alpaca_news_stream_supervisor_stack(runtime)
     return runtime
 
 
@@ -315,6 +322,12 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
             )
         except Exception as exc:
             runtime.component_errors["alpaca"] = str(exc)
+
+    if runtime.settings.alpaca_api_key and runtime.settings.alpaca_api_secret:
+        try:
+            runtime.alpaca_stream_client = AlpacaStreamClient.from_settings(runtime.settings)
+        except Exception as exc:
+            runtime.component_errors["alpaca_stream"] = str(exc)
 
     if runtime.settings.alpha_vantage_enabled:
         try:
@@ -527,6 +540,16 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             ),
             implementation=runtime.scheduled_process_service,
         ),
+        "scheduler_alpaca_news_monitor": CapabilityBinding(
+            capability="scheduler_alpaca_news_monitor",
+            selected_provider=_capability_provider(runtime, "scheduler_alpaca_news_monitor"),
+            ready=(
+                runtime.agent_reasoner is not None
+                and runtime.scheduled_process_service is not None
+                and runtime.alpaca_stream_client is not None
+            ),
+            implementation=runtime.alpaca_stream_client,
+        ),
     }
 
 
@@ -641,15 +664,61 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             runtime.agent_reasoner,
             guideline_service=runtime.guideline_memory_service,
             specialists=specialists,
+            scheduled_process_service=(
+                runtime.scheduled_process_service
+                if runtime.capability_registry.get("scheduler_alpaca_news_monitor")
+                and runtime.capability_registry["scheduler_alpaca_news_monitor"].ready
+                else None
+            ),
             scheduler_default_timezone=runtime.settings.scheduler_default_timezone,
+            scheduler_default_poll_every_seconds=_positive_int_setting(
+                runtime.settings.scheduler_default_poll_every_seconds,
+                default=300,
+            ),
         )
         runtime.specialist_agents = specialists
         runtime.company_agent = specialists.company
         runtime.market_agent = specialists.market
         runtime.scheduler_agent = specialists.scheduler
         runtime.log_diagnostic_agent = specialists.log_diagnostic
+        runtime.news_judge_agent = NewsIngestionJudgeAgent(
+            runtime.agent_reasoner,
+            guideline_service=runtime.guideline_memory_service,
+            dependencies=NewsJudgeDependencies(
+                market_agent=specialists.market,
+                order_agent=specialists.order,
+                market_signal_service=runtime.market_signal_service,
+                broker_read_service=runtime.broker_read_service,
+            ),
+            configurable_reasoner_agent=runtime.configurable_reasoner_agent,
+            configurable_planner_agent=runtime.configurable_planner_agent,
+            grouped_plan_executor=runtime.grouped_plan_executor,
+            default_timezone=runtime.settings.scheduler_default_timezone,
+            max_tool_calls=runtime.settings.alpaca_news_judge_max_tool_calls,
+        )
     except Exception as exc:  # pragma: no cover - defensive
         runtime.component_errors["main_orchestrator"] = str(exc)
+
+
+def _build_alpaca_news_stream_supervisor_stack(runtime: AppRuntime) -> None:
+    if not runtime.settings.alpaca_news_stream_supervisor_enabled:
+        return
+    if (
+        runtime.scheduled_process_service is None
+        or runtime.alpaca_stream_client is None
+        or runtime.news_judge_agent is None
+    ):
+        return
+    runtime.alpaca_news_stream_supervisor = AlpacaNewsStreamSupervisor(
+        runtime.scheduled_process_service,
+        runtime.alpaca_stream_client,
+        runtime.news_judge_agent,
+        notification_service=runtime.scheduler_notification_service,
+        history_manager=runtime.history_manager,
+        poll_seconds=runtime.settings.alpaca_news_stream_supervisor_poll_seconds,
+        lease_seconds=runtime.settings.alpaca_news_stream_lease_seconds,
+        worker_id=runtime.settings.scheduler_worker_id,
+    )
 
 
 def _build_log_diagnostic_agent(runtime: AppRuntime) -> LogDiagnosticAgent | None:

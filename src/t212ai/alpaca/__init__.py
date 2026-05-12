@@ -23,12 +23,15 @@ __all__ = [
     "AlpacaBrokerClient",
     "AlpacaBrokerService",
     "AlpacaMarketDataClient",
+    "CleanedNewsPacket",
     "AlpacaNewsEvent",
     "AlpacaStreamClient",
     "AlpacaStreamError",
     "AlpacaStreamEvent",
     "AlpacaStreamSubscription",
     "capture_alpaca_news_stream",
+    "clean_alpaca_news_event",
+    "clean_news_payload",
 ]
 
 
@@ -43,6 +46,18 @@ def __getattr__(name: str):
         return {
             "AlpacaBrokerClient": AlpacaBrokerClient,
             "AlpacaBrokerService": AlpacaBrokerService,
+        }[name]
+    if name in {
+        "CleanedNewsPacket",
+        "clean_alpaca_news_event",
+        "clean_news_payload",
+    }:
+        from .news import CleanedNewsPacket, clean_alpaca_news_event, clean_news_payload
+
+        return {
+            "CleanedNewsPacket": CleanedNewsPacket,
+            "clean_alpaca_news_event": clean_alpaca_news_event,
+            "clean_news_payload": clean_news_payload,
         }[name]
     if name in {
         "AlpacaNewsEvent",

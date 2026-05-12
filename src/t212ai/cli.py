@@ -255,6 +255,10 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "SCHEDULER_EMBEDDED_WORKER_ENABLED",
             "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
             "SCHEDULER_EMBEDDED_WORKER_LIMIT",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED",
+            "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS",
+            "ALPACA_NEWS_STREAM_LEASE_SECONDS",
+            "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS",
         ),
     ),
     (
@@ -383,6 +387,10 @@ SCHEDULER_SECTION_KEYS = (
     "SCHEDULER_EMBEDDED_WORKER_ENABLED",
     "SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS",
     "SCHEDULER_EMBEDDED_WORKER_LIMIT",
+    "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED",
+    "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS",
+    "ALPACA_NEWS_STREAM_LEASE_SECONDS",
+    "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS",
 )
 
 
@@ -1297,6 +1305,22 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
             "SCHEDULER_EMBEDDED_WORKER_LIMIT",
             str(settings.scheduler_embedded_worker_limit),
         ),
+        "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED": existing_raw.get(
+            "ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED",
+            _bool_to_env(settings.alpaca_news_stream_supervisor_enabled),
+        ),
+        "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS": existing_raw.get(
+            "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS",
+            str(settings.alpaca_news_stream_supervisor_poll_seconds),
+        ),
+        "ALPACA_NEWS_STREAM_LEASE_SECONDS": existing_raw.get(
+            "ALPACA_NEWS_STREAM_LEASE_SECONDS",
+            str(settings.alpaca_news_stream_lease_seconds),
+        ),
+        "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS": existing_raw.get(
+            "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS",
+            str(settings.alpaca_news_judge_max_tool_calls),
+        ),
         "SEARXNG_BASE_URL": existing_raw.get(
             "SEARXNG_BASE_URL",
             settings.searxng_base_url or "",
@@ -1839,6 +1863,25 @@ def apply_configuration_wizard(
             updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"] = io_runtime.prompt(
                 "SCHEDULER_EMBEDDED_WORKER_LIMIT",
                 default=updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"],
+            )
+            updates["ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED"] = _bool_to_env(
+                io_runtime.confirm(
+                    "Run Alpaca news stream monitors inside the Telegram bot process?",
+                    default=updates["ALPACA_NEWS_STREAM_SUPERVISOR_ENABLED"].lower()
+                    in {"1", "true", "yes", "y", "on"},
+                )
+            )
+            updates["ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS"] = io_runtime.prompt(
+                "ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS",
+                default=updates["ALPACA_NEWS_STREAM_SUPERVISOR_POLL_SECONDS"],
+            )
+            updates["ALPACA_NEWS_STREAM_LEASE_SECONDS"] = io_runtime.prompt(
+                "ALPACA_NEWS_STREAM_LEASE_SECONDS",
+                default=updates["ALPACA_NEWS_STREAM_LEASE_SECONDS"],
+            )
+            updates["ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS"] = io_runtime.prompt(
+                "ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS",
+                default=updates["ALPACA_NEWS_JUDGE_MAX_TOOL_CALLS"],
             )
 
 

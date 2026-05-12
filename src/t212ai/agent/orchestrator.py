@@ -21,7 +21,11 @@ from t212ai.genai.tracing import (
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.pending_actions import PendingActionService
 from t212ai.proposals import ProposalService
-from t212ai.scheduler import ScheduledProcessService
+from t212ai.scheduler.management import (
+    SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL,
+    build_scheduler_agent_tool_mapping,
+)
+from t212ai.scheduler.service import ScheduledProcessService
 from t212ai.workflows import PendingOrdersReviewWorkflow, PortfolioSummaryWorkflow
 
 from .base import AgentProfile, BaseAgent
@@ -143,7 +147,9 @@ class MainOrchestratorAgent(BaseAgent):
         *,
         guideline_service: GuidelineMemoryService | None = None,
         specialists: SpecialistAgents | None = None,
+        scheduled_process_service: ScheduledProcessService | None = None,
         scheduler_default_timezone: str = "UTC",
+        scheduler_default_poll_every_seconds: int = 300,
     ) -> None:
         timezone_context = render_timezone_context(scheduler_default_timezone)
         super().__init__(
@@ -183,6 +189,9 @@ class MainOrchestratorAgent(BaseAgent):
             reasoner,
             guideline_service=guideline_service,
         )
+        self.scheduled_process_service = scheduled_process_service
+        self.scheduler_default_timezone = scheduler_default_timezone
+        self.scheduler_default_poll_every_seconds = scheduler_default_poll_every_seconds
         self.orchestrator_toolbox = self._build_orchestrator_toolbox()
         self.profile.toolbox = self.orchestrator_toolbox
         self.profile.toolbox_summary = self._render_orchestrator_toolbox_summary()
@@ -330,6 +339,8 @@ class MainOrchestratorAgent(BaseAgent):
                     allowed_intents=allowed_intents,
                 )
             )
+        if self.scheduled_process_service is not None:
+            tools.append(SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL)
         return ToolBox(
             name="orchestrator_routing",
             tools=tools,
@@ -439,6 +450,17 @@ class MainOrchestratorAgent(BaseAgent):
                 specialist=specialist,
                 allowed_intents=allowed_intents,
             )
+        if self.scheduled_process_service is not None:
+            scheduler_mapping = build_scheduler_agent_tool_mapping(
+                self.scheduled_process_service,
+                default_timezone=self.scheduler_default_timezone,
+                default_poll_every_seconds=self.scheduler_default_poll_every_seconds,
+                chat_id=request.chat_id,
+                user_id=_metadata_user_id(request.metadata),
+            )
+            mapping["scheduler_alpaca_news_monitor_create"] = scheduler_mapping[
+                "scheduler_alpaca_news_monitor_create"
+            ]
         return mapping
 
     def _build_specialist_tool(
@@ -1032,3 +1054,13 @@ def _is_explicit_order_execution_request(text: str) -> bool:
         r"\b(at market|at mkt|market price)\b",
     )
     return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _metadata_user_id(metadata: dict[str, str]) -> int | None:
+    raw = str(metadata.get("user_id") or metadata.get("userId") or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None

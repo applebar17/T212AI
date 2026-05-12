@@ -87,6 +87,7 @@ class GroupedPlanExecutor:
         grouped_plan: GroupedAgentPlan,
         toolbox: "ToolBox",
         tools_mapping: dict[str, Callable[..., Any]],
+        max_tool_calls: int | None = None,
     ) -> GroupedPlanExecutionResult:
         set_trace_name(f"{invocation.agent_name}.grouped_execute")
         set_trace_metadata(
@@ -132,6 +133,7 @@ class GroupedPlanExecutor:
                     tools_mapping=tools_mapping,
                     forwarded_summaries=visible_summaries,
                     completed_by_id=completed_by_id,
+                    max_tool_calls=max_tool_calls,
                 )
                 completed_by_id[action.action_id] = execution
                 action_executions.append(execution)
@@ -203,6 +205,7 @@ class GroupedPlanExecutor:
         tools_mapping: dict[str, Callable[..., Any]],
         forwarded_summaries: list[str],
         completed_by_id: dict[str, PlanActionExecution],
+        max_tool_calls: int | None,
     ) -> PlanActionExecution:
         set_trace_name(f"{invocation.agent_name}.execute.{action.action_id}")
         set_trace_metadata(
@@ -293,6 +296,7 @@ class GroupedPlanExecutor:
                 params,
                 tools_mapping=tools_mapping if use_tools else None,
                 toolbox=toolbox if use_tools else None,
+                max_tool_calls=max_tool_calls,
             )
             output_summary = _assistant_text(response).strip()
             if not output_summary:

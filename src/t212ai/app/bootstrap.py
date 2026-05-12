@@ -311,6 +311,27 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
                 market_data_capability,
             ),
         ),
+        "scheduler_alpaca_news_monitor": CapabilityAssessment(
+            name="scheduler_alpaca_news_monitor",
+            label="Scheduler Alpaca news monitor",
+            available=providers["llm"].ready
+            and bool(str(settings.database_url or "").strip())
+            and bool(settings.alpaca_api_key and settings.alpaca_api_secret),
+            optional=True,
+            selected_provider=(
+                "llm+sql+alpaca_stream"
+                if providers["llm"].ready
+                and bool(str(settings.database_url or "").strip())
+                and bool(settings.alpaca_api_key and settings.alpaca_api_secret)
+                else None
+            ),
+            reasons=_reasons_for_capability(
+                providers["llm"].ready
+                and bool(str(settings.database_url or "").strip())
+                and bool(settings.alpaca_api_key and settings.alpaca_api_secret),
+                "Configure LLM credentials, DATABASE_URL, and Alpaca API credentials.",
+            ),
+        ),
     }
 
     errors = _unique_messages(
