@@ -781,9 +781,11 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
             "Create one bounded Alpaca real-time news stream monitor. This creates "
             "kind=alpaca_news_monitor, executionMode=llm_assisted, manual schedule, "
             "and a stream worker that invokes the News Ingestion Judge for each "
-            "received news event in scope. Provide symbols and either end_at or "
-            "duration_minutes. Broker order proposals may be prepared by downstream "
-            "agents, but any execution still requires Telegram approval buttons."
+            "received news event in scope. Provide either end_at or duration_minutes. "
+            "If the user does not specify ticker symbols, do not ask for clarification; "
+            "set symbols=['*'] to monitor all Alpaca news. Broker order proposals may "
+            "be prepared by downstream agents, but any execution still requires "
+            "Telegram approval buttons."
         ),
         "strict": True,
         "parameters": {
@@ -804,7 +806,7 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                     "items": {"type": "string"},
                     "description": (
                         "Ticker symbols to subscribe/filter for the stream. "
-                        "Use ['*'] for all news."
+                        "If the user omitted ticker symbols, use ['*'] to cover all news."
                     ),
                 },
                 "start_at": {

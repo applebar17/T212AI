@@ -6,6 +6,7 @@ from pathlib import Path
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.scheduler import (
     SCHEDULER_AGENT_TOOLBOX,
+    SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL,
     ScheduledProcessService,
     SchedulerManagementRuntime,
     build_scheduler_agent_tool_mapping,
@@ -920,6 +921,16 @@ def test_scheduler_alpaca_news_monitor_create_accepts_wildcard_scope(
     assert process is not None
     assert process.inputs["symbols"] == ["*"]
     assert process.trigger == {"type": "alpaca_news_stream", "symbols": ["*"]}
+
+
+def test_alpaca_news_monitor_tool_description_defaults_missing_symbols_to_wildcard() -> None:
+    function = SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL["function"]
+
+    assert "set symbols=['*']" in function["description"]
+    assert (
+        "If the user omitted ticker symbols, use ['*']"
+        in function["parameters"]["properties"]["symbols"]["description"]
+    )
 
 
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
