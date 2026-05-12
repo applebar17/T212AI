@@ -209,7 +209,7 @@ class AlpacaNewsStreamSupervisor:
         seen_dedupe_keys: set[str] = set()
         rate_window: deque[float] = deque()
         stream = self.stream_client.connect_and_subscribe(
-            AlpacaStreamSubscription(news=spec.symbols),
+            AlpacaStreamSubscription(news=_subscription_symbols(spec.symbols)),
             stream="news",
         )
         iterator = stream.__aiter__()
@@ -235,8 +235,22 @@ class AlpacaNewsStreamSupervisor:
                 if event.news is None:
                     continue
                 packet = clean_alpaca_news_event(event)
-                if spec.symbols and set(spec.symbols).isdisjoint(packet.symbols):
+                if not _symbol_filter_matches(spec.symbols, packet.symbols):
                     stats.skipped_symbol += 1
+                    log_event(
+                        LOGGER,
+                        "alpaca_news.event.skipped",
+                        component="scheduler",
+                        step="alpaca_news_worker",
+                        status="skipped",
+                        process_id=process.process_id,
+                        run_id=run.run_id,
+                        reason_code="symbol_filter",
+                        monitor_symbols=spec.symbols,
+                        packet_symbols=packet.symbols,
+                        dedupe_key=packet.dedupe_key,
+                        headline=_preview(packet.headline),
+                    )
                     continue
                 if packet.dedupe_key in seen_dedupe_keys:
                     stats.duplicate += 1
@@ -246,6 +260,19 @@ class AlpacaNewsStreamSupervisor:
                     stats.rate_limited += 1
                     continue
                 stats.received += 1
+                log_event(
+                    LOGGER,
+                    "alpaca_news.event.received",
+                    component="scheduler",
+                    step="alpaca_news_worker",
+                    status="received",
+                    process_id=process.process_id,
+                    run_id=run.run_id,
+                    monitor_symbols=spec.symbols,
+                    packet_symbols=packet.symbols,
+                    dedupe_key=packet.dedupe_key,
+                    headline=_preview(packet.headline),
+                )
                 response = self._judge_packet(
                     process=process,
                     spec=spec,
@@ -512,6 +539,20 @@ def _allow_event(rate_window: deque[float], max_events_per_minute: int) -> bool:
         return False
     rate_window.append(now)
     return True
+
+
+def _subscription_symbols(symbols: list[str]) -> list[str]:
+    return ["*"] if _has_wildcard(symbols) else symbols
+
+
+def _symbol_filter_matches(monitor_symbols: list[str], packet_symbols: list[str]) -> bool:
+    if not monitor_symbols or _has_wildcard(monitor_symbols):
+        return True
+    return not set(monitor_symbols).isdisjoint(packet_symbols)
+
+
+def _has_wildcard(symbols: list[str]) -> bool:
+    return any(str(symbol or "").strip() == "*" for symbol in symbols)
 
 
 def _stats_summary(stats: _MonitorStats) -> str:

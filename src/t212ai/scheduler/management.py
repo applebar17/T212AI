@@ -802,7 +802,10 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                 "symbols": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Ticker symbols to subscribe/filter for the stream.",
+                    "description": (
+                        "Ticker symbols to subscribe/filter for the stream. "
+                        "Use ['*'] for all news."
+                    ),
                 },
                 "start_at": {
                     "type": ["string", "null"],

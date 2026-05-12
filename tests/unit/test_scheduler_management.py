@@ -893,6 +893,35 @@ def test_scheduler_alpaca_news_monitor_create_rejects_missing_window_or_symbols(
         assert result.error.code == "invalid_alpaca_news_monitor_spec"
 
 
+def test_scheduler_alpaca_news_monitor_create_accepts_wildcard_scope(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(service=service)
+
+    result = scheduler_alpaca_news_monitor_create(
+        title="All-news monitor",
+        description="Recap every streamed item.",
+        symbols=["*"],
+        start_at=None,
+        end_at=None,
+        duration_minutes=10,
+        timezone="UTC",
+        task_guidelines="Recap each streamed news item.",
+        order_proposals_enabled=False,
+        max_events_per_minute=30,
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.inputs["symbols"] == ["*"]
+    assert process.trigger == {"type": "alpaca_news_stream", "symbols": ["*"]}
+
+
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:
     mapping = build_scheduler_agent_tool_mapping(_service(tmp_path))
 

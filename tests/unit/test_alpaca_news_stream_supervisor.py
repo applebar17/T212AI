@@ -9,6 +9,8 @@ from t212ai.alpaca.news import CleanedNewsPacket
 from t212ai.app.alpaca_news_stream_supervisor import (
     AlpacaNewsStreamSupervisor,
     _monitor_spec,
+    _subscription_symbols,
+    _symbol_filter_matches,
 )
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.scheduler import ScheduledEventType, ScheduledProcessService, SchedulerManagementRuntime
@@ -106,3 +108,11 @@ def test_supervisor_records_relevant_background_news_in_history(tmp_path: Path) 
     assert len(matched) == 1
     assert matched[0].details["dedupeKey"] == "benzinga:101"
     assert matched[0].details["userVisible"] is False
+
+
+def test_supervisor_wildcard_monitor_accepts_all_packet_symbols() -> None:
+    assert _subscription_symbols(["*"]) == ["*"]
+    assert _symbol_filter_matches(["*"], ["AAPL"])
+    assert _symbol_filter_matches([], ["AAPL"])
+    assert _symbol_filter_matches(["MP", "USAR"], ["MP"])
+    assert not _symbol_filter_matches(["MP", "USAR"], ["AAPL"])
