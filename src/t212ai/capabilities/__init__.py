@@ -13,6 +13,7 @@ from .protocols import (
     DisclosureService,
     MarketDataService,
     MarketIntelligenceService,
+    ReferenceDataService,
     SearchService,
 )
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     "MarketQuoteSnapshotResult",
     "MarketSymbolSearchResult",
     "MarketIntelligenceService",
+    "OpenFigiReferenceDataService",
+    "ReferenceDataService",
     "SearchService",
     "SearxngSearchService",
     "YahooMarketDataService",
@@ -40,6 +43,7 @@ def __getattr__(name: str):
         "AlpacaMarketDataService",
         "AlphaVantageMarketIntelligenceService",
         "EdgarDisclosureService",
+        "OpenFigiReferenceDataService",
         "SearxngSearchService",
         "YahooMarketDataService",
     }:
@@ -47,6 +51,7 @@ def __getattr__(name: str):
             AlpacaMarketDataService,
             AlphaVantageMarketIntelligenceService,
             EdgarDisclosureService,
+            OpenFigiReferenceDataService,
             SearxngSearchService,
             YahooMarketDataService,
         )
@@ -55,6 +60,7 @@ def __getattr__(name: str):
             "AlpacaMarketDataService": AlpacaMarketDataService,
             "AlphaVantageMarketIntelligenceService": AlphaVantageMarketIntelligenceService,
             "EdgarDisclosureService": EdgarDisclosureService,
+            "OpenFigiReferenceDataService": OpenFigiReferenceDataService,
             "SearxngSearchService": SearxngSearchService,
             "YahooMarketDataService": YahooMarketDataService,
         }[name]

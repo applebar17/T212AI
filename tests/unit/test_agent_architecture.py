@@ -661,8 +661,9 @@ class FakeExecutorGenAIClient:
         tools_mapping: dict[str, object] | None = None,
         toolbox=None,
         include_tool_meta: bool = False,
+        max_tool_calls: int | None = None,
     ):
-        del tools_mapping, toolbox, include_tool_meta
+        del tools_mapping, toolbox, include_tool_meta, max_tool_calls
         self.openai_calls.append({"params": params})
         messages = params.get("messages")
         if isinstance(messages, list) and params.get("toolbox") is not None:
@@ -1614,13 +1615,17 @@ def test_order_agent_uses_configurable_grouped_loop_with_tool_descriptions() -> 
     assert "broker_prepare_order_action" in (executor.invocation.tool_descriptions or "")
     assert any("available-cash fractions" in item for item in executor.invocation.reasoning_guidelines)
     assert any("broker-native instrument" in item for item in executor.invocation.reasoning_guidelines)
+    assert any("OpenFIGI/reference-data" in item for item in executor.invocation.reasoning_guidelines)
     assert any("holding-dependent" in item for item in executor.invocation.reasoning_guidelines)
     assert any("buy being submitted and filled" in item for item in executor.invocation.reasoning_guidelines)
     assert any("not_found" in item for item in executor.invocation.planning_guidelines)
+    assert any("reference_identifier_map" in item for item in executor.invocation.planning_guidelines)
+    assert any("reference_security_search" in item for item in executor.invocation.planning_guidelines)
     assert any("positive quantityAvailableForTrading" in item for item in executor.invocation.planning_guidelines)
     assert any("refreshed portfolio snapshot" in item for item in executor.invocation.planning_guidelines)
     assert any("cash-relative buy" in item for item in executor.invocation.planning_examples)
     assert any("public-symbol buy" in item for item in executor.invocation.planning_examples)
+    assert any("ISIN input" in item for item in executor.invocation.planning_examples)
     assert any("protective sell/stop-limit" in item for item in executor.invocation.planning_examples)
 
     reasoning_prompt = fake.calls[0]["system_prompt"]

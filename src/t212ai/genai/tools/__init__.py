@@ -20,12 +20,14 @@ __all__ = [
     "RESEARCH_TOOLBOX",
     "MARKET_ANALYST_TOOLBOX",
     "MARKET_DATA_TOOLBOX",
+    "REFERENCE_DATA_TOOLBOX",
     "TOOLBOXES",
     "build_tool_mapping",
     "build_tool_mapping_for",
     "build_chat_toolbox",
     "build_research_toolbox",
     "build_market_data_toolbox",
+    "build_reference_data_toolbox",
     "build_market_analyst_toolbox",
     "build_toolboxes",
     "SEARXNG_SEARCH_TOOL",
@@ -69,6 +71,10 @@ __all__ = [
     "market_get_volume_monitor",
     "market_get_market_snapshot",
     "market_get_chart_context",
+    "REFERENCE_SECURITY_SEARCH_TOOL",
+    "REFERENCE_IDENTIFIER_MAP_TOOL",
+    "reference_security_search",
+    "reference_identifier_map",
     "MARKET_SIGNAL_SEARCH_TOOL",
     "MARKET_SIGNAL_CREATE_TOOL",
     "MARKET_SIGNAL_ARCHIVE_TOOL",
@@ -214,6 +220,27 @@ def __getattr__(name: str) -> Any:
         return exports[name]
 
     if name in {
+        "REFERENCE_SECURITY_SEARCH_TOOL",
+        "REFERENCE_IDENTIFIER_MAP_TOOL",
+        "reference_security_search",
+        "reference_identifier_map",
+    }:
+        from t212ai.reference_data import (
+            REFERENCE_IDENTIFIER_MAP_TOOL,
+            REFERENCE_SECURITY_SEARCH_TOOL,
+            reference_identifier_map,
+            reference_security_search,
+        )
+
+        exports = {
+            "REFERENCE_SECURITY_SEARCH_TOOL": REFERENCE_SECURITY_SEARCH_TOOL,
+            "REFERENCE_IDENTIFIER_MAP_TOOL": REFERENCE_IDENTIFIER_MAP_TOOL,
+            "reference_security_search": reference_security_search,
+            "reference_identifier_map": reference_identifier_map,
+        }
+        return exports[name]
+
+    if name in {
         "MARKET_SIGNAL_SEARCH_TOOL",
         "MARKET_SIGNAL_CREATE_TOOL",
         "MARKET_SIGNAL_ARCHIVE_TOOL",
@@ -333,6 +360,7 @@ def __getattr__(name: str) -> Any:
         "RESEARCH_TOOLBOX",
         "MARKET_ANALYST_TOOLBOX",
         "MARKET_DATA_TOOLBOX",
+        "REFERENCE_DATA_TOOLBOX",
         "YAHOO_MARKET_CONTEXT_TOOLBOX",
         "TOOLBOXES",
         "build_tool_mapping",
@@ -340,6 +368,7 @@ def __getattr__(name: str) -> Any:
         "build_chat_toolbox",
         "build_research_toolbox",
         "build_market_data_toolbox",
+        "build_reference_data_toolbox",
         "build_yahoo_market_context_toolbox",
         "build_market_analyst_toolbox",
         "build_toolboxes",
@@ -348,6 +377,7 @@ def __getattr__(name: str) -> Any:
             CHAT_TOOLBOX,
             MARKET_ANALYST_TOOLBOX,
             MARKET_DATA_TOOLBOX,
+            REFERENCE_DATA_TOOLBOX,
             RESEARCH_TOOLBOX,
             TOOLBOXES,
             ToolBox,
@@ -355,6 +385,7 @@ def __getattr__(name: str) -> Any:
             build_chat_toolbox,
             build_market_analyst_toolbox,
             build_market_data_toolbox,
+            build_reference_data_toolbox,
             build_tool_mapping,
             build_tool_mapping_for,
             build_research_toolbox,
@@ -368,6 +399,7 @@ def __getattr__(name: str) -> Any:
             "RESEARCH_TOOLBOX": RESEARCH_TOOLBOX,
             "MARKET_ANALYST_TOOLBOX": MARKET_ANALYST_TOOLBOX,
             "MARKET_DATA_TOOLBOX": MARKET_DATA_TOOLBOX,
+            "REFERENCE_DATA_TOOLBOX": REFERENCE_DATA_TOOLBOX,
             "YAHOO_MARKET_CONTEXT_TOOLBOX": YAHOO_MARKET_CONTEXT_TOOLBOX,
             "TOOLBOXES": TOOLBOXES,
             "build_tool_mapping": build_tool_mapping,
@@ -375,6 +407,7 @@ def __getattr__(name: str) -> Any:
             "build_chat_toolbox": build_chat_toolbox,
             "build_research_toolbox": build_research_toolbox,
             "build_market_data_toolbox": build_market_data_toolbox,
+            "build_reference_data_toolbox": build_reference_data_toolbox,
             "build_yahoo_market_context_toolbox": build_yahoo_market_context_toolbox,
             "build_market_analyst_toolbox": build_market_analyst_toolbox,
             "build_toolboxes": build_toolboxes,

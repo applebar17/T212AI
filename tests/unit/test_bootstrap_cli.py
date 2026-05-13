@@ -71,6 +71,8 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "alpha-key",
             "n",
             "n",
+            "y",
+            "figi-key",
             "n",
             "n",
         ]
@@ -102,6 +104,8 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["REDDIT_ENABLED"] == "false"
     assert updates["SEARXNG_ENABLED"] == "false"
     assert updates["LANGSMITH_TRACING"] == "false"
+    assert updates["REFERENCE_DATA_PROVIDER"] == "openfigi"
+    assert updates["OPENFIGI_API_KEY"] == "figi-key"
 
 
 def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() -> None:
@@ -137,6 +141,7 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "2",
             "reddit-user",
             "reddit-password",
+            "n",
             "n",
             "n",
         ]
@@ -291,6 +296,7 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
             "n",
             "n",
             "n",
+            "n",
         ]
     )
     io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
@@ -325,6 +331,7 @@ def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse
             "n",
             "n",
             "n",
+            "n",
         ]
     )
     io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
@@ -354,6 +361,7 @@ def test_apply_configuration_wizard_supports_trading212_environment_specific_cre
             "y",
             "n",
             "3",
+            "n",
             "n",
             "n",
             "n",
@@ -413,6 +421,7 @@ def test_apply_configuration_wizard_can_skip_existing_sections_and_explains_sear
             "3",
             "n",
             "1",
+            "n",
             "n",
             "n",
             "n",

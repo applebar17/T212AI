@@ -2,32 +2,14 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from copy import deepcopy
 from functools import partial
-import os
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from t212ai.app.bootstrap import ConfigAssessment, assess_settings
 from t212ai.app.config import AppSettings, get_app_settings
-from t212ai.genai.tracing import (
-    traceable,
-)
-from t212ai.market_signals import (
-    MARKET_SIGNAL_TOOLS,
-    build_market_signal_tool_mapping,
-)
-from ..models import ToolError, ToolResult, ToolSpec
-from .base import ToolBox, build_tool_index
-from .market_data import (
-    GENERIC_MARKET_DATA_TOOLS,
-    MARKET_GET_CHART_CONTEXT_TOOL,
-    MARKET_GET_MARKET_SNAPSHOT_TOOL,
-    MARKET_GET_VOLUME_MONITOR_TOOL,
-    build_market_data_tool_mapping,
-)
-from .scrape_article import SCRAPE_ARTICLE_TOOL, SCRAPE_PAGE_TOOL, scrape_article, scrape_page
-from .search_registry import SearchResultRegistry
-from .searxng import SEARXNG_SEARCH_TOOL, searxng_search
 from t212ai.data_sources.alpha_vantage import (
     ALPHA_VANTAGE_MOST_ACTIVELY_TRADED_TOOL,
     AlphaVantageClient,
@@ -45,17 +27,32 @@ from t212ai.data_sources.sec_edgar import (
     edgar_recent_major_stake_activity,
     edgar_recent_ownership_activity,
 )
+from t212ai.genai.tracing import (
+    traceable,
+)
+from t212ai.market_signals import (
+    MARKET_SIGNAL_TOOLS,
+    build_market_signal_tool_mapping,
+)
+from t212ai.reference_data import (
+    REFERENCE_DATA_TOOLS,
+    build_reference_data_tool_mapping,
+)
+
+from ..models import ToolError, ToolResult, ToolSpec
+from .base import ToolBox, build_tool_index
+from .market_data import (
+    GENERIC_MARKET_DATA_TOOLS,
+    MARKET_GET_CHART_CONTEXT_TOOL,
+    MARKET_GET_MARKET_SNAPSHOT_TOOL,
+    MARKET_GET_VOLUME_MONITOR_TOOL,
+    build_market_data_tool_mapping,
+)
+from .scrape_article import SCRAPE_ARTICLE_TOOL, SCRAPE_PAGE_TOOL, scrape_article, scrape_page
+from .search_registry import SearchResultRegistry
+from .searxng import SEARXNG_SEARCH_TOOL, searxng_search
 from .yahoo_finance import (
-    YAHOO_ANALYST_SNAPSHOT_TOOL,
     YAHOO_MARKET_CONTEXT_TOOLS,
-    YAHOO_MARKET_SNAPSHOT_TOOL,
-    YAHOO_OPTIONS_SNAPSHOT_TOOL,
-    YAHOO_PRICE_HISTORY_TOOL,
-    YAHOO_PRICE_SUMMARY_TOOL,
-    YAHOO_PRICE_SUMMARY_WITH_CHART_REFS_TOOL,
-    YAHOO_QUOTE_SNAPSHOT_TOOL,
-    YAHOO_SYMBOL_SEARCH_TOOL,
-    YAHOO_VOLUME_MONITOR_TOOL,
     YahooFinanceClient,
     yahoo_analyst_snapshot,
     yahoo_market_snapshot,
@@ -69,7 +66,7 @@ from .yahoo_finance import (
 )
 
 if TYPE_CHECKING:
-    from t212ai.capabilities.protocols import MarketDataService
+    from t212ai.capabilities.protocols import MarketDataService, ReferenceDataService
     from t212ai.market_signals import MarketSignalService
 
 
@@ -116,10 +113,10 @@ def _selected_provider(value: str | None) -> str:
 
 def _resolve_market_data_service(
     *,
-    market_data_service: "MarketDataService | None",
+    market_data_service: MarketDataService | None,
     settings: AppSettings | None,
     assessment: ConfigAssessment | None,
-) -> "MarketDataService | None":
+) -> MarketDataService | None:
     if market_data_service is not None:
         return market_data_service
     resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
@@ -136,6 +133,34 @@ def _resolve_market_data_service(
 
         return YahooMarketDataService(YahooFinanceClient())
     return None
+
+
+def _reference_data_ready(
+    settings: AppSettings,
+    assessment: ConfigAssessment,
+) -> bool:
+    return (
+        _selected_provider(settings.reference_data_provider) == "openfigi"
+        and _provider_ready(assessment, "openfigi")
+        and assessment.capabilities.get("reference_data") is not None
+        and assessment.capabilities["reference_data"].available
+    )
+
+
+def _resolve_reference_data_service(
+    *,
+    reference_data_service: ReferenceDataService | None,
+    settings: AppSettings | None,
+    assessment: ConfigAssessment | None,
+) -> ReferenceDataService | None:
+    if reference_data_service is not None:
+        return reference_data_service
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    if not _reference_data_ready(resolved_settings, resolved_assessment):
+        return None
+    from t212ai.reference_data import OpenFigiClient, OpenFigiReferenceDataService
+
+    return OpenFigiReferenceDataService(OpenFigiClient.from_settings(resolved_settings))
 
 
 def build_chat_toolbox(
@@ -185,6 +210,24 @@ def build_market_data_toolbox(
         tools.extend(GENERIC_MARKET_DATA_TOOLS)
     return ToolBox(
         name="market_data",
+        tools=tools,
+        tools_by_name=build_tool_index(tools),
+    )
+
+
+def build_reference_data_toolbox(
+    *,
+    settings: AppSettings | None = None,
+    assessment: ConfigAssessment | None = None,
+) -> ToolBox:
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    tools = (
+        list(REFERENCE_DATA_TOOLS)
+        if _reference_data_ready(resolved_settings, resolved_assessment)
+        else []
+    )
+    return ToolBox(
+        name="reference_data",
         tools=tools,
         tools_by_name=build_tool_index(tools),
     )
@@ -242,6 +285,8 @@ def build_market_analyst_toolbox(
         and _provider_ready(resolved_assessment, "searxng")
     ):
         tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
+    if _reference_data_ready(resolved_settings, resolved_assessment):
+        tools.extend(REFERENCE_DATA_TOOLS)
     if resolved_assessment.capabilities["market_signal_memory"].available:
         tools.extend(MARKET_SIGNAL_TOOLS)
     return ToolBox(
@@ -259,6 +304,7 @@ def build_toolboxes(
     chat = build_chat_toolbox(settings=settings, assessment=assessment)
     research = build_research_toolbox(settings=settings, assessment=assessment)
     market_data = build_market_data_toolbox(settings=settings, assessment=assessment)
+    reference_data = build_reference_data_toolbox(settings=settings, assessment=assessment)
     market_analyst = build_market_analyst_toolbox(
         settings=settings,
         assessment=assessment,
@@ -267,6 +313,7 @@ def build_toolboxes(
         chat.name: chat,
         research.name: research,
         market_data.name: market_data,
+        reference_data.name: reference_data,
         market_analyst.name: market_analyst,
     }
 
@@ -287,8 +334,9 @@ def build_tool_mapping(
     runtime: SearchResultRegistry | None = None,
     settings: AppSettings | None = None,
     assessment: ConfigAssessment | None = None,
-    market_data_service: "MarketDataService | None" = None,
-    market_signal_service: "MarketSignalService | None" = None,
+    market_data_service: MarketDataService | None = None,
+    reference_data_service: ReferenceDataService | None = None,
+    market_signal_service: MarketSignalService | None = None,
     **_unused: Any,
 ) -> dict[str, Callable[..., Any]]:
     del embed_fn, genai_client
@@ -296,6 +344,11 @@ def build_tool_mapping(
     searxng_base_url = os.getenv("SEARXNG_BASE_URL")
     resolved_market_data_service = _resolve_market_data_service(
         market_data_service=market_data_service,
+        settings=settings,
+        assessment=assessment,
+    )
+    resolved_reference_data_service = _resolve_reference_data_service(
+        reference_data_service=reference_data_service,
         settings=settings,
         assessment=assessment,
     )
@@ -333,6 +386,7 @@ def build_tool_mapping(
         ),
     }
     mapping.update(build_market_data_tool_mapping(resolved_market_data_service))
+    mapping.update(build_reference_data_tool_mapping(resolved_reference_data_service))
     if yahoo_client is not None:
         mapping.update(
             {
@@ -425,8 +479,12 @@ TOOLBOXES = _build_default_toolboxes()
 CHAT_TOOLBOX = TOOLBOXES["chat"]
 RESEARCH_TOOLBOX = TOOLBOXES["research"]
 MARKET_DATA_TOOLBOX = TOOLBOXES["market_data"]
+REFERENCE_DATA_TOOLBOX = TOOLBOXES["reference_data"]
 MARKET_ANALYST_TOOLBOX = TOOLBOXES["market_analyst"]
-YAHOO_MARKET_CONTEXT_TOOLBOX = build_yahoo_market_context_toolbox()
+YAHOO_MARKET_CONTEXT_TOOLBOX = build_yahoo_market_context_toolbox(
+    settings=AppSettings(),
+    assessment=assess_settings(AppSettings()),
+)
 
 
 def _provider_unavailable_tool(

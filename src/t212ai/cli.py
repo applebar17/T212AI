@@ -106,6 +106,7 @@ SECRET_KEYS = frozenset(
         "ALPACA_LIVE_API_SECRET",
         "ALPACA_API_KEY",
         "ALPACA_API_SECRET",
+        "OPENFIGI_API_KEY",
         "TELEGRAM_BOT_TOKEN",
         "REDDIT_CLIENT_SECRET",
         "REDDIT_PASSWORD",
@@ -225,6 +226,14 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "SEC_EDGAR_USER_AGENT",
             "SEC_EDGAR_SUBMISSIONS_BASE_URL",
             "SEC_EDGAR_TICKERS_URL",
+        ),
+    ),
+    (
+        "Reference data",
+        (
+            "REFERENCE_DATA_PROVIDER",
+            "OPENFIGI_API_KEY",
+            "OPENFIGI_BASE_URL",
         ),
     ),
     (
@@ -361,6 +370,12 @@ SEARCH_SECTION_KEYS = (
     "SEARCH_PROVIDER",
     "SEARXNG_ENABLED",
     "SEARXNG_BASE_URL",
+)
+
+REFERENCE_DATA_SECTION_KEYS = (
+    "REFERENCE_DATA_PROVIDER",
+    "OPENFIGI_API_KEY",
+    "OPENFIGI_BASE_URL",
 )
 
 STORAGE_SECTION_KEYS = (
@@ -1045,6 +1060,7 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "DISCLOSURE_PROVIDER": settings.disclosure_provider,
         "COMMUNITY_PROVIDER": settings.community_provider,
         "SEARCH_PROVIDER": settings.search_provider,
+        "REFERENCE_DATA_PROVIDER": settings.reference_data_provider,
         "YAHOO_ENABLED": _bool_to_env(settings.yahoo_enabled),
         "ALPHA_VANTAGE_ENABLED": _bool_to_env(settings.alpha_vantage_enabled),
         "REDDIT_ENABLED": _bool_to_env(settings.reddit_enabled),
@@ -1263,6 +1279,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "SEC_EDGAR_TICKERS_URL": existing_raw.get(
             "SEC_EDGAR_TICKERS_URL",
             settings.sec_edgar_tickers_url,
+        ),
+        "OPENFIGI_API_KEY": existing_raw.get(
+            "OPENFIGI_API_KEY",
+            settings.openfigi_api_key or "",
+        ),
+        "OPENFIGI_BASE_URL": existing_raw.get(
+            "OPENFIGI_BASE_URL",
+            settings.openfigi_base_url,
         ),
         "GUIDELINE_MEMORY_PATH": existing_raw.get(
             "GUIDELINE_MEMORY_PATH",
@@ -1776,6 +1800,25 @@ def apply_configuration_wizard(
 
     _write_step_intro(
         io_runtime,
+        "Reference data",
+        "OpenFIGI is optional broker-agnostic security reference data. It works "
+        "without an API key, and an optional key raises OpenFIGI rate limits.",
+    )
+    if _should_update_section(io_runtime, existing, REFERENCE_DATA_SECTION_KEYS):
+        openfigi_enabled = io_runtime.confirm(
+            "Enable OpenFIGI reference-data lookup?",
+            default=updates["REFERENCE_DATA_PROVIDER"].strip().lower() == "openfigi",
+        )
+        updates["REFERENCE_DATA_PROVIDER"] = "openfigi" if openfigi_enabled else "none"
+        if openfigi_enabled:
+            updates["OPENFIGI_API_KEY"] = io_runtime.prompt(
+                "OPENFIGI_API_KEY (optional)",
+                default=updates["OPENFIGI_API_KEY"],
+            )
+        updates["OPENFIGI_BASE_URL"] = updates["OPENFIGI_BASE_URL"] or "https://api.openfigi.com"
+
+    _write_step_intro(
+        io_runtime,
         "Local storage",
         "Optionally override the default SQLite database path and guideline memory file path.",
     )
@@ -2176,6 +2219,7 @@ def render_doctor_report(
         "reddit",
         "searxng",
         "sec_edgar",
+        "openfigi",
     ):
         provider = assessment.providers[key]
         lines.extend(_render_provider(provider))
@@ -2192,6 +2236,7 @@ def render_doctor_report(
         "disclosure",
         "research_community_context",
         "search",
+        "reference_data",
         "persistent_guideline_memory",
         "market_signal_memory",
         "scheduled_processes",
@@ -2246,6 +2291,7 @@ def render_doctor_report(
     lines.append(f"Disclosure provider selection: {settings.disclosure_provider}")
     lines.append(f"Community provider selection: {settings.community_provider}")
     lines.append(f"Search provider selection: {settings.search_provider}")
+    lines.append(f"Reference data provider selection: {settings.reference_data_provider}")
     lines.append(f"Scheduler worker id: {settings.scheduler_worker_id or 'auto'}")
     lines.append(f"App log format: {settings.app_log_format}")
     lines.append(f"App log retention days: {settings.app_log_retention_days}")

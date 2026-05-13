@@ -20,6 +20,7 @@ from t212ai.genai.models import ToolResult
 from t212ai.genai.tools.scrape_article import scrape_article, scrape_page
 from t212ai.genai.tools.search_registry import SearchResultRegistry
 from t212ai.genai.tools.searxng import searxng_search
+from t212ai.reference_data import OpenFigiReferenceDataService
 
 from .market_data_models import (
     MarketPriceHistoryResult,
