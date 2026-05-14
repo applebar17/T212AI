@@ -27,7 +27,6 @@ from t212ai.capabilities import (
     DisclosureService,
     MarketDataService,
     MarketIntelligenceService,
-    ReferenceDataService,
 )
 from t212ai.telegram.bridge import build_agent_message_handler_if_configured
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
@@ -398,15 +397,10 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
         "edgar_recent_ownership_activity",
         "edgar_recent_major_stake_activity",
         "edgar_company_disclosure_snapshot",
-        "reference_security_search",
-        "reference_identifier_map",
         "market_signal_search",
         "market_signal_create",
         "market_signal_archive",
     }
-    assert runtime.reference_data_service is not None
-    assert isinstance(runtime.reference_data_service, ReferenceDataService)
-    assert runtime.capability_registry["reference_data"].ready
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
     assert runtime.genai_client is None
@@ -629,16 +623,13 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["scheduler_trade_setup_monitor"].ready
     assert runtime.capability_registry["community_research"].ready
     assert not runtime.capability_registry["search"].ready
-    assert runtime.capability_registry["reference_data"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
     assert "alpha_vantage_most_actively_traded" in market_tools
     assert "market_signal_search" in market_tools
-    assert "reference_security_search" in market_tools
     assert "searxng_search" not in market_tools
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is not None
     assert runtime.specialist_tooling.order_toolbox.name == "broker_order_actions"
-    assert "reference_identifier_map" in runtime.specialist_tooling.order_toolbox.tools_by_name
     assert "Alpha Vantage" not in runtime.specialist_tooling.market_toolbox_summary
     assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
     assert "yahoo_market_context" not in runtime.toolboxes

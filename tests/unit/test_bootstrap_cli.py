@@ -71,8 +71,6 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "alpha-key",
             "n",
             "n",
-            "y",
-            "figi-key",
             "n",
             "n",
         ]
@@ -104,8 +102,6 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["REDDIT_ENABLED"] == "false"
     assert updates["SEARXNG_ENABLED"] == "false"
     assert updates["LANGSMITH_TRACING"] == "false"
-    assert updates["REFERENCE_DATA_PROVIDER"] == "openfigi"
-    assert updates["OPENFIGI_API_KEY"] == "figi-key"
 
 
 def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() -> None:

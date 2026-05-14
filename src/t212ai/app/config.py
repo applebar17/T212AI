@@ -110,7 +110,6 @@ class AppSettings:
     disclosure_provider: str = "sec_edgar"
     community_provider: str = "none"
     search_provider: str = "none"
-    reference_data_provider: str = "openfigi"
     openai_api_key: str | None = None
     openai_chat_model_default: str = "gpt-4o-mini"
     openai_chat_model_smart: str = "gpt-4.1"
@@ -173,8 +172,6 @@ class AppSettings:
     sec_edgar_user_agent: str | None = None
     sec_edgar_submissions_base_url: str = "https://data.sec.gov/submissions"
     sec_edgar_tickers_url: str = "https://www.sec.gov/files/company_tickers.json"
-    openfigi_api_key: str | None = None
-    openfigi_base_url: str = "https://api.openfigi.com"
     yahoo_enabled: bool = False
     alpha_vantage_enabled: bool = False
     reddit_enabled: bool = False
@@ -250,7 +247,6 @@ def get_app_settings(
         disclosure_provider=_resolve_disclosure_provider(source),
         community_provider=_resolve_community_provider(source),
         search_provider=_resolve_search_provider(source),
-        reference_data_provider=_resolve_reference_data_provider(source),
         openai_api_key=source.get("OPENAI_API_KEY"),
         openai_chat_model_default=source.get(
             "OPENAI_CHAT_MODEL_DEFAULT",
@@ -380,11 +376,6 @@ def get_app_settings(
         sec_edgar_tickers_url=source.get(
             "SEC_EDGAR_TICKERS_URL",
             "https://www.sec.gov/files/company_tickers.json",
-        ),
-        openfigi_api_key=source.get("OPENFIGI_API_KEY"),
-        openfigi_base_url=source.get(
-            "OPENFIGI_BASE_URL",
-            "https://api.openfigi.com",
         ),
         yahoo_enabled=_resolve_market_data_provider(source) == "yahoo",
         alpha_vantage_enabled=_resolve_market_intelligence_provider(source)
@@ -553,7 +544,6 @@ def _resolve_llm_provider(source: Mapping[str, str]) -> str:
         return "openai"
     return "none"
 
-
 def _resolve_broker_provider(source: Mapping[str, str]) -> str:
     explicit = str(source.get("BROKER_PROVIDER", "")).strip().lower()
     if explicit:
@@ -670,10 +660,3 @@ def _resolve_search_provider(source: Mapping[str, str]) -> str:
     ):
         return "searxng"
     return "none"
-
-
-def _resolve_reference_data_provider(source: Mapping[str, str]) -> str:
-    explicit = str(source.get("REFERENCE_DATA_PROVIDER", "")).strip().lower()
-    if explicit:
-        return explicit
-    return "openfigi"

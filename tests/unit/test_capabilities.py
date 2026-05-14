@@ -12,8 +12,6 @@ from t212ai.capabilities import (
     EdgarDisclosureService,
     MarketDataService,
     MarketIntelligenceService,
-    OpenFigiReferenceDataService,
-    ReferenceDataService,
     SearchService,
     SearxngSearchService,
     YahooMarketDataService,
@@ -30,7 +28,6 @@ from t212ai.data_sources.yahoo.models import (
     YahooSearchResult,
 )
 from t212ai.genai.models import ToolResult
-from t212ai.reference_data import OpenFigiClient
 
 
 class _FakeTrading212Api:
@@ -415,9 +412,3 @@ def test_searxng_search_service_delegates_to_existing_helpers(monkeypatch) -> No
     assert captured["search"]["scrape_top_n"] == 2
     assert captured["scrape_page"]["url"] == "https://example.com/page"
     assert captured["scrape"]["url"] == "https://example.com"
-
-
-def test_openfigi_reference_data_service_satisfies_capability_protocol() -> None:
-    service = OpenFigiReferenceDataService(OpenFigiClient())
-
-    assert isinstance(service, ReferenceDataService)

@@ -39,8 +39,6 @@ from t212ai.capabilities import (
     EdgarDisclosureService,
     MarketDataService,
     MarketIntelligenceService,
-    OpenFigiReferenceDataService,
-    ReferenceDataService,
     SearchService,
     SearxngSearchService,
     YahooMarketDataService,
@@ -61,7 +59,6 @@ from t212ai.pending_actions import PendingActionService
 from t212ai.persistence.documents import FileBackedStructuredDocumentStore
 from t212ai.persistence.database import build_engine, build_session_factory, ensure_schema
 from t212ai.proposals import ProposalService
-from t212ai.reference_data import OpenFigiClient
 from t212ai.reconciliation import ReconciliationService
 from t212ai.scheduler import (
     ScheduledProcessService,
@@ -145,8 +142,6 @@ class AppRuntime:
     insider_manager: EdgarInsiderManager | None = None
     disclosure_service: DisclosureService | None = None
     search_service: SearchService | None = None
-    openfigi_client: OpenFigiClient | None = None
-    reference_data_service: ReferenceDataService | None = None
     capability_registry: dict[str, CapabilityBinding] = field(default_factory=dict)
     toolboxes: dict[str, "ToolBox"] = field(default_factory=dict)
     specialist_tooling: SpecialistTooling | None = None
@@ -334,12 +329,6 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
         except Exception as exc:
             runtime.component_errors["alpaca_stream"] = str(exc)
 
-    if runtime.settings.reference_data_provider == "openfigi":
-        try:
-            runtime.openfigi_client = OpenFigiClient.from_settings(runtime.settings)
-        except Exception as exc:
-            runtime.component_errors["openfigi"] = str(exc)
-
     if runtime.settings.alpha_vantage_enabled:
         try:
             runtime.alpha_vantage_client = AlphaVantageClient.from_settings(runtime.settings)
@@ -423,12 +412,6 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
     ):
         runtime.search_service = SearxngSearchService(runtime.settings.searxng_base_url or "")
 
-    if (
-        runtime.config_assessment.capabilities["reference_data"].available
-        and runtime.openfigi_client is not None
-    ):
-        runtime.reference_data_service = OpenFigiReferenceDataService(runtime.openfigi_client)
-
     runtime.capability_registry = {
         "broker_read": CapabilityBinding(
             capability="broker_read",
@@ -471,12 +454,6 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             selected_provider=_capability_provider(runtime, "search"),
             ready=runtime.search_service is not None,
             implementation=runtime.search_service,
-        ),
-        "reference_data": CapabilityBinding(
-            capability="reference_data",
-            selected_provider=_capability_provider(runtime, "reference_data"),
-            ready=runtime.reference_data_service is not None,
-            implementation=runtime.reference_data_service,
         ),
         "market_signal_memory": CapabilityBinding(
             capability="market_signal_memory",
@@ -638,7 +615,6 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_read_service=runtime.broker_read_service,
             broker_execution_service=runtime.broker_execution_service,
             market_data_service=runtime.market_data_service,
-            reference_data_service=runtime.reference_data_service,
             market_signal_service=runtime.market_signal_service,
             configurable_reasoner_agent=runtime.configurable_reasoner_agent,
             configurable_planner_agent=runtime.configurable_planner_agent,

@@ -39,7 +39,6 @@ from t212ai.pending_actions import (
     PendingActionService,
 )
 from t212ai.proposals import ProposalService
-from t212ai.reference_data import build_reference_data_tool_mapping
 from t212ai.scheduler.management import (
     SCHEDULER_AGENT_TOOLBOX,
     build_scheduler_agent_tool_mapping,
@@ -185,7 +184,6 @@ class OrderAgent(BaseAgent):
         broker_read_service=None,
         broker_execution_service=None,
         market_data_service=None,
-        reference_data_service=None,
         broker_provider: str = "broker",
         pending_action_service: PendingActionService | None = None,
         proposal_service: ProposalService | None = None,
@@ -229,7 +227,6 @@ class OrderAgent(BaseAgent):
         self.broker_read_service = resolved_read_service
         self.broker_execution_service = resolved_execution_service
         self.market_data_service = market_data_service
-        self.reference_data_service = reference_data_service
         self.broker_provider = resolved_provider
         self.pending_action_service = pending_action_service
         self.proposal_service = proposal_service
@@ -383,7 +380,6 @@ class OrderAgent(BaseAgent):
             reference_map=BrokerReferenceMap(),
         )
         tools_mapping = build_broker_tool_mapping(runtime)
-        tools_mapping.update(build_reference_data_tool_mapping(self.reference_data_service))
         execution_result = self.grouped_plan_executor.execute(
             invocation=invocation,
             reasoning_context=reasoning_context,
@@ -660,7 +656,6 @@ class OrderAgent(BaseAgent):
             reference_map=BrokerReferenceMap(),
         )
         tool_mapping = build_broker_tool_mapping(runtime)
-        tool_mapping.update(build_reference_data_tool_mapping(self.reference_data_service))
         if action_request.action == BrokerOrderAction.PREPARE_CANCEL_ORDER:
             result = tool_mapping["broker_prepare_cancel_action"](
                 order_ref=action_request.target_order_ref,
@@ -1128,7 +1123,6 @@ class MarketAnalystAgent(BaseAgent):
         guideline_service: GuidelineMemoryService | None = None,
         *,
         market_data_service=None,
-        reference_data_service=None,
         market_signal_service=None,
         toolbox: ToolBox | None = None,
         toolbox_summary: str | None = None,
@@ -1166,7 +1160,6 @@ class MarketAnalystAgent(BaseAgent):
             guideline_service=guideline_service,
         )
         self.market_data_service = market_data_service
-        self.reference_data_service = reference_data_service
         self.market_signal_service = market_signal_service
         self.configurable_reasoner_agent = configurable_reasoner_agent
         self.configurable_planner_agent = configurable_planner_agent
@@ -1298,7 +1291,6 @@ class MarketAnalystAgent(BaseAgent):
         tools_mapping = build_tool_mapping_for(
             self.profile.toolbox,
             market_data_service=self.market_data_service,
-            reference_data_service=self.reference_data_service,
             market_signal_service=self.market_signal_service,
         )
         execution_result = self.grouped_plan_executor.execute(
@@ -1376,7 +1368,6 @@ class MarketAnalystAgent(BaseAgent):
             tools_mapping=build_tool_mapping_for(
                 self.profile.toolbox,
                 market_data_service=self.market_data_service,
-                reference_data_service=self.reference_data_service,
                 market_signal_service=self.market_signal_service,
             ),
             chat_history=self._history_for_prompt(request.history),
@@ -1788,8 +1779,6 @@ def _broker_order_reasoning_guidelines() -> list[str]:
         "Treat broker reads as the only authority for cash, positions, pending orders, and order references.",
         "Treat user-supplied public symbols, company names, and ISINs as unverified for broker execution "
         "until broker_resolve_instrument or broker portfolio context confirms the broker-native instrument.",
-        "Treat OpenFIGI/reference-data results as identifier context only; they never prove broker tradability "
-        "and never replace broker_resolve_instrument for order preparation.",
         "Detect broker-state dependent values such as available-cash fractions, full-position exits, and protective orders that depend on a prior fill.",
         "Treat every SELL, stop, stop-limit, trailing-stop, hedge, cover, or protective exit as holding-dependent: "
         "the broker portfolio must confirm an open position and available quantity before any sell-side order can be prepared.",
@@ -1811,11 +1800,10 @@ def _broker_order_planning_guidelines() -> list[str]:
         "explain that the buy/open position must exist before placing the sell-side order.",
         "Use broker_resolve_instrument before broker_prepare_order_action when the user supplied a public ticker, "
         "company name, ISIN, or any identifier not already confirmed as broker-native by broker data.",
-        "For an ISIN, use reference_identifier_map with id_type='ID_ISIN' when reference lookup is available, "
-        "then use broker_resolve_instrument before any order preparation.",
-        "If broker_resolve_instrument is ambiguous or not_found for a public ticker or company name, use "
-        "reference_security_search when available to narrow reference candidates, then retry broker resolution "
-        "with the best candidate identifier; if ambiguity remains, ask for exchange, share class, or currency.",
+        "For a user-supplied ISIN, use broker_resolve_instrument before any order preparation.",
+        "When the user gives only a company name or public ticker and the goal is an order, call "
+        "broker_resolve_instrument first because broker candidates may include the broker-native ticker, "
+        "ISIN, currency, and tradability metadata.",
         "Use broker_get_instrument_snapshot when the plan needs broker-authoritative tradability, currency, "
         "instrument type, fractional support, shortability, or provider-specific instrument metadata.",
         "Skip instrument-resolution when a prior broker tool output already provides the exact "
@@ -1875,9 +1863,8 @@ def _broker_order_planning_examples() -> list[str]:
         ),
         (
             "Example grouped plan for ISIN input: "
-            "group 1 sequential action reference_identifier_map with id_type='ID_ISIN' if available; "
-            "group 2 sequential action broker_resolve_instrument with the ISIN or best reference candidate; "
-            "group 3 sequential action broker_prepare_order_action only when broker resolution returns resolved."
+            "group 1 sequential action broker_resolve_instrument with the user-supplied ISIN; "
+            "group 2 sequential action broker_prepare_order_action only when broker resolution returns resolved."
         ),
         (
             "Example grouped plan for protective sell/stop-limit: "

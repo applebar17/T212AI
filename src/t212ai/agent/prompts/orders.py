@@ -36,8 +36,8 @@ ORDER_ACTION_REQUEST_SYSTEM_PROMPT = dedent(
     - Prefer broker-native asset identifiers when known. For Trading 212 this means
       the instrument ticker from metadata, not necessarily the public exchange symbol.
     - If the user provides an ISIN, preserve it as the identifier in ticker; the
-      agentic flow may use reference_identifier_map first, but broker resolution
-      must still validate the broker-native tradable ticker before preparation.
+      agentic flow must use broker resolution to validate the broker-native
+      tradable ticker before preparation.
     - If only a public symbol or company name is known, put the best available
       identifier in ticker; deterministic broker metadata resolution will validate it
       before any approval is created.

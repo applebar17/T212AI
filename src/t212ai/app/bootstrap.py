@@ -13,7 +13,6 @@ VALID_MARKET_INTELLIGENCE_PROVIDERS = frozenset({"alpha_vantage", "none"})
 VALID_DISCLOSURE_PROVIDERS = frozenset({"sec_edgar", "none"})
 VALID_COMMUNITY_PROVIDERS = frozenset({"reddit", "none"})
 VALID_SEARCH_PROVIDERS = frozenset({"searxng", "none"})
-VALID_REFERENCE_DATA_PROVIDERS = frozenset({"openfigi", "none"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +79,6 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "reddit": _assess_reddit_provider(settings),
         "searxng": _assess_searxng_provider(settings),
         "sec_edgar": _assess_sec_edgar_provider(settings),
-        "openfigi": _assess_openfigi_provider(settings),
     }
     selector_errors = _validate_selector_values(settings)
     market_data_capability = _build_market_data_capability(settings, providers)
@@ -110,7 +108,6 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         ),
         reasons=_search_reasons(settings, providers["searxng"]),
     )
-    reference_data_capability = _build_reference_data_capability(settings, providers)
     capabilities = {
         "llm_reasoning": CapabilityAssessment(
             name="llm_reasoning",
@@ -160,7 +157,6 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "disclosure": disclosure_capability,
         "research_community_context": community_capability,
         "search": search_capability,
-        "reference_data": reference_data_capability,
         "persistent_guideline_memory": CapabilityAssessment(
             name="persistent_guideline_memory",
             label="Persistent guideline memory",
@@ -861,35 +857,6 @@ def _assess_sec_edgar_provider(settings: AppSettings) -> ProviderAssessment:
     )
 
 
-def _assess_openfigi_provider(settings: AppSettings) -> ProviderAssessment:
-    enabled = settings.reference_data_provider == "openfigi"
-    if not enabled:
-        return ProviderAssessment(
-            name="openfigi",
-            label="OpenFIGI",
-            enabled=False,
-            optional=True,
-            configured=False,
-            ready=False,
-            notes=("OpenFIGI reference data is disabled.",),
-        )
-    notes = ["OpenFIGI reference data works without an API key at lower rate limits."]
-    if str(settings.openfigi_api_key or "").strip():
-        notes.append("OPENFIGI_API_KEY is configured for higher OpenFIGI rate limits.")
-    return ProviderAssessment(
-        name="openfigi",
-        label="OpenFIGI",
-        enabled=True,
-        optional=True,
-        configured=True,
-        ready=True,
-        required_keys=(),
-        missing_keys=(),
-        errors=(),
-        notes=tuple(notes),
-    )
-
-
 def _broker_execution_available(
     settings: AppSettings,
     broker: ProviderAssessment,
@@ -1050,43 +1017,6 @@ def _build_disclosure_capability(
     )
 
 
-def _build_reference_data_capability(
-    settings: AppSettings,
-    providers: dict[str, ProviderAssessment],
-) -> CapabilityAssessment:
-    selected = str(settings.reference_data_provider or "").strip().lower()
-    if selected not in VALID_REFERENCE_DATA_PROVIDERS:
-        return CapabilityAssessment(
-            name="reference_data",
-            label="Reference data",
-            available=False,
-            optional=True,
-            reasons=(
-                f"REFERENCE_DATA_PROVIDER has unsupported value '{settings.reference_data_provider}'.",
-            ),
-        )
-    if selected == "none":
-        return CapabilityAssessment(
-            name="reference_data",
-            label="Reference data",
-            available=False,
-            optional=True,
-            reasons=("Reference-data provider is disabled.",),
-        )
-    provider = providers["openfigi"]
-    return CapabilityAssessment(
-        name="reference_data",
-        label="Reference data",
-        available=provider.ready,
-        optional=True,
-        selected_provider="openfigi",
-        reasons=_reasons_for_capability(
-            provider.ready,
-            "Enable OpenFIGI reference data or set REFERENCE_DATA_PROVIDER=none.",
-        ),
-    )
-
-
 def _community_reasons(
     settings: AppSettings,
     provider: ProviderAssessment,
@@ -1184,13 +1114,6 @@ def _validate_selector_values(settings: AppSettings) -> tuple[str, ...]:
             "SEARCH_PROVIDER",
             settings.search_provider,
             VALID_SEARCH_PROVIDERS,
-        )
-    )
-    errors.extend(
-        _selector_error(
-            "REFERENCE_DATA_PROVIDER",
-            settings.reference_data_provider,
-            VALID_REFERENCE_DATA_PROVIDERS,
         )
     )
     return _unique_messages(errors)

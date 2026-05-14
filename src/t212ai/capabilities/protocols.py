@@ -160,38 +160,6 @@ class MarketDataService(Protocol):
 
 
 @runtime_checkable
-class ReferenceDataService(Protocol):
-    def search_security(
-        self,
-        *,
-        query: str,
-        exch_code: str | None = None,
-        mic_code: str | None = None,
-        currency: str | None = None,
-        market_sector: str | None = None,
-        security_type: str | None = None,
-        security_type2: str | None = None,
-        include_unlisted_equities: bool | None = None,
-        limit: int = 10,
-    ) -> ToolResult: ...
-
-    def map_identifier(
-        self,
-        *,
-        id_type: str,
-        id_value: str,
-        exch_code: str | None = None,
-        mic_code: str | None = None,
-        currency: str | None = None,
-        market_sector: str | None = None,
-        security_type: str | None = None,
-        security_type2: str | None = None,
-        include_unlisted_equities: bool | None = None,
-        limit: int = 10,
-    ) -> ToolResult: ...
-
-
-@runtime_checkable
 class MarketIntelligenceService(Protocol):
     def get_most_actively_traded(
         self,

@@ -8,8 +8,7 @@ from t212ai.app.bootstrap import ConfigAssessment
 from t212ai.app.config import AppSettings
 from t212ai.brokers.tools import build_broker_order_action_toolbox
 from t212ai.genai.tools import build_market_analyst_toolbox, build_toolboxes
-from t212ai.genai.tools.base import ToolBox, build_tool_index
-from t212ai.reference_data import REFERENCE_DATA_TOOLS
+from t212ai.genai.tools.base import ToolBox
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,18 +60,10 @@ def _order_summary(
 ) -> str:
     del settings
     if assessment.capabilities["broker_execution_eligibility"].available:
-        reference_suffix = (
-            " Broker-agnostic OpenFIGI reference lookup is available before "
-            "broker-native instrument resolution."
-            if assessment.capabilities.get("reference_data")
-            and assessment.capabilities["reference_data"].available
-            else ""
-        )
         return (
             "Broker portfolio, pending orders, order lookup, instrument resolution "
             "and instrument snapshots, order/cancellation preparation tools, plus "
             "deterministic approval/execution through Telegram buttons."
-            + reference_suffix
         )
     return (
         "Broker order tools are unavailable because no ready broker provider is configured. "
@@ -83,18 +74,7 @@ def _order_summary(
 def _order_toolbox(assessment: ConfigAssessment) -> ToolBox | None:
     if not assessment.capabilities["broker_execution_eligibility"].available:
         return None
-    toolbox = build_broker_order_action_toolbox()
-    if (
-        assessment.capabilities.get("reference_data")
-        and assessment.capabilities["reference_data"].available
-    ):
-        tools = [*toolbox.tools, *REFERENCE_DATA_TOOLS]
-        return ToolBox(
-            name=toolbox.name,
-            tools=tools,
-            tools_by_name=build_tool_index(tools),
-        )
-    return toolbox
+    return build_broker_order_action_toolbox()
 
 
 def _market_summary(toolbox: ToolBox) -> str:
@@ -112,8 +92,6 @@ def _market_summary(toolbox: ToolBox) -> str:
         segments.append(
             "persistent market signal memory for active signals, concise saves, and archives"
         )
-    if "reference_security_search" in names or "reference_identifier_map" in names:
-        segments.append("OpenFIGI reference-data lookup for public security identifiers")
     if not segments:
         return (
             "No market-data or research providers are currently configured for this agent."

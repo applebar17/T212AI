@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-from t212ai.app.bootstrap import assess_settings
 from t212ai.app.config import get_app_settings, load_env_file, parse_env_file
 
 
@@ -58,7 +57,6 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "MARKET_INTELLIGENCE_PROVIDER=alpha_vantage",
                 "COMMUNITY_PROVIDER=reddit",
                 "SEARCH_PROVIDER=searxng",
-                "REFERENCE_DATA_PROVIDER=openfigi",
                 "T212_ENVIRONMENT=live",
                 "T212_LIVE_BASE_URL=https://live.example/api/v0",
                 "T212_LIVE_API_KEY=file-live-key",
@@ -76,8 +74,6 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "REDDIT_USER_AGENT=server:t212ai:test (by /u/tester)",
                 "SEARXNG_ENABLED=true",
                 "SEARXNG_BASE_URL=https://search.example",
-                "OPENFIGI_API_KEY=figi-key",
-                "OPENFIGI_BASE_URL=https://figi.example",
                 "GUIDELINE_MEMORY_PATH=data/guidelines/test-guidelines.json",
                 "T212_LIVE_TRADING_ENABLED=true",
             ]
@@ -91,7 +87,6 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "MARKET_INTELLIGENCE_PROVIDER",
         "COMMUNITY_PROVIDER",
         "SEARCH_PROVIDER",
-        "REFERENCE_DATA_PROVIDER",
         "T212_ENVIRONMENT",
         "T212_LIVE_BASE_URL",
         "T212_LIVE_API_KEY",
@@ -146,9 +141,6 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.reddit_user_agent == "server:t212ai:test (by /u/tester)"
     assert settings.searxng_enabled
     assert settings.searxng_base_url == "https://search.example"
-    assert settings.reference_data_provider == "openfigi"
-    assert settings.openfigi_api_key == "figi-key"
-    assert settings.openfigi_base_url == "https://figi.example"
     assert settings.guideline_memory_path == "data/guidelines/test-guidelines.json"
     assert settings.live_trading_enabled
 
@@ -176,35 +168,7 @@ def test_get_app_settings_uses_default_guideline_memory_path() -> None:
     assert settings.market_intelligence_provider == "none"
     assert settings.community_provider == "none"
     assert settings.search_provider == "none"
-    assert settings.reference_data_provider == "openfigi"
     assert settings.yahoo_enabled
-
-
-def test_get_app_settings_openfigi_api_key_is_optional() -> None:
-    settings = get_app_settings(env={"REFERENCE_DATA_PROVIDER": "openfigi"})
-
-    assert settings.reference_data_provider == "openfigi"
-    assert settings.openfigi_api_key is None
-    assert settings.openfigi_base_url == "https://api.openfigi.com"
-
-
-def test_reference_data_provider_assessment_accepts_openfigi_without_api_key() -> None:
-    settings = get_app_settings(env={"REFERENCE_DATA_PROVIDER": "openfigi"})
-    assessment = assess_settings(settings)
-
-    assert assessment.providers["openfigi"].ready
-    assert assessment.capabilities["reference_data"].available
-    assert not assessment.providers["openfigi"].missing_keys
-
-
-def test_reference_data_provider_assessment_rejects_invalid_selector() -> None:
-    settings = get_app_settings(env={"REFERENCE_DATA_PROVIDER": "invalid"})
-    assessment = assess_settings(settings)
-
-    assert not assessment.capabilities["reference_data"].available
-    assert "REFERENCE_DATA_PROVIDER has unsupported value 'invalid'." in (
-        assessment.configuration_errors
-    )
 
 
 def test_get_app_settings_loads_genai_context_settings() -> None:
