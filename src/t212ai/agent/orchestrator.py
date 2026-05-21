@@ -43,6 +43,7 @@ from .specialists import (
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
+    RedditResearchAgent,
     SchedulerAgent,
 )
 from .time_context import render_timezone_context
@@ -60,6 +61,7 @@ class SpecialistAgents:
     calculator: CalculatorAgent
     scheduler: SchedulerAgent | None = None
     log_diagnostic: LogDiagnosticAgent | None = None
+    reddit_research: RedditResearchAgent | None = None
 
     def by_key(self) -> dict[str, BaseAgent]:
         agents: dict[str, BaseAgent] = {
@@ -74,6 +76,8 @@ class SpecialistAgents:
             agents["scheduler"] = self.scheduler
         if self.log_diagnostic is not None:
             agents["log_diagnostic"] = self.log_diagnostic
+        if self.reddit_research is not None:
+            agents["reddit_research"] = self.reddit_research
         return agents
 
 
@@ -136,6 +140,11 @@ _SPECIALIST_TOOL_CONFIGS: tuple[tuple[str, str, tuple[IntentKind, ...]], ...] = 
         "delegate_to_log_diagnostic_agent",
         "log_diagnostic",
         (IntentKind.DEBUG_LOGS,),
+    ),
+    (
+        "delegate_to_reddit_research_agent",
+        "reddit_research",
+        (IntentKind.SOCIAL_RESEARCH,),
     ),
 )
 
@@ -764,6 +773,8 @@ def build_specialist_agents(
     proposal_service: ProposalService | None = None,
     scheduled_process_service: ScheduledProcessService | None = None,
     log_diagnostic_agent: LogDiagnosticAgent | None = None,
+    reddit_research_service=None,
+    reddit_research_max_tool_calls: int = 8,
     scheduler_default_timezone: str = "UTC",
     scheduler_default_poll_every_seconds: int = 300,
     portfolio_toolbox_summary: str | None = None,
@@ -775,6 +786,16 @@ def build_specialist_agents(
 ) -> SpecialistAgents:
     if guideline_service is None:
         guideline_service = GuidelineMemoryService.from_path("data/guidelines/guidelines.json")
+    reddit_research_agent = (
+        RedditResearchAgent(
+            reasoner,
+            guideline_service=guideline_service,
+            reddit_service=reddit_research_service,
+            max_tool_calls=reddit_research_max_tool_calls,
+        )
+        if reddit_research_service is not None
+        else None
+    )
     return SpecialistAgents(
         portfolio=PortfolioAnalystAgent(
             reasoner,
@@ -808,6 +829,7 @@ def build_specialist_agents(
             configurable_reasoner_agent=configurable_reasoner_agent,
             configurable_planner_agent=configurable_planner_agent,
             grouped_plan_executor=grouped_plan_executor,
+            reddit_research_agent=reddit_research_agent,
         ),
         company=CompanyAnalystAgent(
             reasoner,
@@ -831,6 +853,7 @@ def build_specialist_agents(
             else None
         ),
         log_diagnostic=log_diagnostic_agent,
+        reddit_research=reddit_research_agent,
     )
 
 
@@ -869,6 +892,17 @@ def classify_message(message: str) -> AgentIntent:
         return AgentIntent(kind=IntentKind.PORTFOLIO_SUMMARY, confidence=0.8)
     if any(word in text for word in ("attention", "risk", "exposure", "rebalance")):
         return AgentIntent(kind=IntentKind.PORTFOLIO_ATTENTION_SCAN, confidence=0.82)
+    if any(
+        phrase in text
+        for phrase in (
+            "reddit",
+            "social sentiment",
+            "community sentiment",
+            "social analysis",
+            "wallstreetbets",
+        )
+    ):
+        return AgentIntent(kind=IntentKind.SOCIAL_RESEARCH, confidence=0.82)
     if any(word in text for word in ("market", "macro", "commodity", "gainers", "losers")):
         return AgentIntent(kind=IntentKind.UNKNOWN, entities={"domain": "market"}, confidence=0.55)
     if any(word in text for word in ("analyze", "company", "ticker", "earnings", "analyst")):

@@ -21,6 +21,7 @@ class IntentKind(StrEnum):
     MANAGE_GUIDELINES = "manage_guidelines"
     MANAGE_SCHEDULED_PROCESSES = "manage_scheduled_processes"
     DEBUG_LOGS = "debug_logs"
+    SOCIAL_RESEARCH = "social_research"
     HELP = "help"
     UNKNOWN = "unknown"
 

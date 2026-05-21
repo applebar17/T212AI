@@ -26,7 +26,7 @@ from t212ai.diagnostics import (
     LogFileNavigator,
     build_diagnostic_logs_tool_mapping,
 )
-from t212ai.genai.models import ToolError, ToolResult
+from t212ai.genai.models import ToolError, ToolResult, ToolSpec
 from t212ai.genai.tools import build_tool_mapping_for
 from t212ai.genai.tools.base import ToolBox, render_tool_descriptions
 from t212ai.genai.tracing import (
@@ -39,6 +39,11 @@ from t212ai.pending_actions import (
     PendingActionService,
 )
 from t212ai.proposals import ProposalService
+from t212ai.data_sources.reddit import (
+    REDDIT_RESEARCH_TOOLBOX,
+    RedditToolRuntime,
+    build_reddit_tool_mapping,
+)
 from t212ai.scheduler.management import (
     SCHEDULER_AGENT_TOOLBOX,
     build_scheduler_agent_tool_mapping,
@@ -69,6 +74,159 @@ LOGGER = logging.getLogger(__name__)
 
 def _empty_toolbox(name: str) -> ToolBox:
     return ToolBox(name=name, tools=[], tools_by_name={})
+
+
+def _with_tool(toolbox: ToolBox, tool: ToolSpec) -> ToolBox:
+    if tool["function"]["name"] in toolbox.tools_by_name:
+        return toolbox
+    tools = [*toolbox.tools, tool]
+    return ToolBox(
+        name=toolbox.name,
+        tools=tools,
+        tools_by_name={**toolbox.tools_by_name, tool["function"]["name"]: tool},
+    )
+
+
+def _reddit_research_delegation_tool() -> ToolSpec:
+    return {
+        "type": "function",
+        "function": {
+            "name": "delegate_to_reddit_research_agent",
+            "description": (
+                "Delegate to reddit_research_agent for Reddit/community social "
+                "analysis. Use when Reddit sentiment, attention, speculative themes, "
+                "or finance-subreddit discussion can inform market research. The "
+                "agent uses Reddit as social context only and verifies nothing as "
+                "execution-grade truth."
+            ),
+            "parameters": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "task_brief": {
+                        "type": "string",
+                        "description": "What Reddit/social topic to explore.",
+                    },
+                    "expected_output": {
+                        "type": "string",
+                        "description": (
+                            "The social-analysis shape wanted back: sentiment, "
+                            "attention level, themes, notable posts, cautions, "
+                            "and verification needs."
+                        ),
+                    },
+                    "entities": {
+                        "type": "array",
+                        "description": (
+                            "Structured hints such as ticker, company, subreddit, "
+                            "post_id, theme, or time window."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "key": {"type": "string"},
+                                "value": {"type": "string"},
+                            },
+                            "required": ["key", "value"],
+                        },
+                    },
+                },
+                "required": ["task_brief", "expected_output", "entities"],
+            },
+            "strict": True,
+        },
+    }
+
+
+def _build_reddit_research_delegate(
+    *,
+    delegating_agent: BaseAgent,
+    reddit_agent: BaseAgent,
+    request: AgentRequest,
+):
+    @traceable(name="delegate_to_reddit_research_agent", run_type="tool")
+    def _delegate(
+        *,
+        task_brief: str,
+        expected_output: str,
+        entities: list[dict[str, str]] | None = None,
+    ) -> ToolResult:
+        start = time.monotonic()
+        set_trace_name("delegate_to_reddit_research_agent")
+        set_trace_metadata(
+            agent_name=delegating_agent.name,
+            agent_step="delegate_to_reddit_research_agent",
+            step_kind="tool",
+            tool_name="delegate_to_reddit_research_agent",
+            specialist_name=reddit_agent.name,
+            intent_kind=IntentKind.SOCIAL_RESEARCH.value,
+        )
+        log_event(
+            LOGGER,
+            "agent.delegate.start",
+            component="agent",
+            agent_name=delegating_agent.name,
+            step="delegate_to_reddit_research_agent",
+            tool_name="delegate_to_reddit_research_agent",
+            selected_agent=reddit_agent.name,
+            status="started",
+            chat_id=request.chat_id,
+            intent_kind=IntentKind.SOCIAL_RESEARCH.value,
+        )
+        entity_lines = "\n".join(
+            f"- {str(item.get('key', '')).strip()}: {str(item.get('value', '')).strip()}"
+            for item in (entities or [])
+            if str(item.get("key", "")).strip()
+        )
+        guidance = (
+            f"Task brief: {task_brief}\n"
+            f"Expected output: {expected_output}"
+        )
+        if entity_lines:
+            guidance = f"{guidance}\nEntities:\n{entity_lines}"
+        if request.orchestrator_guidance:
+            guidance = f"{request.orchestrator_guidance}\n\n{guidance}"
+        delegated_request = request.model_copy(update={"orchestrator_guidance": guidance})
+        response = reddit_agent.handle(
+            delegated_request,
+            intent=AgentIntent(
+                kind=IntentKind.SOCIAL_RESEARCH,
+                entities={
+                    str(item.get("key", "")).strip(): str(item.get("value", "")).strip()
+                    for item in (entities or [])
+                    if str(item.get("key", "")).strip()
+                },
+                confidence=0.8,
+            ),
+        )
+        log_event(
+            LOGGER,
+            "agent.delegate.end",
+            component="agent",
+            agent_name=delegating_agent.name,
+            step="delegate_to_reddit_research_agent",
+            tool_name="delegate_to_reddit_research_agent",
+            selected_agent=reddit_agent.name,
+            status=response.metadata.get("workflow_status", "ok"),
+            chat_id=request.chat_id,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            intent_kind=IntentKind.SOCIAL_RESEARCH.value,
+        )
+        return ToolResult(
+            status="ok",
+            output=response.final_answer,
+            data={
+                "specialist": reddit_agent.name,
+                "task_brief": task_brief,
+                "expected_output": expected_output,
+                "entities": entities or [],
+                "final_answer": response.final_answer,
+                "metadata": response.metadata,
+            },
+        )
+
+    return _delegate
 
 
 class PortfolioAnalystAgent(BaseAgent):
@@ -1129,7 +1287,24 @@ class MarketAnalystAgent(BaseAgent):
         configurable_reasoner_agent: ConfigurableReasonerAgent | None = None,
         configurable_planner_agent: ConfigurablePlannerAgent | None = None,
         grouped_plan_executor: GroupedPlanExecutor | None = None,
+        reddit_research_agent: BaseAgent | None = None,
     ) -> None:
+        resolved_toolbox = toolbox or _empty_toolbox("market_analyst")
+        if reddit_research_agent is not None:
+            resolved_toolbox = _with_tool(
+                resolved_toolbox,
+                _reddit_research_delegation_tool(),
+            )
+        resolved_toolbox_summary = toolbox_summary or (
+            "Market analyst toolbox: market snapshot and relative-volume monitoring; "
+            "active-movers intelligence; official disclosure activity; web search "
+            "and article scraping for expansion; persistent market signal memory."
+        )
+        if reddit_research_agent is not None:
+            resolved_toolbox_summary = (
+                resolved_toolbox_summary.rstrip(".")
+                + "; delegated Reddit/community social analysis."
+            )
         super().__init__(
             reasoner,
             AgentProfile(
@@ -1148,14 +1323,10 @@ class MarketAnalystAgent(BaseAgent):
                     "symbols, sectors, themes, watchlists, catalysts, or portfolio-relevant "
                     "market context. Treat stored signals as advisory context only."
                 ),
-                toolbox_summary=toolbox_summary or (
-                    "Market analyst toolbox: market snapshot and relative-volume monitoring; "
-                    "active-movers intelligence; official disclosure activity; web search "
-                    "and article scraping for expansion; persistent market signal memory."
-                ),
+                toolbox_summary=resolved_toolbox_summary,
                 task_complexity=TaskComplexity.COMPLEX,
                 guideline_scopes=("global", "agent:market"),
-                toolbox=toolbox or _empty_toolbox("market_analyst"),
+                toolbox=resolved_toolbox,
             ),
             guideline_service=guideline_service,
         )
@@ -1164,6 +1335,7 @@ class MarketAnalystAgent(BaseAgent):
         self.configurable_reasoner_agent = configurable_reasoner_agent
         self.configurable_planner_agent = configurable_planner_agent
         self.grouped_plan_executor = grouped_plan_executor
+        self.reddit_research_agent = reddit_research_agent
 
     @traceable(
         name="Market Analyst Handle",
@@ -1288,11 +1460,7 @@ class MarketAnalystAgent(BaseAgent):
             invocation,
             reasoning_context=reasoning_context,
         )
-        tools_mapping = build_tool_mapping_for(
-            self.profile.toolbox,
-            market_data_service=self.market_data_service,
-            market_signal_service=self.market_signal_service,
-        )
+        tools_mapping = self._build_tools_mapping(request)
         execution_result = self.grouped_plan_executor.execute(
             invocation=invocation,
             reasoning_context=reasoning_context,
@@ -1365,11 +1533,7 @@ class MarketAnalystAgent(BaseAgent):
             toolbox_summary=self.profile.toolbox_summary,
             user_request=request.user_message,
             toolbox=self.profile.toolbox,
-            tools_mapping=build_tool_mapping_for(
-                self.profile.toolbox,
-                market_data_service=self.market_data_service,
-                market_signal_service=self.market_signal_service,
-            ),
+            tools_mapping=self._build_tools_mapping(request),
             chat_history=self._history_for_prompt(request.history),
             persistent_guidance=self._persistent_guidance(),
         )
@@ -1382,6 +1546,21 @@ class MarketAnalystAgent(BaseAgent):
             metadata={"workflow": "market_analysis", "workflow_status": "ok"},
             artifacts={"workflow": "market_analysis"},
         )
+
+    def _build_tools_mapping(self, request: AgentRequest) -> dict[str, Any]:
+        assert self.profile.toolbox is not None
+        mapping = build_tool_mapping_for(
+            self.profile.toolbox,
+            market_data_service=self.market_data_service,
+            market_signal_service=self.market_signal_service,
+        )
+        if self.reddit_research_agent is not None:
+            mapping["delegate_to_reddit_research_agent"] = _build_reddit_research_delegate(
+                delegating_agent=self,
+                reddit_agent=self.reddit_research_agent,
+                request=request,
+            )
+        return mapping
 
 
 class SchedulerAgent(BaseAgent):
@@ -1633,6 +1812,111 @@ class LogDiagnosticAgent(BaseAgent):
                 "execution_mode": "tool_orchestration",
             },
             artifacts={"workflow": "log_diagnostics"},
+        )
+
+
+class RedditResearchAgent(BaseAgent):
+    def __init__(
+        self,
+        reasoner,
+        guideline_service: GuidelineMemoryService | None = None,
+        *,
+        reddit_service=None,
+        max_tool_calls: int = 8,
+    ) -> None:
+        super().__init__(
+            reasoner,
+            AgentProfile(
+                name="reddit_research_agent",
+                purpose=(
+                    "Explore whitelisted finance and business Reddit communities and "
+                    "produce social-context analysis for market research."
+                ),
+                guidelines=(
+                    "Use Reddit as community/social signal only. Look for attention, "
+                    "sentiment, recurring themes, speculation, disagreement, and hype. "
+                    "Do not treat Reddit claims as verified facts or broker/order inputs. "
+                    "When discussion looks market-relevant, explicitly state what needs "
+                    "verification through market data, news, filings, or primary sources. "
+                    "Prefer concise analysis over raw post dumps, but preserve important "
+                    "post_ids, subreddits, popularity proxies, and quoted themes."
+                ),
+                toolbox_summary=(
+                    "Public Reddit JSON tools: search whitelisted finance/business "
+                    "subreddits, fetch subreddit posts, and inspect a specific thread. "
+                    + render_tool_descriptions(REDDIT_RESEARCH_TOOLBOX)
+                ),
+                task_complexity=TaskComplexity.COMPLEX,
+                guideline_scopes=("global", "agent:reddit_research"),
+                guideline_include_categories=("investment_preference",),
+                toolbox=REDDIT_RESEARCH_TOOLBOX,
+            ),
+            guideline_service=guideline_service,
+        )
+        self.reddit_service = reddit_service
+        self.max_tool_calls = max(0, int(max_tool_calls))
+
+    @traceable(name="Reddit Research Agent Handle", run_type="chain")
+    def handle(
+        self,
+        request: AgentRequest,
+        *,
+        intent: AgentIntent | None = None,
+        task_complexity: TaskComplexity | None = None,
+    ) -> AgentResponse:
+        resolved_intent = intent or AgentIntent(kind=IntentKind.SOCIAL_RESEARCH)
+        complexity = task_complexity or TaskComplexity.COMPLEX
+        set_trace_name(f"{self.__class__.__name__}.handle")
+        set_trace_metadata(
+            agent_name=self.name,
+            agent_kind="specialist",
+            intent_kind=resolved_intent.kind.value,
+            task_complexity=complexity.value,
+            workflow="reddit_research",
+        )
+        if self.reddit_service is None:
+            return AgentResponse(
+                final_answer=(
+                    "Reddit research is not configured. Set COMMUNITY_PROVIDER=reddit "
+                    "and restart the runtime to enable social research."
+                ),
+                selected_agent=self.name,
+                metadata={
+                    "workflow": "reddit_research",
+                    "workflow_status": "unavailable",
+                },
+                artifacts={"workflow": "reddit_research"},
+            )
+
+        final_answer = self.reasoner.orchestrate_with_tools(
+            agent_name=self.profile.name,
+            purpose=self.profile.purpose,
+            guidelines=self.profile.guidelines,
+            toolbox_summary=self.profile.toolbox_summary,
+            user_request=request.user_message,
+            toolbox=REDDIT_RESEARCH_TOOLBOX,
+            tools_mapping=build_reddit_tool_mapping(
+                RedditToolRuntime(service=self.reddit_service)
+            ),
+            chat_history=self._history_for_prompt(request.history),
+            persistent_guidance=self._persistent_guidance(),
+            max_tool_calls=self.max_tool_calls,
+        )
+        if not final_answer.strip():
+            final_answer = (
+                "I could not produce a useful Reddit social analysis from the available "
+                "posts. Try again with a ticker, company name, theme, subreddit, or "
+                "post_id."
+            )
+        return AgentResponse(
+            final_answer=final_answer,
+            selected_agent=self.name,
+            metadata={
+                "workflow": "reddit_research",
+                "workflow_status": "ok",
+                "execution_mode": "tool_orchestration",
+            },
+            artifacts={"workflow": "reddit_research"},
         )
 
 

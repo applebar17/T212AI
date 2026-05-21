@@ -51,6 +51,7 @@ from .specialists import (
     MarketAnalystAgent,
     OrderAgent,
     PortfolioAnalystAgent,
+    RedditResearchAgent,
     SchedulerAgent,
 )
 
@@ -93,6 +94,7 @@ __all__ = [
     "PlanActionGroup",
     "PlanExecutionMode",
     "PortfolioAnalystAgent",
+    "RedditResearchAgent",
     "SchedulerAgent",
     "SpecialistAgents",
     "StructuredAgentOutputSynthesizer",
