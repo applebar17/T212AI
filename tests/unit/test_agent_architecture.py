@@ -1120,7 +1120,7 @@ def test_market_analyst_agent_direct_default_uses_empty_generic_toolbox() -> Non
 
 def test_market_analyst_agent_executes_with_configured_toolbox(monkeypatch) -> None:
     from t212ai.agent import MarketAnalystAgent
-    import t212ai.agent.specialists as specialists_module
+    import t212ai.agent.specialists.market as market_module
     from t212ai.genai.tools.base import ToolBox, build_tool_index
 
     tool = {
@@ -1141,7 +1141,7 @@ def test_market_analyst_agent_executes_with_configured_toolbox(monkeypatch) -> N
         tools_by_name=build_tool_index([tool]),
     )
     monkeypatch.setattr(
-        specialists_module,
+        market_module,
         "build_tool_mapping_for",
         lambda *_args, **_kwargs: {"market_get_market_snapshot": lambda **_kwargs: None},
     )
@@ -1159,7 +1159,7 @@ def test_market_analyst_agent_executes_with_configured_toolbox(monkeypatch) -> N
 
 def test_market_analyst_agent_uses_configurable_grouped_loop(monkeypatch) -> None:
     from t212ai.agent import MarketAnalystAgent
-    import t212ai.agent.specialists as specialists_module
+    import t212ai.agent.specialists.market as market_module
     from t212ai.genai.tools.base import ToolBox, build_tool_index
 
     tools = [
@@ -1194,7 +1194,7 @@ def test_market_analyst_agent_uses_configurable_grouped_loop(monkeypatch) -> Non
         tools_by_name=build_tool_index(tools),
     )
     monkeypatch.setattr(
-        specialists_module,
+        market_module,
         "build_tool_mapping_for",
         lambda *_args, **_kwargs: {
             "market_get_market_snapshot": lambda **_kwargs: None,
