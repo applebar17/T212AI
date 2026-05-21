@@ -242,7 +242,7 @@ flowchart TD
 
 Use this file together with:
 - [ARCHITECTURE_STATUS.md](./ARCHITECTURE_STATUS.md) for the written summary
-- [todo.md](./todo.md) for the active implementation queue
+- [TODO.md](../planning/TODO.md) for the active implementation queue
 
 The next useful diagrams would be:
 - one diagram per real workflow once implemented

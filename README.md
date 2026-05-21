@@ -58,10 +58,11 @@ The runtime is capability-first and provider-aware:
 
 See the current architecture notes:
 
-- [Architecture status](docs/ARCHITECTURE_STATUS.md)
-- [Agentic flow](docs/AGENTIC_FLOW.md)
-- [Development guidelines](docs/DEV_GUIDELINES.md)
-- [Feature direction](docs/FEATURES.md)
+- [Docs index](docs/README.md)
+- [Architecture status](docs/architecture/ARCHITECTURE_STATUS.md)
+- [Agentic flow](docs/agents/AGENTIC_FLOW.md)
+- [Development guidelines](docs/operations/DEV_GUIDELINES.md)
+- [Feature direction](docs/planning/FEATURES.md)
 
 ## Providers
 

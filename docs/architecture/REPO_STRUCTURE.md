@@ -26,20 +26,16 @@ The structure should support:
 |   `-- versions/
 |-- data/
 |-- docs/
-|   |-- AGENT_DESIGN.md
-|   |-- AGENTIC_FLOW.md
-|   |-- AGENTIC_LOGIC.md
-|   |-- AGENT_PATTERNS.md
-|   |-- ARCHITECTURE_DIAGRAMS.md
-|   |-- ARCHITECTURE_STATUS.md
-|   |-- DATA_SOURCES.md
-|   |-- DEV_GUIDELINES.md
-|   |-- FEATURES.md
-|   |-- NEWS_AND_WEBSEARCH.md
-|   |-- PLAN.md
-|   |-- REPO_STRUCTURE.md
-|   `-- T212ApiDocs.md
+|   |-- README.md
+|   |-- agents/
+|   |-- api/
+|   |-- architecture/
+|   |-- data/
+|   |-- operations/
+|   |-- planning/
+|   `-- scheduler/
 |-- scripts/
+|   |-- alpaca_news_stream_capture.py
 |   |-- check_trading212_instrument_resolution.py
 |   |-- dev_bot.py
 |   `-- smoke_tools.py
@@ -338,6 +334,6 @@ Add these only when a concrete use case forces them.
 
 ## Recommended Next Step
 
-Use [todo.md](./todo.md) for the active implementation queue. The current
-near-term focus is scheduled process tooling and the shared agentic
-reason-plan-execute-judge-return loop, not initial project scaffolding.
+Use [TODO.md](../planning/TODO.md) for the active implementation queue. The
+current near-term focus is hardening implemented agentic, scheduler, broker, and
+observability flows rather than initial project scaffolding.

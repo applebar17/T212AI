@@ -1,8 +1,8 @@
 # Architecture Status
 
 This file is a direct snapshot of the current repo state. Historical roadmap
-context remains in [PLAN.md](./PLAN.md), while active near-term work is tracked
-in [todo.md](./todo.md).
+context remains in [PLAN.md](../planning/PLAN.md), while active near-term work
+is tracked in [TODO.md](../planning/TODO.md).
 
 For diagrams, see [ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md).
 

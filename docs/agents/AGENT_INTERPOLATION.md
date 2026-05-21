@@ -397,7 +397,7 @@ assistant history so later orchestrator turns can see them.
 Use this map together with:
 
 - [AGENTIC_FLOW.md](./AGENTIC_FLOW.md) for the target step model.
-- [ARCHITECTURE_DIAGRAMS.md](./ARCHITECTURE_DIAGRAMS.md) for broader runtime
+- [ARCHITECTURE_DIAGRAMS.md](../architecture/ARCHITECTURE_DIAGRAMS.md) for broader runtime
   architecture.
-- [DEV_GUIDELINES.md](./DEV_GUIDELINES.md) for implementation rules and
+- [DEV_GUIDELINES.md](../operations/DEV_GUIDELINES.md) for implementation rules and
   tracing/logging expectations.

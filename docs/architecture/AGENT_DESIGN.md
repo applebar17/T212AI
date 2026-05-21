@@ -155,7 +155,7 @@ Patterns that should stay out of the initial baseline:
 - heavy RAG or vector database infrastructure
 - MCP as a core runtime dependency
 
-See `AGENT_PATTERNS.md` for the concrete mapping.
+See [AGENT_PATTERNS.md](../agents/AGENT_PATTERNS.md) for the concrete mapping.
 
 ## Interaction Pattern
 

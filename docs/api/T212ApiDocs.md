@@ -405,9 +405,9 @@ Rate limit: 1 req / 2s
 ### Place a Market order
 
  - [POST /api/v0/equity/orders/market](https://docs.trading212.com/api/orders/placemarketorder.md): Creates a new Market order, which is an instruction to trade a security
-immediately at the next available price. 
+immediately at the next available price.
 
-- To place a buy order, use a positive quantity. 
+- To place a buy order, use a positive quantity.
 
 - To place a sell order, use a negative quantity.
 
@@ -532,7 +532,7 @@ CSV reports for analysis and record-keeping.
 
 ### List generated reports
 
- - [GET /api/v0/equity/history/exports](https://docs.trading212.com/api/historical-events/getreports.md): Retrieves a list of all requested CSV reports and their current status. 
+ - [GET /api/v0/equity/history/exports](https://docs.trading212.com/api/historical-events/getreports.md): Retrieves a list of all requested CSV reports and their current status.
 
 
 Asynchronous Workflow:
@@ -605,6 +605,6 @@ Rate limit: 1 req / 5s
 
 ### Duplicate pie (deprecated)
 
- - [POST /api/v0/equity/pies/{id}/duplicate](https://docs.trading212.com/api/pies-(deprecated)/duplicatepie.md): Duplicates a pie for the account 
+ - [POST /api/v0/equity/pies/{id}/duplicate](https://docs.trading212.com/api/pies-(deprecated)/duplicatepie.md): Duplicates a pie for the account
 
 Rate limit: 1 req / 5s

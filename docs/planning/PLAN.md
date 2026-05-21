@@ -3,8 +3,9 @@
 Status: historical roadmap reference.
 
 Many early milestones in this document are now implemented or superseded by the
-runtime architecture. Use [ARCHITECTURE_STATUS.md](./ARCHITECTURE_STATUS.md) for
-current state and [todo.md](./todo.md) for the active implementation queue.
+runtime architecture. Use
+[ARCHITECTURE_STATUS.md](../architecture/ARCHITECTURE_STATUS.md) for current
+state and [TODO.md](./TODO.md) for the active implementation queue.
 
 ## Goal
 
@@ -39,7 +40,8 @@ Exit criteria:
 
 Deliverables:
 
-- apply the structure guidance in `docs/REPO_STRUCTURE.md`
+- apply the structure guidance in
+  [REPO_STRUCTURE.md](../architecture/REPO_STRUCTURE.md)
 - add `src/t212ai`, `pyproject.toml`, `tests`, and `.env.example`
 - move the cleaned `genai` package under `src/t212ai/genai`
 - clean up and reuse the useful parts of `./genai`
