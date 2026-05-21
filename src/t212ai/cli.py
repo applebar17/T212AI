@@ -63,10 +63,6 @@ ALPACA_ENVIRONMENT_OPTIONS = (
     ("paper", "Paper"),
     ("live", "Live"),
 )
-REDDIT_AUTH_OPTIONS = (
-    ("refresh_token", "Refresh token"),
-    ("username_password", "Username and password"),
-)
 _MODEL_CONTEXT_REGISTRY = ModelContextRegistry()
 OPENAI_DEFAULT_MODEL_OPTIONS = (
     ("gpt-4o-mini", "gpt-4o-mini - economical 4.x baseline"),
@@ -107,9 +103,6 @@ SECRET_KEYS = frozenset(
         "ALPACA_API_KEY",
         "ALPACA_API_SECRET",
         "TELEGRAM_BOT_TOKEN",
-        "REDDIT_CLIENT_SECRET",
-        "REDDIT_PASSWORD",
-        "REDDIT_REFRESH_TOKEN",
     }
 )
 MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -125,7 +118,6 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "SEARCH_PROVIDER",
             "YAHOO_ENABLED",
             "ALPHA_VANTAGE_ENABLED",
-            "REDDIT_ENABLED",
             "SEARXNG_ENABLED",
         ),
     ),
@@ -204,19 +196,6 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "ALPHA_VANTAGE_API_KEY",
             "ALPHA_VANTAGE_BASE_URL",
-        ),
-    ),
-    (
-        "Reddit Data API",
-        (
-            "REDDIT_CLIENT_ID",
-            "REDDIT_CLIENT_SECRET",
-            "REDDIT_USERNAME",
-            "REDDIT_PASSWORD",
-            "REDDIT_REFRESH_TOKEN",
-            "REDDIT_USER_AGENT",
-            "REDDIT_BASE_URL",
-            "REDDIT_AUTH_URL",
         ),
     ),
     (
@@ -344,17 +323,6 @@ ALPHA_VANTAGE_SECTION_KEYS = (
 DISCLOSURE_SECTION_KEYS = (
     "DISCLOSURE_PROVIDER",
     "SEC_EDGAR_USER_AGENT",
-)
-
-REDDIT_SECTION_KEYS = (
-    "COMMUNITY_PROVIDER",
-    "REDDIT_ENABLED",
-    "REDDIT_CLIENT_ID",
-    "REDDIT_CLIENT_SECRET",
-    "REDDIT_USERNAME",
-    "REDDIT_PASSWORD",
-    "REDDIT_REFRESH_TOKEN",
-    "REDDIT_USER_AGENT",
 )
 
 SEARCH_SECTION_KEYS = (
@@ -1047,7 +1015,6 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "SEARCH_PROVIDER": settings.search_provider,
         "YAHOO_ENABLED": _bool_to_env(settings.yahoo_enabled),
         "ALPHA_VANTAGE_ENABLED": _bool_to_env(settings.alpha_vantage_enabled),
-        "REDDIT_ENABLED": _bool_to_env(settings.reddit_enabled),
         "SEARXNG_ENABLED": _bool_to_env(settings.searxng_enabled),
         "OPENAI_API_KEY": existing_raw.get("OPENAI_API_KEY", settings.openai_api_key or ""),
         "OPENAI_CHAT_MODEL_DEFAULT": existing_raw.get(
@@ -1219,38 +1186,6 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "ALPACA_DATA_FEED": existing_raw.get(
             "ALPACA_DATA_FEED",
             settings.alpaca_data_feed,
-        ),
-        "REDDIT_CLIENT_ID": existing_raw.get(
-            "REDDIT_CLIENT_ID",
-            settings.reddit_client_id or "",
-        ),
-        "REDDIT_CLIENT_SECRET": existing_raw.get(
-            "REDDIT_CLIENT_SECRET",
-            settings.reddit_client_secret or "",
-        ),
-        "REDDIT_USERNAME": existing_raw.get(
-            "REDDIT_USERNAME",
-            settings.reddit_username or "",
-        ),
-        "REDDIT_PASSWORD": existing_raw.get(
-            "REDDIT_PASSWORD",
-            settings.reddit_password or "",
-        ),
-        "REDDIT_REFRESH_TOKEN": existing_raw.get(
-            "REDDIT_REFRESH_TOKEN",
-            settings.reddit_refresh_token or "",
-        ),
-        "REDDIT_USER_AGENT": existing_raw.get(
-            "REDDIT_USER_AGENT",
-            settings.reddit_user_agent or "server:t212ai:v0.1.0 (by /u/your_reddit_username)",
-        ),
-        "REDDIT_BASE_URL": existing_raw.get(
-            "REDDIT_BASE_URL",
-            settings.reddit_base_url,
-        ),
-        "REDDIT_AUTH_URL": existing_raw.get(
-            "REDDIT_AUTH_URL",
-            settings.reddit_auth_url,
         ),
         "SEC_EDGAR_USER_AGENT": existing_raw.get(
             "SEC_EDGAR_USER_AGENT",
@@ -1718,53 +1653,6 @@ def apply_configuration_wizard(
                 "SEC_EDGAR_USER_AGENT (optional)",
                 default=updates["SEC_EDGAR_USER_AGENT"],
             )
-
-    _write_step_intro(
-        io_runtime,
-        "Community research",
-        "Optional Reddit research context. You can skip it now and come back later.",
-    )
-    if _should_update_section(io_runtime, existing, REDDIT_SECTION_KEYS):
-        reddit_enabled = io_runtime.confirm(
-            "Enable Reddit research integration?",
-            default=_env_truthy(updates["REDDIT_ENABLED"]),
-        )
-        updates["COMMUNITY_PROVIDER"] = "reddit" if reddit_enabled else "none"
-        updates["REDDIT_ENABLED"] = _bool_to_env(reddit_enabled)
-        if reddit_enabled:
-            updates["REDDIT_CLIENT_ID"] = io_runtime.prompt(
-                "REDDIT_CLIENT_ID",
-                default=updates["REDDIT_CLIENT_ID"],
-            )
-            updates["REDDIT_CLIENT_SECRET"] = io_runtime.prompt(
-                "REDDIT_CLIENT_SECRET",
-                default=updates["REDDIT_CLIENT_SECRET"],
-            )
-            updates["REDDIT_USER_AGENT"] = io_runtime.prompt(
-                "REDDIT_USER_AGENT",
-                default=updates["REDDIT_USER_AGENT"],
-            )
-            reddit_auth_mode = io_runtime.choose(
-                "Reddit auth mode",
-                options=REDDIT_AUTH_OPTIONS,
-                default="refresh_token" if updates["REDDIT_REFRESH_TOKEN"] else "username_password",
-            )
-            if reddit_auth_mode == "refresh_token":
-                updates["REDDIT_REFRESH_TOKEN"] = io_runtime.prompt(
-                    "REDDIT_REFRESH_TOKEN",
-                    default=updates["REDDIT_REFRESH_TOKEN"],
-                )
-                _clear_env_keys(updates, "REDDIT_USERNAME", "REDDIT_PASSWORD")
-            else:
-                updates["REDDIT_USERNAME"] = io_runtime.prompt(
-                    "REDDIT_USERNAME",
-                    default=updates["REDDIT_USERNAME"],
-                )
-                updates["REDDIT_PASSWORD"] = io_runtime.prompt(
-                    "REDDIT_PASSWORD",
-                    default=updates["REDDIT_PASSWORD"],
-                )
-                _clear_env_keys(updates, "REDDIT_REFRESH_TOKEN")
 
     _write_step_intro(
         io_runtime,
