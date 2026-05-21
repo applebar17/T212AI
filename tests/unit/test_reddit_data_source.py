@@ -3,36 +3,27 @@ from __future__ import annotations
 import urllib.parse
 
 from t212ai.data_sources.reddit import (
+    DEFAULT_DISCUSSION_SUBREDDITS,
     REDDIT_RESEARCH_TOOLBOX,
-    RedditAccessToken,
     RedditClient,
     RedditCommentSummary,
-    RedditDiscussionScanResult,
     RedditPostSummary,
     RedditSearchResult,
-    RedditSubredditSnapshot,
+    RedditSubredditPostsResult,
     RedditThreadDigest,
     RedditToolRuntime,
     RedditResearchService,
     build_reddit_tool_mapping,
-    reddit_company_discussion_scan,
     reddit_search_posts,
+    reddit_subreddit_posts,
 )
 
 
 class StubRedditClient(RedditClient):
     def __init__(self, payload_by_operation: dict[str, object]) -> None:
-        super().__init__(
-            client_id="client-id",
-            client_secret="client-secret",
-            refresh_token="refresh-token",
-            user_agent="server:t212ai:test (by /u/tester)",
-        )
+        super().__init__(user_agent="t212ai-test")
         self.payload_by_operation = payload_by_operation
         self.requests: dict[str, object] = {}
-
-    def _ensure_token(self) -> RedditAccessToken:
-        return RedditAccessToken(access_token="token")
 
     def _read_json_request(self, request, *, operation: str):  # type: ignore[override]
         self.requests[operation] = request
@@ -56,35 +47,25 @@ class FakeRedditService:
             subreddit=subreddit,
             sort=sort,
             time=time,
-            posts=[
-                RedditPostSummary(
-                    id="abc123",
-                    fullname="t3_abc123",
-                    subreddit=subreddit or "stocks",
-                    title="Apple discussion thread",
-                    author="analyst123",
-                    permalink="https://www.reddit.com/r/stocks/comments/abc123/apple_discussion/",
-                    score=120,
-                    num_comments=45,
-                )
-            ],
+            posts=[_fake_post(subreddit or "stocks")],
             meta={"provider": "fake"},
         )
 
-    def get_subreddit_snapshot(
+    def get_subreddit_posts(
         self,
         subreddit: str,
         *,
-        listing: str = "hot",
+        sort: str = "hot",
         time: str | None = None,
         limit: int = 10,
-    ) -> RedditSubredditSnapshot:
-        del time, limit
-        return RedditSubredditSnapshot(
+        after: str | None = None,
+    ) -> RedditSubredditPostsResult:
+        del limit, after
+        return RedditSubredditPostsResult(
             subreddit=subreddit,
-            listing=listing,
-            about={"title": "Stocks", "subscribers": 5000000, "activeUserCount": 12345},
-            posts=[],
+            sort=sort,
+            time=time,
+            posts=[_fake_post(subreddit)],
             meta={"provider": "fake"},
         )
 
@@ -99,22 +80,14 @@ class FakeRedditService:
         del top_comment_limit
         return RedditThreadDigest(
             subreddit=subreddit,
-            post=RedditPostSummary(
-                id=post_id,
-                fullname=f"t3_{post_id}",
-                subreddit=subreddit,
-                title="Thread title",
-                author="poster",
-                score=200,
-                num_comments=50,
-            ),
+            post=_fake_post(subreddit, post_id=post_id),
             comment_sort=comment_sort,
             top_comments=[
                 RedditCommentSummary(
-                    id="c1",
+                    comment_id="c1",
                     fullname="t1_c1",
                     author="commenter",
-                    body_preview="This is a high-signal comment.",
+                    body="This is a high-signal full comment.",
                     score=80,
                     depth=0,
                 )
@@ -123,39 +96,33 @@ class FakeRedditService:
             meta={"provider": "fake"},
         )
 
-    def scan_company_discussion(
-        self,
-        ticker: str,
-        *,
-        company_name: str | None = None,
-        subreddits: list[str] | None = None,
-        time: str = "month",
-        limit_per_subreddit: int = 5,
-        max_results: int = 20,
-    ) -> RedditDiscussionScanResult:
-        del time, limit_per_subreddit, max_results
-        communities = subreddits or ["stocks", "investing"]
-        return RedditDiscussionScanResult(
-            ticker=ticker,
-            company_name=company_name,
-            subreddits=communities,
-            query_terms=[ticker, company_name or ticker],
-            posts=[
-                RedditPostSummary(
-                    id="scan1",
-                    fullname="t3_scan1",
-                    subreddit="stocks",
-                    title="AAPL sentiment thread",
-                    score=500,
-                    num_comments=180,
-                )
-            ],
-            duplicates_removed=2,
-            meta={"provider": "fake"},
-        )
+
+def _fake_post(subreddit: str, *, post_id: str = "abc123") -> RedditPostSummary:
+    return RedditPostSummary(
+        post_id=post_id,
+        fullname=f"t3_{post_id}",
+        subreddit=subreddit,
+        title="Apple discussion thread",
+        author="analyst123",
+        permalink=f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/apple_discussion/",
+        url=f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/apple_discussion/",
+        selftext="Full post body about demand, margins, and sentiment.",
+        score=120,
+        num_comments=45,
+        upvote_ratio=0.91,
+        top_comments=[
+            RedditCommentSummary(
+                comment_id="c1",
+                fullname="t1_c1",
+                author="commenter",
+                body="Full popular comment body.",
+                score=40,
+            )
+        ],
+    )
 
 
-def test_reddit_client_builds_search_query_with_oauth_headers() -> None:
+def test_reddit_client_builds_public_search_query_without_oauth_headers() -> None:
     client = StubRedditClient(
         {
             "search": {
@@ -173,22 +140,43 @@ def test_reddit_client_builds_search_query_with_oauth_headers() -> None:
         subreddit="stocks",
         sort="top",
         time="week",
-        limit=5,
+        limit=50,
     )
     request = client.requests["search"]
     query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
 
-    assert request.headers["Authorization"] == "bearer token"
+    assert "Authorization" not in request.headers
+    assert request.headers["User-agent"] == "t212ai-test"
+    assert request.full_url.startswith("https://www.reddit.com/r/stocks/search.json?")
     assert query["q"] == ["apple"]
     assert query["restrict_sr"] == ["1"]
     assert query["sort"] == ["top"]
     assert query["t"] == ["week"]
-    assert query["limit"] == ["5"]
+    assert query["limit"] == ["25"]
 
 
-def test_reddit_research_service_flattens_comments_for_thread_digest() -> None:
+def test_reddit_research_service_preserves_full_content_and_popular_comments() -> None:
     client = StubRedditClient(
         {
+            "subreddit_listing": {
+                "data": {
+                    "children": [
+                        {
+                            "kind": "t3",
+                            "data": {
+                                "id": "abc123",
+                                "name": "t3_abc123",
+                                "subreddit": "wallstreetbets",
+                                "title": "AAPL thread",
+                                "selftext": "Long full post body with &amp; escaped text.",
+                                "score": 250,
+                                "upvote_ratio": 0.88,
+                                "num_comments": 2,
+                            },
+                        }
+                    ]
+                }
+            },
             "comments": [
                 {
                     "data": {
@@ -198,10 +186,11 @@ def test_reddit_research_service_flattens_comments_for_thread_digest() -> None:
                                 "data": {
                                     "id": "abc123",
                                     "name": "t3_abc123",
-                                    "subreddit": "stocks",
-                                    "title": "Apple thread",
-                                    "author": "poster",
+                                    "subreddit": "wallstreetbets",
+                                    "title": "AAPL thread",
+                                    "selftext": "Long full post body",
                                     "score": 250,
+                                    "upvote_ratio": 0.88,
                                     "num_comments": 2,
                                 },
                             }
@@ -217,42 +206,61 @@ def test_reddit_research_service_flattens_comments_for_thread_digest() -> None:
                                     "id": "c1",
                                     "name": "t1_c1",
                                     "author": "alpha",
-                                    "body": "Top-level comment",
+                                    "body": "Top-level full comment body",
                                     "score": 40,
-                                    "replies": {
-                                        "data": {
-                                            "children": [
-                                                {
-                                                    "kind": "t1",
-                                                    "data": {
-                                                        "id": "c2",
-                                                        "name": "t1_c2",
-                                                        "author": "beta",
-                                                        "body": "Reply comment",
-                                                        "score": 10,
-                                                    },
-                                                }
-                                            ]
-                                        }
-                                    },
                                 },
-                            }
+                            },
+                            {
+                                "kind": "t1",
+                                "data": {
+                                    "id": "c2",
+                                    "name": "t1_c2",
+                                    "author": "beta",
+                                    "body": "Second full comment body",
+                                    "score": 10,
+                                },
+                            },
+                            {
+                                "kind": "t1",
+                                "data": {
+                                    "id": "c3",
+                                    "name": "t1_c3",
+                                    "author": "gamma",
+                                    "body": "Third full comment body",
+                                    "score": 5,
+                                },
+                            },
                         ]
                     }
                 },
-            ]
+            ],
         }
     )
     service = RedditResearchService(client)
 
-    result = service.get_thread_digest("stocks", "abc123", top_comment_limit=5)
+    result = service.get_subreddit_posts("wallstreetbets", limit=50)
 
-    assert result.post.title == "Apple thread"
-    assert result.total_comments_seen == 2
-    assert result.top_comments[0].author == "alpha"
+    assert "wallstreetbets" in DEFAULT_DISCUSSION_SUBREDDITS
+    assert result.posts[0].post_id == "abc123"
+    assert result.posts[0].selftext == "Long full post body with & escaped text."
+    assert result.posts[0].score == 250
+    assert result.posts[0].upvote_ratio == 0.88
+    assert [comment.comment_id for comment in result.posts[0].top_comments] == ["c1", "c2"]
+    assert result.posts[0].top_comments[0].body == "Top-level full comment body"
 
 
-def test_reddit_search_tool_returns_verbose_context() -> None:
+def test_reddit_research_service_blocks_non_whitelisted_subreddits() -> None:
+    service = RedditResearchService(StubRedditClient({}))
+
+    try:
+        service.get_subreddit_posts("random")
+    except Exception as exc:
+        assert exc.__class__.__name__ == "RedditSubredditNotAllowedError"
+    else:
+        raise AssertionError("Expected non-whitelisted subreddit to fail")
+
+
+def test_reddit_search_tool_returns_content_rich_context() -> None:
     runtime = RedditToolRuntime(service=FakeRedditService())  # type: ignore[arg-type]
 
     result = reddit_search_posts(
@@ -266,34 +274,40 @@ def test_reddit_search_tool_returns_verbose_context() -> None:
 
     assert result.status == "ok"
     assert result.output is not None
-    assert "anecdotal community context" in result.output
-    assert "Apple discussion thread" in result.output
-
-
-def test_reddit_company_scan_tool_returns_discussion_summary() -> None:
-    runtime = RedditToolRuntime(service=FakeRedditService())  # type: ignore[arg-type]
-
-    result = reddit_company_discussion_scan(
-        ticker="AAPL",
-        company_name="Apple",
-        subreddits=None,
-        time="month",
-        limit_per_subreddit=5,
-        max_results=10,
-        runtime=runtime,
+    assert "community/social research context" in result.output
+    assert "Use data.posts for full post/comment content" in result.output
+    assert result.data["posts"][0]["post_id"] == "abc123"
+    assert result.data["posts"][0]["content"] == (
+        "Full post body about demand, margins, and sentiment."
     )
+    assert result.data["posts"][0]["comments"][0]["body"] == "Full popular comment body."
+    assert result.data["posts"][0]["popularity"] == {
+        "comments": 45,
+        "score": 120,
+        "upvote_ratio": 0.91,
+    }
+    assert "fullname" not in result.data["posts"][0]
+    assert "author" not in result.data["posts"][0]
+    assert "comment_id" not in result.data["posts"][0]["comments"][0]
 
-    assert result.status == "ok"
-    assert result.output is not None
-    assert "duplicate hit(s)" in result.output
-    assert "retail/community signal context" in result.output
-    assert result.data["ticker"] == "AAPL"
 
-
-def test_reddit_toolbox_and_mapping() -> None:
+def test_reddit_subreddit_tool_and_mapping() -> None:
     runtime = RedditToolRuntime(service=FakeRedditService())  # type: ignore[arg-type]
     mapping = build_reddit_tool_mapping(runtime)
 
     assert REDDIT_RESEARCH_TOOLBOX.name == "reddit_research"
     assert "reddit_search_posts" in REDDIT_RESEARCH_TOOLBOX.tools_by_name
-    assert "reddit_company_discussion_scan" in mapping
+    assert "reddit_subreddit_posts" in REDDIT_RESEARCH_TOOLBOX.tools_by_name
+    assert "reddit_thread" in REDDIT_RESEARCH_TOOLBOX.tools_by_name
+    assert "reddit_subreddit_posts" in mapping
+
+    result = reddit_subreddit_posts(
+        subreddit="wallstreetbets",
+        sort="hot",
+        time=None,
+        limit=5,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    assert "r/wallstreetbets" in result.output
