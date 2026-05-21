@@ -568,10 +568,7 @@ def test_build_runtime_builds_optional_provider_stacks(
             "YAHOO_ENABLED": "true",
             "ALPHA_VANTAGE_ENABLED": "true",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
-            "REDDIT_ENABLED": "true",
-            "REDDIT_CLIENT_ID": "reddit-id",
-            "REDDIT_CLIENT_SECRET": "reddit-secret",
-            "REDDIT_REFRESH_TOKEN": "refresh-token",
+            "COMMUNITY_PROVIDER": "reddit",
             "REDDIT_USER_AGENT": "server:t212ai:test (by /u/tester)",
             "TELEGRAM_BOT_TOKEN": "telegram-token",
             "TELEGRAM_ALLOWED_CHAT_ID": "123",
@@ -605,6 +602,11 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.reddit_service is not None
     assert runtime.community_research_service is not None
     assert isinstance(runtime.community_research_service, CommunityResearchService)
+    assert runtime.reddit_research_agent is not None
+    assert (
+        "delegate_to_reddit_research_agent"
+        in runtime.main_orchestrator.orchestrator_toolbox.tools_by_name
+    )
     assert runtime.sec_edgar_client is not None
     assert runtime.insider_manager is not None
     assert runtime.disclosure_service is not None

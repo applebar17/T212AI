@@ -99,13 +99,12 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["YAHOO_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_API_KEY"] == "alpha-key"
-    assert updates["REDDIT_ENABLED"] == "false"
     assert updates["SEARXNG_ENABLED"] == "false"
     assert updates["LANGSMITH_TRACING"] == "false"
 
 
-def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() -> None:
-    updates = cli.build_managed_env_values({"REDDIT_REFRESH_TOKEN": "legacy-refresh-token"})
+def test_apply_configuration_wizard_supports_azure_without_reddit_prompts() -> None:
+    updates = cli.build_managed_env_values({"COMMUNITY_PROVIDER": "reddit"})
     responses = iter(
         [
             "2",
@@ -130,13 +129,6 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
             "3",
             "n",
             "n",
-            "y",
-            "reddit-id",
-            "reddit-secret",
-            "reddit-agent",
-            "2",
-            "reddit-user",
-            "reddit-password",
             "n",
             "n",
             "n",
@@ -166,10 +158,7 @@ def test_apply_configuration_wizard_supports_azure_and_reddit_user_password() ->
     assert updates["DISCLOSURE_PROVIDER"] == "none"
     assert updates["COMMUNITY_PROVIDER"] == "reddit"
     assert updates["SEARCH_PROVIDER"] == "none"
-    assert updates["REDDIT_ENABLED"] == "true"
-    assert updates["REDDIT_USERNAME"] == "reddit-user"
-    assert updates["REDDIT_PASSWORD"] == "reddit-password"
-    assert updates["REDDIT_REFRESH_TOKEN"] == ""
+    assert not any(key.startswith("REDDIT_") for key in updates)
 
 
 def test_context_limit_prompt_validates_custom_integer() -> None:
@@ -544,18 +533,18 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert "- Scheduler trade setup monitor: unavailable" in output
 
 
-def test_doctor_returns_nonzero_for_partial_reddit_config(tmp_path, capsys) -> None:
+def test_doctor_accepts_manual_reddit_provider_without_credentials(tmp_path, capsys) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "REDDIT_ENABLED=true\nREDDIT_CLIENT_ID=reddit-id\n",
+        "COMMUNITY_PROVIDER=reddit\n",
         encoding="utf-8",
     )
 
     exit_code = cli.main(["doctor", "--env-file", str(env_file)])
 
     output = capsys.readouterr().out
-    assert exit_code == 1
-    assert "Reddit is missing required settings" in output
+    assert exit_code == 0
+    assert "Configuration status: valid" in output
 
 
 def test_run_bot_preflight_fails_cleanly_when_llm_is_missing(tmp_path, capsys) -> None:

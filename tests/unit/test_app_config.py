@@ -68,9 +68,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "YAHOO_ENABLED=true",
                 "ALPHA_VANTAGE_ENABLED=true",
                 "ALPHA_VANTAGE_API_KEY=alpha-key",
-                "REDDIT_ENABLED=true",
-                "REDDIT_CLIENT_ID=reddit-client",
-                "REDDIT_CLIENT_SECRET=reddit-secret",
+                "REDDIT_BASE_URL=https://reddit.example",
                 "REDDIT_USER_AGENT=server:t212ai:test (by /u/tester)",
                 "SEARXNG_ENABLED=true",
                 "SEARXNG_BASE_URL=https://search.example",
@@ -98,9 +96,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "YAHOO_ENABLED",
         "ALPHA_VANTAGE_ENABLED",
         "ALPHA_VANTAGE_API_KEY",
-        "REDDIT_ENABLED",
-        "REDDIT_CLIENT_ID",
-        "REDDIT_CLIENT_SECRET",
+        "REDDIT_BASE_URL",
         "REDDIT_USER_AGENT",
         "SEARXNG_ENABLED",
         "SEARXNG_BASE_URL",
@@ -136,8 +132,7 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.alpha_vantage_enabled
     assert settings.alpha_vantage_api_key == "alpha-key"
     assert settings.reddit_enabled
-    assert settings.reddit_client_id == "reddit-client"
-    assert settings.reddit_client_secret == "reddit-secret"
+    assert settings.reddit_base_url == "https://reddit.example"
     assert settings.reddit_user_agent == "server:t212ai:test (by /u/tester)"
     assert settings.searxng_enabled
     assert settings.searxng_base_url == "https://search.example"
@@ -258,7 +253,7 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
             "OPENAI_API_KEY": "openai-key",
             "T212_LIVE_API_SECRET": "secret",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
-            "REDDIT_CLIENT_ID": "reddit-id",
+            "COMMUNITY_PROVIDER": "reddit",
             "SEARXNG_BASE_URL": "https://search.example",
         }
     )
@@ -361,8 +356,6 @@ def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() 
             "YAHOO_ENABLED": "true",
             "ALPHA_VANTAGE_ENABLED": "true",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
-            "REDDIT_ENABLED": "true",
-            "REDDIT_CLIENT_ID": "reddit-id",
             "SEARXNG_ENABLED": "true",
             "SEARXNG_BASE_URL": "https://search.example",
         }

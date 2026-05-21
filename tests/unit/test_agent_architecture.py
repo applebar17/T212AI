@@ -211,8 +211,9 @@ class FakeGenAIClient:
         tools_mapping: dict[str, object] | None = None,
         toolbox=None,
         include_tool_meta: bool = False,
+        **kwargs,
     ):
-        del toolbox, include_tool_meta
+        del toolbox, include_tool_meta, kwargs
         messages = params.get("messages") or []
         text = str(messages[-1]["content"]).lower() if messages else ""
         if tools_mapping is not None:
@@ -268,6 +269,20 @@ class FakeGenAIClient:
                     expected_output="Return the scheduled process id and monitor summary.",
                     intent_kind=IntentKind.MANAGE_SCHEDULED_PROCESSES.value,
                     entities=[{"key": "symbol", "value": "TSLA"}],
+                )
+                return _fake_chat_response("Friendly orchestrator answer.")
+            if (
+                "what is reddit saying" in text
+                and "delegate_to_reddit_research_agent" in tools_mapping
+            ):
+                tools_mapping["delegate_to_reddit_research_agent"](
+                    task_brief="Explore Reddit discussion for the requested topic.",
+                    expected_output=(
+                        "Return social sentiment, attention level, themes, notable "
+                        "posts, cautions, and verification needs."
+                    ),
+                    intent_kind=IntentKind.SOCIAL_RESEARCH.value,
+                    entities=[{"key": "topic", "value": "NVDA"}],
                 )
                 return _fake_chat_response("Friendly orchestrator answer.")
         return _fake_chat_response(
@@ -1728,10 +1743,45 @@ def test_orchestrator_routes_scheduler_requests_when_scheduler_agent_is_configur
     assert response.metadata["route"] == "scheduler_agent"
 
 
+def test_orchestrator_routes_reddit_requests_when_reddit_agent_is_configured() -> None:
+    specialists = build_specialist_agents(
+        _reasoner(),
+        reddit_research_service=object(),
+    )
+    orchestrator = MainOrchestratorAgent(_reasoner(), specialists=specialists)
+
+    response = orchestrator.handle(
+        AgentRequest(user_message="what is Reddit saying about NVDA?", chat_id="chat")
+    )
+
+    assert "delegate_to_reddit_research_agent" in orchestrator.orchestrator_toolbox.tools_by_name
+    assert response.metadata["route"] == "reddit_research_agent"
+
+
+def test_market_analyst_gets_reddit_delegate_when_reddit_agent_is_configured() -> None:
+    specialists = build_specialist_agents(
+        _reasoner(),
+        reddit_research_service=object(),
+    )
+
+    assert specialists.reddit_research is not None
+    assert (
+        "delegate_to_reddit_research_agent"
+        in specialists.market.profile.toolbox.tools_by_name
+    )
+    assert "reddit" not in specialists.order.profile.toolbox.tools_by_name
+
+
 def test_orchestrator_omits_scheduler_tool_when_scheduler_agent_is_missing() -> None:
     orchestrator = MainOrchestratorAgent(_reasoner())
 
     assert "delegate_to_scheduler_agent" not in orchestrator.orchestrator_toolbox.tools_by_name
+
+
+def test_orchestrator_omits_reddit_tool_when_reddit_agent_is_missing() -> None:
+    orchestrator = MainOrchestratorAgent(_reasoner())
+
+    assert "delegate_to_reddit_research_agent" not in orchestrator.orchestrator_toolbox.tools_by_name
 
 
 def test_classify_message_treats_liquidation_as_order_execution() -> None:
