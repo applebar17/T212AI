@@ -1,16 +1,18 @@
-"""Higher-level Reddit research service."""
+"""Higher-level public Reddit research service."""
 
 from __future__ import annotations
 
+from html import unescape
+import math
+import re
 from typing import Any
 
-from .client import RedditClient
+from .client import REDDIT_MAX_LIMIT, RedditClient
 from .models import (
     RedditCommentSummary,
-    RedditDiscussionScanResult,
     RedditPostSummary,
     RedditSearchResult,
-    RedditSubredditSnapshot,
+    RedditSubredditPostsResult,
     RedditThreadDigest,
 )
 
@@ -20,12 +22,38 @@ DEFAULT_DISCUSSION_SUBREDDITS = [
     "investing",
     "wallstreetbets",
     "SecurityAnalysis",
+    "ValueInvesting",
+    "StockMarket",
+    "pennystocks",
+    "options",
+    "algotrading",
+    "Economics",
+    "business",
+    "finance",
 ]
+POPULAR_COMMENTS_PER_POST = 2
+
+
+class RedditSubredditNotAllowedError(ValueError):
+    def __init__(self, subreddit: str, allowed: list[str]) -> None:
+        super().__init__(
+            f"Subreddit r/{subreddit} is not in the configured finance/business whitelist."
+        )
+        self.subreddit = subreddit
+        self.allowed = allowed
 
 
 class RedditResearchService:
-    def __init__(self, client: RedditClient) -> None:
+    def __init__(
+        self,
+        client: RedditClient,
+        *,
+        allowed_subreddits: list[str] | None = None,
+    ) -> None:
         self.client = client
+        self.allowed_subreddits = _dedupe_subreddits(
+            allowed_subreddits or DEFAULT_DISCUSSION_SUBREDDITS
+        )
 
     def search_posts(
         self,
@@ -37,56 +65,75 @@ class RedditResearchService:
         limit: int = 10,
         after: str | None = None,
     ) -> RedditSearchResult:
-        payload = self.client.search(
-            query,
-            subreddit=subreddit,
+        resolved_limit = _bounded_limit(limit)
+        resolved_subreddit = self._validate_optional_subreddit(subreddit)
+        if resolved_subreddit is None:
+            posts, after_value, before_value = self._search_whitelist(
+                query,
+                sort=sort,
+                time=time,
+                limit=resolved_limit,
+            )
+            searched_subreddits = self.allowed_subreddits
+        else:
+            payload = self.client.search(
+                query,
+                subreddit=resolved_subreddit,
+                sort=sort,
+                time=time,
+                limit=resolved_limit,
+                after=after,
+            )
+            listing = _extract_listing(payload)
+            posts = self._posts_from_listing(
+                listing,
+                comment_limit=POPULAR_COMMENTS_PER_POST,
+            )
+            after_value = listing.get("after")
+            before_value = listing.get("before")
+            searched_subreddits = [resolved_subreddit]
+        return RedditSearchResult(
+            query=query,
+            subreddit=resolved_subreddit,
             sort=sort,
             time=time,
-            limit=limit,
+            posts=posts,
+            after=after_value,
+            before=before_value,
+            meta={
+                "provider": "reddit_public_json",
+                "resultCount": len(posts),
+                "searchedSubreddits": searched_subreddits,
+            },
+        )
+
+    def get_subreddit_posts(
+        self,
+        subreddit: str,
+        *,
+        sort: str = "hot",
+        time: str | None = None,
+        limit: int = 10,
+        after: str | None = None,
+    ) -> RedditSubredditPostsResult:
+        resolved_subreddit = self._validate_subreddit(subreddit)
+        payload = self.client.subreddit_listing(
+            resolved_subreddit,
+            listing=sort,
+            time=time,
+            limit=_bounded_limit(limit),
             after=after,
         )
         listing = _extract_listing(payload)
-        children = listing.get("children") or []
-        posts = [_post_from_child(child) for child in children if child.get("kind") == "t3"]
-        return RedditSearchResult(
-            query=query,
-            subreddit=subreddit,
+        posts = self._posts_from_listing(listing, comment_limit=POPULAR_COMMENTS_PER_POST)
+        return RedditSubredditPostsResult(
+            subreddit=resolved_subreddit,
             sort=sort,
             time=time,
             posts=posts,
             after=listing.get("after"),
             before=listing.get("before"),
-            meta={"provider": "reddit_data_api", "resultCount": len(posts)},
-        )
-
-    def get_subreddit_snapshot(
-        self,
-        subreddit: str,
-        *,
-        listing: str = "hot",
-        time: str | None = None,
-        limit: int = 10,
-    ) -> RedditSubredditSnapshot:
-        about_payload = self.client.subreddit_about(subreddit)
-        listing_payload = self.client.subreddit_listing(
-            subreddit,
-            listing=listing,
-            time=time,
-            limit=limit,
-        )
-        about = _extract_subreddit_about(about_payload)
-        listing_data = _extract_listing(listing_payload)
-        posts = [
-            _post_from_child(child)
-            for child in (listing_data.get("children") or [])
-            if child.get("kind") == "t3"
-        ]
-        return RedditSubredditSnapshot(
-            subreddit=subreddit,
-            listing=listing,
-            about=about,
-            posts=posts,
-            meta={"provider": "reddit_data_api", "resultCount": len(posts)},
+            meta={"provider": "reddit_public_json", "resultCount": len(posts)},
         )
 
     def get_thread_digest(
@@ -97,12 +144,131 @@ class RedditResearchService:
         comment_sort: str = "confidence",
         top_comment_limit: int = 8,
     ) -> RedditThreadDigest:
+        resolved_subreddit = self._validate_subreddit(subreddit)
         payload = self.client.comments(
-            subreddit,
+            resolved_subreddit,
             post_id,
             sort=comment_sort,
-            limit=max(10, int(top_comment_limit)),
+            limit=_bounded_limit(top_comment_limit),
         )
+        return self._thread_from_payload(
+            payload,
+            subreddit=resolved_subreddit,
+            comment_sort=comment_sort,
+            top_comment_limit=top_comment_limit,
+        )
+
+    def _posts_from_listing(
+        self,
+        listing: dict[str, Any],
+        *,
+        comment_limit: int,
+    ) -> list[RedditPostSummary]:
+        posts: list[RedditPostSummary] = []
+        for child in listing.get("children") or []:
+            if child.get("kind") != "t3":
+                continue
+            post = _post_from_child(child)
+            posts.append(self._attach_popular_comments(post, limit=comment_limit))
+        return posts
+
+    def _search_whitelist(
+        self,
+        query: str,
+        *,
+        sort: str,
+        time: str,
+        limit: int,
+    ) -> tuple[list[RedditPostSummary], str | None, str | None]:
+        per_subreddit = max(1, math.ceil(limit / max(1, len(self.allowed_subreddits))))
+        merged: dict[str, RedditPostSummary] = {}
+        after_value: str | None = None
+        before_value: str | None = None
+        for subreddit in self.allowed_subreddits:
+            if len(merged) >= limit:
+                break
+            payload = self.client.search(
+                query,
+                subreddit=subreddit,
+                sort=sort,
+                time=time,
+                limit=per_subreddit,
+            )
+            listing = _extract_listing(payload)
+            after_value = after_value or listing.get("after")
+            before_value = before_value or listing.get("before")
+            for post in self._posts_from_listing(
+                listing,
+                comment_limit=POPULAR_COMMENTS_PER_POST,
+            ):
+                key = post.fullname or post.permalink or post.post_id
+                if key in merged:
+                    continue
+                merged[key] = post
+                if len(merged) >= limit:
+                    break
+        ranked = sorted(
+            merged.values(),
+            key=lambda post: (
+                post.score or 0,
+                post.num_comments or 0,
+                post.created_at or "",
+            ),
+            reverse=True,
+        )
+        return ranked[:limit], after_value, before_value
+
+    def _attach_popular_comments(
+        self,
+        post: RedditPostSummary,
+        *,
+        limit: int,
+    ) -> RedditPostSummary:
+        if not post.post_id or not post.subreddit or limit <= 0:
+            return post
+        try:
+            payload = self.client.comments(
+                post.subreddit,
+                post.post_id,
+                sort="top",
+                limit=max(limit, 2),
+                depth=2,
+            )
+            thread = self._thread_from_payload(
+                payload,
+                subreddit=post.subreddit,
+                comment_sort="top",
+                top_comment_limit=limit,
+            )
+        except Exception:
+            return post
+        return RedditPostSummary(
+            post_id=post.post_id,
+            fullname=post.fullname,
+            subreddit=post.subreddit,
+            title=post.title,
+            author=post.author,
+            permalink=post.permalink,
+            url=post.url,
+            selftext=post.selftext,
+            created_at=post.created_at,
+            score=post.score,
+            num_comments=post.num_comments,
+            upvote_ratio=post.upvote_ratio,
+            over_18=post.over_18,
+            is_self=post.is_self,
+            flair=post.flair,
+            top_comments=thread.top_comments[:limit],
+        )
+
+    def _thread_from_payload(
+        self,
+        payload: list[dict[str, Any]],
+        *,
+        subreddit: str,
+        comment_sort: str,
+        top_comment_limit: int,
+    ) -> RedditThreadDigest:
         if len(payload) < 2:
             raise ValueError("Reddit comments payload was incomplete.")
         post_listing = _extract_listing(payload[0])
@@ -118,71 +284,27 @@ class RedditResearchService:
             key=lambda item: (item.score or 0, item.depth * -1),
             reverse=True,
         )
-        top_comments = ranked_comments[: max(1, int(top_comment_limit))]
+        top_comments = ranked_comments[: max(1, min(REDDIT_MAX_LIMIT, int(top_comment_limit)))]
         return RedditThreadDigest(
             subreddit=subreddit,
             post=post,
             comment_sort=comment_sort,
             top_comments=top_comments,
             total_comments_seen=len(flat_comments),
-            meta={"provider": "reddit_data_api"},
+            meta={"provider": "reddit_public_json"},
         )
 
-    def scan_company_discussion(
-        self,
-        ticker: str,
-        *,
-        company_name: str | None = None,
-        subreddits: list[str] | None = None,
-        time: str = "month",
-        limit_per_subreddit: int = 5,
-        max_results: int = 20,
-    ) -> RedditDiscussionScanResult:
-        resolved_ticker = str(ticker or "").strip().upper()
-        if not resolved_ticker:
-            raise ValueError("ticker is required.")
-        communities = [
-            str(item).strip()
-            for item in (subreddits or DEFAULT_DISCUSSION_SUBREDDITS)
-            if str(item).strip()
-        ]
-        queries = _build_discussion_queries(resolved_ticker, company_name=company_name)
-        merged: dict[str, RedditPostSummary] = {}
-        duplicates_removed = 0
-        for subreddit in communities:
-            for query in queries:
-                result = self.search_posts(
-                    query,
-                    subreddit=subreddit,
-                    sort="relevance",
-                    time=time,
-                    limit=limit_per_subreddit,
-                )
-                for post in result.posts:
-                    key = post.permalink or post.fullname
-                    if key in merged:
-                        duplicates_removed += 1
-                        continue
-                    merged[key] = post
-        ranked = sorted(
-            merged.values(),
-            key=lambda post: (
-                post.score or 0,
-                post.num_comments or 0,
-                post.created_at or "",
-            ),
-            reverse=True,
-        )
-        posts = ranked[: max(1, int(max_results))]
-        return RedditDiscussionScanResult(
-            ticker=resolved_ticker,
-            company_name=str(company_name or "").strip() or None,
-            subreddits=communities,
-            query_terms=queries,
-            posts=posts,
-            duplicates_removed=duplicates_removed,
-            meta={"provider": "reddit_data_api", "scannedSubreddits": len(communities)},
-        )
+    def _validate_optional_subreddit(self, subreddit: str | None) -> str | None:
+        if subreddit is None or not str(subreddit).strip():
+            return None
+        return self._validate_subreddit(subreddit)
+
+    def _validate_subreddit(self, subreddit: str) -> str:
+        resolved = _clean_subreddit_name(subreddit)
+        allowed_by_lower = {item.lower(): item for item in self.allowed_subreddits}
+        if resolved.lower() not in allowed_by_lower:
+            raise RedditSubredditNotAllowedError(resolved, self.allowed_subreddits)
+        return allowed_by_lower[resolved.lower()]
 
 
 def _extract_listing(payload: dict[str, Any]) -> dict[str, Any]:
@@ -192,39 +314,24 @@ def _extract_listing(payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _extract_subreddit_about(payload: dict[str, Any]) -> dict[str, Any]:
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise ValueError("Reddit subreddit payload was missing a data object.")
-    return {
-        "displayName": data.get("display_name"),
-        "title": data.get("title"),
-        "publicDescription": data.get("public_description"),
-        "subscribers": data.get("subscribers"),
-        "activeUserCount": data.get("active_user_count"),
-        "over18": data.get("over18"),
-        "url": data.get("url"),
-    }
-
-
 def _post_from_child(child: dict[str, Any]) -> RedditPostSummary:
     data = child.get("data") or {}
     return RedditPostSummary(
-        id=str(data.get("id") or ""),
+        post_id=str(data.get("id") or ""),
         fullname=str(data.get("name") or ""),
         subreddit=str(data.get("subreddit") or ""),
-        title=str(data.get("title") or ""),
+        title=_clean_text(data.get("title")) or "",
         author=_nullable_text(data.get("author")),
         permalink=_to_reddit_url(data.get("permalink")),
         url=_nullable_text(data.get("url")),
-        selftext_preview=_preview_text(data.get("selftext"), max_chars=320),
+        selftext=_clean_text(data.get("selftext")),
         created_at=_to_iso(data.get("created_utc")),
         score=_to_int(data.get("score")),
         num_comments=_to_int(data.get("num_comments")),
         upvote_ratio=_to_float(data.get("upvote_ratio")),
         over_18=bool(data.get("over_18")),
         is_self=bool(data.get("is_self")),
-        link_flair_text=_nullable_text(data.get("link_flair_text")),
+        flair=_nullable_text(data.get("link_flair_text")),
     )
 
 
@@ -236,10 +343,10 @@ def _flatten_comments(children: list[dict[str, Any]], *, depth: int = 0) -> list
         data = child.get("data") or {}
         comments.append(
             RedditCommentSummary(
-                id=str(data.get("id") or ""),
+                comment_id=str(data.get("id") or ""),
                 fullname=str(data.get("name") or ""),
                 author=_nullable_text(data.get("author")),
-                body_preview=_preview_text(data.get("body"), max_chars=360),
+                body=_clean_text(data.get("body")),
                 permalink=_to_reddit_url(data.get("permalink")),
                 created_at=_to_iso(data.get("created_utc")),
                 score=_to_int(data.get("score")),
@@ -255,32 +362,33 @@ def _flatten_comments(children: list[dict[str, Any]], *, depth: int = 0) -> list
     return comments
 
 
-def _build_discussion_queries(ticker: str, *, company_name: str | None) -> list[str]:
-    queries = [ticker]
-    resolved_name = str(company_name or "").strip()
-    if resolved_name:
-        queries.append(resolved_name)
-        queries.append(f"{resolved_name} {ticker}")
+def _dedupe_subreddits(items: list[str]) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
-    for query in queries:
-        normalized = query.lower()
-        if normalized in seen:
+    for item in items:
+        subreddit = _clean_subreddit_name(item)
+        key = subreddit.lower()
+        if key in seen:
             continue
-        seen.add(normalized)
-        deduped.append(query)
+        seen.add(key)
+        deduped.append(subreddit)
     return deduped
 
 
-def _preview_text(value: Any, *, max_chars: int) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
+def _clean_subreddit_name(value: Any) -> str:
+    text = str(value or "").strip().removeprefix("r/").strip("/")
     if not text:
+        raise ValueError("subreddit is required.")
+    return text
+
+
+def _clean_text(value: Any) -> str | None:
+    text = _nullable_text(value)
+    if text is None:
         return None
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 3].rstrip() + "..."
+    text = unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
 
 
 def _nullable_text(value: Any) -> str | None:
@@ -332,3 +440,7 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _bounded_limit(value: int) -> int:
+    return max(1, min(REDDIT_MAX_LIMIT, int(value)))

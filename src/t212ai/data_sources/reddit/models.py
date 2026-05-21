@@ -1,28 +1,9 @@
-"""Reddit research models."""
+"""Reddit public JSON research models."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from typing import Any
-
-
-@dataclass(frozen=True, slots=True)
-class RedditAccessToken:
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 3600
-    scope: str | None = None
-    issued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
-    @property
-    def expires_at(self) -> datetime:
-        return self.issued_at + timedelta(seconds=max(0, int(self.expires_in)))
-
-    def is_expired(self, *, skew_seconds: int = 60) -> bool:
-        return datetime.now(timezone.utc) >= (
-            self.expires_at - timedelta(seconds=max(0, int(skew_seconds)))
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,49 +17,11 @@ class RedditApiErrorContext:
 
 
 @dataclass(frozen=True, slots=True)
-class RedditPostSummary:
-    id: str
-    fullname: str
-    subreddit: str
-    title: str
-    author: str | None = None
-    permalink: str | None = None
-    url: str | None = None
-    selftext_preview: str | None = None
-    created_at: str | None = None
-    score: int | None = None
-    num_comments: int | None = None
-    upvote_ratio: float | None = None
-    over_18: bool = False
-    is_self: bool = False
-    link_flair_text: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "fullname": self.fullname,
-            "subreddit": self.subreddit,
-            "title": self.title,
-            "author": self.author,
-            "permalink": self.permalink,
-            "url": self.url,
-            "selftextPreview": self.selftext_preview,
-            "createdAt": self.created_at,
-            "score": self.score,
-            "numComments": self.num_comments,
-            "upvoteRatio": self.upvote_ratio,
-            "over18": self.over_18,
-            "isSelf": self.is_self,
-            "linkFlairText": self.link_flair_text,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class RedditCommentSummary:
-    id: str
+    comment_id: str
     fullname: str
     author: str | None = None
-    body_preview: str | None = None
+    body: str | None = None
     permalink: str | None = None
     created_at: str | None = None
     score: int | None = None
@@ -87,15 +30,59 @@ class RedditCommentSummary:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id,
+            "comment_id": self.comment_id,
             "fullname": self.fullname,
             "author": self.author,
-            "bodyPreview": self.body_preview,
+            "body": self.body,
             "permalink": self.permalink,
-            "createdAt": self.created_at,
+            "created_at": self.created_at,
             "score": self.score,
-            "parentId": self.parent_id,
+            "parent_id": self.parent_id,
             "depth": self.depth,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RedditPostSummary:
+    post_id: str
+    fullname: str
+    subreddit: str
+    title: str
+    author: str | None = None
+    permalink: str | None = None
+    url: str | None = None
+    selftext: str | None = None
+    created_at: str | None = None
+    score: int | None = None
+    num_comments: int | None = None
+    upvote_ratio: float | None = None
+    over_18: bool = False
+    is_self: bool = False
+    flair: str | None = None
+    top_comments: list[RedditCommentSummary] = field(default_factory=list)
+
+    @property
+    def id(self) -> str:
+        return self.post_id
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "post_id": self.post_id,
+            "fullname": self.fullname,
+            "subreddit": self.subreddit,
+            "title": self.title,
+            "author": self.author,
+            "permalink": self.permalink,
+            "url": self.url,
+            "selftext": self.selftext,
+            "created_at": self.created_at,
+            "score": self.score,
+            "num_comments": self.num_comments,
+            "upvote_ratio": self.upvote_ratio,
+            "over_18": self.over_18,
+            "is_self": self.is_self,
+            "flair": self.flair,
+            "top_comments": [comment.to_dict() for comment in self.top_comments],
         }
 
 
@@ -124,19 +111,23 @@ class RedditSearchResult:
 
 
 @dataclass(frozen=True, slots=True)
-class RedditSubredditSnapshot:
+class RedditSubredditPostsResult:
     subreddit: str
-    listing: str
-    about: dict[str, Any]
+    sort: str
+    time: str | None
     posts: list[RedditPostSummary] = field(default_factory=list)
+    after: str | None = None
+    before: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "subreddit": self.subreddit,
-            "listing": self.listing,
-            "about": self.about,
+            "sort": self.sort,
+            "time": self.time,
             "posts": [post.to_dict() for post in self.posts],
+            "after": self.after,
+            "before": self.before,
             "meta": self.meta,
         }
 
@@ -154,30 +145,8 @@ class RedditThreadDigest:
         return {
             "subreddit": self.subreddit,
             "post": self.post.to_dict(),
-            "commentSort": self.comment_sort,
-            "topComments": [comment.to_dict() for comment in self.top_comments],
-            "totalCommentsSeen": self.total_comments_seen,
-            "meta": self.meta,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class RedditDiscussionScanResult:
-    ticker: str
-    company_name: str | None
-    subreddits: list[str]
-    query_terms: list[str]
-    posts: list[RedditPostSummary] = field(default_factory=list)
-    duplicates_removed: int = 0
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "ticker": self.ticker,
-            "companyName": self.company_name,
-            "subreddits": self.subreddits,
-            "queryTerms": self.query_terms,
-            "posts": [post.to_dict() for post in self.posts],
-            "duplicatesRemoved": self.duplicates_removed,
+            "comment_sort": self.comment_sort,
+            "top_comments": [comment.to_dict() for comment in self.top_comments],
+            "total_comments_seen": self.total_comments_seen,
             "meta": self.meta,
         }

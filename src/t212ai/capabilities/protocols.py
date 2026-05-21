@@ -17,9 +17,8 @@ from t212ai.brokers.models import (
     PreparedBrokerOrder,
 )
 from t212ai.data_sources.reddit.models import (
-    RedditDiscussionScanResult,
     RedditSearchResult,
-    RedditSubredditSnapshot,
+    RedditSubredditPostsResult,
     RedditThreadDigest,
 )
 from t212ai.data_sources.sec_edgar.models import EdgarFilingActivityResult
@@ -209,14 +208,15 @@ class CommunityResearchService(Protocol):
         after: str | None = None,
     ) -> RedditSearchResult: ...
 
-    def get_subreddit_snapshot(
+    def get_subreddit_posts(
         self,
         subreddit: str,
         *,
-        listing: str = "hot",
+        sort: str = "hot",
         time: str | None = None,
         limit: int = 10,
-    ) -> RedditSubredditSnapshot: ...
+        after: str | None = None,
+    ) -> RedditSubredditPostsResult: ...
 
     def get_thread_digest(
         self,
@@ -226,18 +226,6 @@ class CommunityResearchService(Protocol):
         comment_sort: str = "confidence",
         top_comment_limit: int = 8,
     ) -> RedditThreadDigest: ...
-
-    def scan_company_discussion(
-        self,
-        ticker: str,
-        *,
-        company_name: str | None = None,
-        subreddits: list[str] | None = None,
-        time: str = "month",
-        limit_per_subreddit: int = 5,
-        max_results: int = 20,
-    ) -> RedditDiscussionScanResult: ...
-
 
 @runtime_checkable
 class SearchService(Protocol):

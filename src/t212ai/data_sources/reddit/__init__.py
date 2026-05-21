@@ -1,57 +1,56 @@
-"""Reddit research data-source integration."""
+"""Reddit public JSON data-source integration."""
 
-from .client import RedditApiError, RedditClient
+from .client import REDDIT_BASE_URL, REDDIT_MAX_LIMIT, RedditApiError, RedditClient
 from .models import (
-    RedditAccessToken,
     RedditApiErrorContext,
     RedditCommentSummary,
-    RedditDiscussionScanResult,
     RedditPostSummary,
     RedditSearchResult,
-    RedditSubredditSnapshot,
+    RedditSubredditPostsResult,
     RedditThreadDigest,
 )
 from .protocols import RedditResearchProtocol
-from .service import DEFAULT_DISCUSSION_SUBREDDITS, RedditResearchService
+from .service import (
+    DEFAULT_DISCUSSION_SUBREDDITS,
+    RedditResearchService,
+    RedditSubredditNotAllowedError,
+)
 from .tools import (
-    REDDIT_COMPANY_DISCUSSION_SCAN_TOOL,
     REDDIT_RESEARCH_TOOLBOX,
     REDDIT_RESEARCH_TOOLS,
     REDDIT_SEARCH_POSTS_TOOL,
-    REDDIT_SUBREDDIT_SNAPSHOT_TOOL,
-    REDDIT_THREAD_DIGEST_TOOL,
+    REDDIT_SUBREDDIT_POSTS_TOOL,
+    REDDIT_THREAD_TOOL,
     RedditToolRuntime,
     build_reddit_tool_mapping,
-    reddit_company_discussion_scan,
     reddit_search_posts,
-    reddit_subreddit_snapshot,
-    reddit_thread_digest,
+    reddit_subreddit_posts,
+    reddit_thread,
 )
 
 __all__ = [
     "DEFAULT_DISCUSSION_SUBREDDITS",
-    "REDDIT_COMPANY_DISCUSSION_SCAN_TOOL",
+    "REDDIT_BASE_URL",
+    "REDDIT_MAX_LIMIT",
     "REDDIT_RESEARCH_TOOLBOX",
     "REDDIT_RESEARCH_TOOLS",
     "REDDIT_SEARCH_POSTS_TOOL",
-    "REDDIT_SUBREDDIT_SNAPSHOT_TOOL",
-    "REDDIT_THREAD_DIGEST_TOOL",
-    "RedditAccessToken",
+    "REDDIT_SUBREDDIT_POSTS_TOOL",
+    "REDDIT_THREAD_TOOL",
     "RedditApiError",
     "RedditApiErrorContext",
     "RedditClient",
     "RedditCommentSummary",
-    "RedditDiscussionScanResult",
     "RedditPostSummary",
     "RedditResearchProtocol",
     "RedditResearchService",
     "RedditSearchResult",
-    "RedditSubredditSnapshot",
+    "RedditSubredditNotAllowedError",
+    "RedditSubredditPostsResult",
     "RedditThreadDigest",
     "RedditToolRuntime",
     "build_reddit_tool_mapping",
-    "reddit_company_discussion_scan",
     "reddit_search_posts",
-    "reddit_subreddit_snapshot",
-    "reddit_thread_digest",
+    "reddit_subreddit_posts",
+    "reddit_thread",
 ]

@@ -1,4 +1,4 @@
-"""Reddit research tool definitions."""
+"""Public Reddit research tool definitions."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from t212ai.genai.tracing import (
 
 from .client import RedditApiError, RedditClient
 from .protocols import RedditResearchProtocol
-from .service import RedditResearchService
+from .service import RedditResearchService, RedditSubredditNotAllowedError
 
 
 @dataclass(slots=True)
@@ -23,13 +23,20 @@ class RedditToolRuntime:
     service: RedditResearchProtocol
 
 
+_REDDIT_CONTEXT_WARNING = (
+    "Reddit is community/social research context only. Verify claims with market, "
+    "news, and filing tools before treating them as actionable."
+)
+
+
 REDDIT_SEARCH_POSTS_TOOL: ToolSpec = {
     "type": "function",
     "function": {
         "name": "reddit_search_posts",
         "description": (
-            "Search Reddit posts for retail discussion, anecdotal sentiment, and "
-            "community framing. Use as research context, not authoritative market data."
+            "Search whitelisted finance/business Reddit communities through public JSON. "
+            "Returns full post text, post_id, popularity proxies, and up to 2 popular comments. "
+            + _REDDIT_CONTEXT_WARNING
         ),
         "strict": True,
         "parameters": {
@@ -39,7 +46,10 @@ REDDIT_SEARCH_POSTS_TOOL: ToolSpec = {
                 "subreddit": {
                     "type": ["string", "null"],
                     "default": None,
-                    "description": "Optional subreddit name, without r/.",
+                    "description": (
+                        "Optional whitelisted subreddit name without r/. If omitted, "
+                        "search the configured finance/business subreddit whitelist."
+                    ),
                 },
                 "sort": {
                     "type": "string",
@@ -56,6 +66,7 @@ REDDIT_SEARCH_POSTS_TOOL: ToolSpec = {
                     "minimum": 1,
                     "maximum": 25,
                     "default": 10,
+                    "description": "Maximum posts to return. The service hard-caps at 25.",
                 },
             },
             "required": ["query", "subreddit", "sort", "time", "limit"],
@@ -64,20 +75,22 @@ REDDIT_SEARCH_POSTS_TOOL: ToolSpec = {
     },
 }
 
-REDDIT_SUBREDDIT_SNAPSHOT_TOOL: ToolSpec = {
+REDDIT_SUBREDDIT_POSTS_TOOL: ToolSpec = {
     "type": "function",
     "function": {
-        "name": "reddit_subreddit_snapshot",
+        "name": "reddit_subreddit_posts",
         "description": (
-            "Fetch a subreddit profile plus a current listing snapshot to understand "
-            "what that community is discussing."
+            "Fetch posts from one whitelisted finance/business subreddit through public JSON. "
+            "Use for current community discussion snapshots. Includes full post text, post_id, "
+            "popularity proxies, and up to 2 popular comments per post. "
+            + _REDDIT_CONTEXT_WARNING
         ),
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "subreddit": {"type": "string", "description": "Subreddit name without r/."},
-                "listing": {
+                "subreddit": {"type": "string", "description": "Whitelisted subreddit name without r/."},
+                "sort": {
                     "type": "string",
                     "enum": ["hot", "new", "top", "rising"],
                     "default": "hot",
@@ -92,26 +105,29 @@ REDDIT_SUBREDDIT_SNAPSHOT_TOOL: ToolSpec = {
                     "minimum": 1,
                     "maximum": 25,
                     "default": 10,
+                    "description": "Maximum posts to return. The service hard-caps at 25.",
                 },
             },
-            "required": ["subreddit", "listing", "time", "limit"],
+            "required": ["subreddit", "sort", "time", "limit"],
             "additionalProperties": False,
         },
     },
 }
 
-REDDIT_THREAD_DIGEST_TOOL: ToolSpec = {
+REDDIT_THREAD_TOOL: ToolSpec = {
     "type": "function",
     "function": {
-        "name": "reddit_thread_digest",
+        "name": "reddit_thread",
         "description": (
-            "Fetch one Reddit thread and summarize the post plus the highest-signal comments."
+            "Fetch one Reddit thread by subreddit and post_id. Returns full post text and "
+            "full selected comment bodies with popularity proxies. "
+            + _REDDIT_CONTEXT_WARNING
         ),
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "subreddit": {"type": "string", "description": "Subreddit name without r/."},
+                "subreddit": {"type": "string", "description": "Whitelisted subreddit name without r/."},
                 "post_id": {
                     "type": "string",
                     "description": "Reddit post id, with or without the t3_ prefix.",
@@ -121,69 +137,15 @@ REDDIT_THREAD_DIGEST_TOOL: ToolSpec = {
                     "enum": ["confidence", "top", "new", "controversial", "old", "qa"],
                     "default": "confidence",
                 },
-                "top_comment_limit": {
+                "comment_limit": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 20,
+                    "maximum": 25,
                     "default": 8,
+                    "description": "Maximum comments to return. The service hard-caps at 25.",
                 },
             },
-            "required": ["subreddit", "post_id", "comment_sort", "top_comment_limit"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-REDDIT_COMPANY_DISCUSSION_SCAN_TOOL: ToolSpec = {
-    "type": "function",
-    "function": {
-        "name": "reddit_company_discussion_scan",
-        "description": (
-            "Scan selected Reddit investing communities for ticker/company discussion. "
-            "Useful for anecdotal sentiment and recurring retail themes."
-        ),
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "ticker": {"type": "string", "description": "Ticker symbol, e.g. AAPL."},
-                "company_name": {
-                    "type": ["string", "null"],
-                    "default": None,
-                    "description": "Optional company name for broader search coverage.",
-                },
-                "subreddits": {
-                    "type": ["array", "null"],
-                    "items": {"type": "string"},
-                    "default": None,
-                    "description": "Optional subreddit override list.",
-                },
-                "time": {
-                    "type": "string",
-                    "enum": ["day", "week", "month", "year", "all"],
-                    "default": "month",
-                },
-                "limit_per_subreddit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10,
-                    "default": 5,
-                },
-                "max_results": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 30,
-                    "default": 20,
-                },
-            },
-            "required": [
-                "ticker",
-                "company_name",
-                "subreddits",
-                "time",
-                "limit_per_subreddit",
-                "max_results",
-            ],
+            "required": ["subreddit", "post_id", "comment_sort", "comment_limit"],
             "additionalProperties": False,
         },
     },
@@ -198,15 +160,11 @@ def build_reddit_tool_mapping(
     )
     return {
         "reddit_search_posts": partial(reddit_search_posts, runtime=resolved_runtime),
-        "reddit_subreddit_snapshot": partial(
-            reddit_subreddit_snapshot,
+        "reddit_subreddit_posts": partial(
+            reddit_subreddit_posts,
             runtime=resolved_runtime,
         ),
-        "reddit_thread_digest": partial(reddit_thread_digest, runtime=resolved_runtime),
-        "reddit_company_discussion_scan": partial(
-            reddit_company_discussion_scan,
-            runtime=resolved_runtime,
-        ),
+        "reddit_thread": partial(reddit_thread, runtime=resolved_runtime),
     }
 
 
@@ -236,173 +194,167 @@ def reddit_search_posts(
         return _exception_result(exc, operation="search_posts")
     return ToolResult(
         status="ok",
-        output=_format_search_output(result),
-        data=result.to_dict(),
+        output=_format_posts_summary(
+            f"Reddit search for '{result.query}'"
+            + (f" in r/{result.subreddit}" if result.subreddit else ""),
+            result.posts,
+        ),
+        data={
+            "query": result.query,
+            "subreddit": result.subreddit,
+            "sort": result.sort,
+            "time": result.time,
+            "posts": [_agent_post_payload(post) for post in result.posts],
+        },
     )
 
 
 @traceable(
-    name="reddit_subreddit_snapshot",
+    name="reddit_subreddit_posts",
     run_type="tool"
 )
-def reddit_subreddit_snapshot(
+def reddit_subreddit_posts(
     *,
     subreddit: str,
-    listing: str,
+    sort: str,
     time: str | None,
     limit: int,
     runtime: RedditToolRuntime,
 ) -> ToolResult:
-    set_trace_metadata(provider="reddit", tool_name="reddit_subreddit_snapshot")
+    set_trace_metadata(provider="reddit", tool_name="reddit_subreddit_posts")
     try:
-        result = runtime.service.get_subreddit_snapshot(
+        result = runtime.service.get_subreddit_posts(
             subreddit,
-            listing=listing,
+            sort=sort,
             time=time,
             limit=limit,
         )
     except Exception as exc:
-        return _exception_result(exc, operation="subreddit_snapshot")
+        return _exception_result(exc, operation="subreddit_posts")
     return ToolResult(
         status="ok",
-        output=_format_subreddit_snapshot_output(result),
-        data=result.to_dict(),
+        output=_format_posts_summary(
+            f"Reddit r/{result.subreddit} {result.sort} posts",
+            result.posts,
+        ),
+        data={
+            "subreddit": result.subreddit,
+            "sort": result.sort,
+            "time": result.time,
+            "posts": [_agent_post_payload(post) for post in result.posts],
+        },
     )
 
 
 @traceable(
-    name="reddit_thread_digest",
+    name="reddit_thread",
     run_type="tool"
 )
-def reddit_thread_digest(
+def reddit_thread(
     *,
     subreddit: str,
     post_id: str,
     comment_sort: str,
-    top_comment_limit: int,
+    comment_limit: int,
     runtime: RedditToolRuntime,
 ) -> ToolResult:
-    set_trace_metadata(provider="reddit", tool_name="reddit_thread_digest")
+    set_trace_metadata(provider="reddit", tool_name="reddit_thread")
     try:
         result = runtime.service.get_thread_digest(
             subreddit,
             post_id,
             comment_sort=comment_sort,
-            top_comment_limit=top_comment_limit,
+            top_comment_limit=comment_limit,
         )
     except Exception as exc:
-        return _exception_result(exc, operation="thread_digest")
+        return _exception_result(exc, operation="thread")
     return ToolResult(
         status="ok",
-        output=_format_thread_digest_output(result),
-        data=result.to_dict(),
+        output=_format_thread_summary(result),
+        data={
+            "subreddit": result.subreddit,
+            "comment_sort": result.comment_sort,
+            "post": _agent_post_payload(result.post, include_embedded_comments=False),
+            "comments": [_agent_comment_payload(comment) for comment in result.top_comments],
+        },
     )
 
 
-@traceable(
-    name="reddit_company_discussion_scan",
-    run_type="tool"
-)
-def reddit_company_discussion_scan(
-    *,
-    ticker: str,
-    company_name: str | None,
-    subreddits: list[str] | None,
-    time: str,
-    limit_per_subreddit: int,
-    max_results: int,
-    runtime: RedditToolRuntime,
-) -> ToolResult:
-    set_trace_metadata(provider="reddit", tool_name="reddit_company_discussion_scan")
-    try:
-        result = runtime.service.scan_company_discussion(
-            ticker,
-            company_name=company_name,
-            subreddits=subreddits,
-            time=time,
-            limit_per_subreddit=limit_per_subreddit,
-            max_results=max_results,
-        )
-    except Exception as exc:
-        return _exception_result(exc, operation="company_discussion_scan")
-    return ToolResult(
-        status="ok",
-        output=_format_company_scan_output(result),
-        data=result.to_dict(),
-    )
-
-
-def _format_search_output(result: Any) -> str:
-    scope = f" in r/{result.subreddit}" if result.subreddit else ""
-    if not result.posts:
-        return (
-            f"Reddit search found no posts for '{result.query}'{scope}. "
-            "Try a broader query, another subreddit, or a different time window."
-        )
-    top = "; ".join(
-        f"r/{post.subreddit}: {post.title} (score={post.score}, comments={post.num_comments})"
-        for post in result.posts[:5]
+def _format_posts_summary(label: str, posts: list[Any]) -> str:
+    if not posts:
+        return f"{label} returned no posts. {_REDDIT_CONTEXT_WARNING}"
+    titles = "; ".join(
+        f"{post.post_id}: {post.title} (score={post.score}, comments={post.num_comments})"
+        for post in posts[:5]
     )
     return (
-        f"Reddit search for '{result.query}'{scope} returned {len(result.posts)} post(s). "
-        f"Top hits: {top}. "
-        "Use this as anecdotal community context, not verified market data or broker state."
+        f"{label} returned {len(posts)} post(s). Top posts: {titles}. "
+        f"Use data.posts for full post/comment content. {_REDDIT_CONTEXT_WARNING}"
     )
 
 
-def _format_subreddit_snapshot_output(result: Any) -> str:
-    about = result.about or {}
-    return (
-        f"Reddit subreddit snapshot for r/{result.subreddit}. "
-        f"title={about.get('title')}, subscribers={about.get('subscribers')}, "
-        f"active_users={about.get('activeUserCount')}, posts_returned={len(result.posts)}. "
-        "Use this to understand the current discussion environment before trusting post-level signals."
-    )
-
-
-def _format_thread_digest_output(result: Any) -> str:
+def _format_thread_summary(result: Any) -> str:
     post = result.post
-    lines = [
-        f"Reddit thread digest for r/{result.subreddit}.",
-        (
-            "Post: "
-            f"title={post.title}, score={post.score}, comments={post.num_comments}, "
-            f"author={post.author}."
-        ),
-        (
-            f"Top comments returned={len(result.top_comments)} "
-            f"(total comments scanned={result.total_comments_seen})."
-        ),
-    ]
-    for comment in result.top_comments[:5]:
-        lines.append(
-            "- "
-            f"author={comment.author}, score={comment.score}, depth={comment.depth}, "
-            f"body_preview={comment.body_preview}"
-        )
-    lines.append(
-        "Interpret Reddit comments as community anecdotes and framing, not verified facts."
-    )
-    return "\n".join(lines)
-
-
-def _format_company_scan_output(result: Any) -> str:
-    if not result.posts:
-        return (
-            f"Reddit company discussion scan found no posts for {result.ticker}. "
-            "Broaden the company name, expand subreddits, or use other research sources."
-        )
-    top = "; ".join(
-        f"r/{post.subreddit}: {post.title} (score={post.score}, comments={post.num_comments})"
-        for post in result.posts[:6]
-    )
     return (
-        f"Reddit company discussion scan for {result.ticker} searched "
-        f"{len(result.subreddits)} subreddit(s) and returned {len(result.posts)} unique post(s), "
-        f"removing {result.duplicates_removed} duplicate hit(s). "
-        f"Top discussion threads: {top}. "
-        "Treat this as retail/community signal context only."
+        f"Reddit thread r/{result.subreddit} post_id={post.post_id} returned "
+        f"{len(result.top_comments)} comment(s). Title: {post.title}. "
+        f"Use data.post and data.comments for full content. {_REDDIT_CONTEXT_WARNING}"
     )
+
+
+def _agent_post_payload(
+    post: Any,
+    *,
+    include_embedded_comments: bool = True,
+) -> dict[str, Any]:
+    payload = {
+        "post_id": post.post_id,
+        "subreddit": post.subreddit,
+        "title": post.title,
+        "created_at": post.created_at,
+        "flair": post.flair,
+        "popularity": {
+            "score": post.score,
+            "upvote_ratio": post.upvote_ratio,
+            "comments": post.num_comments,
+        },
+        "content": post.selftext,
+        "permalink": post.permalink,
+    }
+    if include_embedded_comments:
+        payload["comments"] = [
+            _agent_comment_payload(comment)
+            for comment in post.top_comments
+        ]
+    return _drop_none(payload)
+
+
+def _agent_comment_payload(comment: Any) -> dict[str, Any]:
+    return _drop_none(
+        {
+            "score": comment.score,
+            "body": comment.body,
+        }
+    )
+
+
+def _drop_none(value: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if item is None:
+            continue
+        if isinstance(item, dict):
+            nested = _drop_none(item)
+            if nested:
+                result[key] = nested
+            continue
+        if isinstance(item, list):
+            filtered = [entry for entry in item if entry not in ({}, None)]
+            if filtered:
+                result[key] = filtered
+            continue
+        result[key] = item
+    return result
 
 
 def _exception_result(exc: Exception, *, operation: str) -> ToolResult:
@@ -416,26 +368,30 @@ def _exception_result(exc: Exception, *, operation: str) -> ToolResult:
         }
         code = "reddit_api_error"
         message = exc.context.message or str(exc)
+        hint = "Retry later or reduce the request size." if retryable else "Validate subreddit, post_id, and request parameters."
+    elif isinstance(exc, RedditSubredditNotAllowedError):
+        retryable = False
+        details = {"subreddit": exc.subreddit, "allowed_subreddits": exc.allowed}
+        code = "reddit_subreddit_not_allowed"
+        message = str(exc)
+        hint = "Use one of the configured finance/business subreddits."
     else:
         retryable = False
         details = {}
         code = "reddit_tool_error"
         message = str(exc)
+        hint = "Validate subreddit, post_id, and request parameters."
     return ToolResult(
         status="error",
         output=(
             f"Reddit {operation} failed. Reason: {message}. "
-            "Retry with a narrower request, or pivot to web search and other research providers."
+            "Use Reddit only as community context and pivot to other research providers if needed."
         ),
         error=ToolError(
             message=message,
             code=code,
             type=exc.__class__.__name__,
-            hint=(
-                "Retry later or reduce the request size."
-                if retryable
-                else "Validate OAuth credentials, User-Agent, subreddit/post id, and request parameters."
-            ),
+            hint=hint,
             retryable=retryable,
             details=details or None,
         ),
@@ -444,9 +400,8 @@ def _exception_result(exc: Exception, *, operation: str) -> ToolResult:
 
 REDDIT_RESEARCH_TOOLS: list[ToolSpec] = [
     REDDIT_SEARCH_POSTS_TOOL,
-    REDDIT_SUBREDDIT_SNAPSHOT_TOOL,
-    REDDIT_THREAD_DIGEST_TOOL,
-    REDDIT_COMPANY_DISCUSSION_SCAN_TOOL,
+    REDDIT_SUBREDDIT_POSTS_TOOL,
+    REDDIT_THREAD_TOOL,
 ]
 
 REDDIT_RESEARCH_TOOLBOX = ToolBox(
