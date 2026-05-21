@@ -161,14 +161,8 @@ class AppSettings:
     alpaca_paper_trading_base_url: str = ALPACA_PAPER_TRADING_BASE_URL
     alpaca_live_trading_base_url: str = ALPACA_LIVE_TRADING_BASE_URL
     alpaca_data_feed: str = "iex"
-    reddit_client_id: str | None = None
-    reddit_client_secret: str | None = None
-    reddit_username: str | None = None
-    reddit_password: str | None = None
-    reddit_refresh_token: str | None = None
     reddit_user_agent: str | None = None
-    reddit_base_url: str = "https://oauth.reddit.com"
-    reddit_auth_url: str = "https://www.reddit.com/api/v1/access_token"
+    reddit_base_url: str = "https://www.reddit.com"
     sec_edgar_user_agent: str | None = None
     sec_edgar_submissions_base_url: str = "https://data.sec.gov/submissions"
     sec_edgar_tickers_url: str = "https://www.sec.gov/files/company_tickers.json"
@@ -354,19 +348,10 @@ def get_app_settings(
             ALPACA_LIVE_TRADING_BASE_URL,
         ),
         alpaca_data_feed=source.get("ALPACA_DATA_FEED", "iex"),
-        reddit_client_id=source.get("REDDIT_CLIENT_ID"),
-        reddit_client_secret=source.get("REDDIT_CLIENT_SECRET"),
-        reddit_username=source.get("REDDIT_USERNAME"),
-        reddit_password=source.get("REDDIT_PASSWORD"),
-        reddit_refresh_token=source.get("REDDIT_REFRESH_TOKEN"),
         reddit_user_agent=source.get("REDDIT_USER_AGENT"),
         reddit_base_url=source.get(
             "REDDIT_BASE_URL",
-            "https://oauth.reddit.com",
-        ),
-        reddit_auth_url=source.get(
-            "REDDIT_AUTH_URL",
-            "https://www.reddit.com/api/v1/access_token",
+            "https://www.reddit.com",
         ),
         sec_edgar_user_agent=source.get("SEC_EDGAR_USER_AGENT"),
         sec_edgar_submissions_base_url=source.get(
@@ -632,19 +617,6 @@ def _resolve_community_provider(source: Mapping[str, str]) -> str:
     explicit = str(source.get("COMMUNITY_PROVIDER", "")).strip().lower()
     if explicit:
         return explicit
-    if _env_bool_or_fallback(
-        source,
-        "REDDIT_ENABLED",
-        False,
-        fallback_keys=(
-            "REDDIT_CLIENT_ID",
-            "REDDIT_CLIENT_SECRET",
-            "REDDIT_REFRESH_TOKEN",
-            "REDDIT_USERNAME",
-            "REDDIT_PASSWORD",
-        ),
-    ):
-        return "reddit"
     return "none"
 
 

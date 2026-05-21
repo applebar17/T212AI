@@ -778,40 +778,16 @@ def _assess_alpha_vantage_provider(settings: AppSettings) -> ProviderAssessment:
 
 def _assess_reddit_provider(settings: AppSettings) -> ProviderAssessment:
     enabled = settings.community_provider == "reddit"
-    missing = []
-    if enabled and not str(settings.reddit_client_id or "").strip():
-        missing.append("REDDIT_CLIENT_ID")
-    if enabled and not str(settings.reddit_client_secret or "").strip():
-        missing.append("REDDIT_CLIENT_SECRET")
-    if enabled and not str(settings.reddit_user_agent or "").strip():
-        missing.append("REDDIT_USER_AGENT")
-    has_refresh = bool(str(settings.reddit_refresh_token or "").strip())
-    has_user_pass = bool(str(settings.reddit_username or "").strip()) and bool(
-        str(settings.reddit_password or "").strip()
-    )
-    if enabled and not (has_refresh or has_user_pass):
-        missing.append("REDDIT_REFRESH_TOKEN or REDDIT_USERNAME + REDDIT_PASSWORD")
     return ProviderAssessment(
         name="reddit",
         label="Reddit",
         enabled=enabled,
         optional=True,
-        configured=bool(
-            settings.reddit_client_id
-            or settings.reddit_client_secret
-            or settings.reddit_refresh_token
-            or settings.reddit_username
-            or settings.reddit_password
-        ),
-        ready=enabled and not missing,
-        required_keys=(
-            "REDDIT_CLIENT_ID",
-            "REDDIT_CLIENT_SECRET",
-            "REDDIT_USER_AGENT",
-            "REDDIT_REFRESH_TOKEN or REDDIT_USERNAME + REDDIT_PASSWORD",
-        ),
-        missing_keys=tuple(missing),
-        errors=_provider_errors("Reddit", tuple(missing)) if enabled else (),
+        configured=enabled,
+        ready=enabled,
+        required_keys=(),
+        missing_keys=(),
+        errors=(),
     )
 
 
@@ -1166,7 +1142,7 @@ def _smoke_probe_alpha_vantage(settings: AppSettings) -> None:
 def _smoke_probe_reddit(settings: AppSettings) -> None:
     from t212ai.data_sources.reddit import RedditClient
 
-    RedditClient.from_settings(settings).subreddit_about("investing")
+    RedditClient.from_settings(settings).subreddit_listing("investing", limit=1)
 
 
 def _smoke_probe_searxng(settings: AppSettings) -> None:

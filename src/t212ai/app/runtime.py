@@ -18,6 +18,7 @@ from t212ai.agent import (
     MarketAnalystAgent,
     NewsIngestionJudgeAgent,
     NewsJudgeDependencies,
+    RedditResearchAgent,
     SchedulerAgent,
     SpecialistAgents,
     build_specialist_agents,
@@ -116,6 +117,7 @@ class AppRuntime:
     main_orchestrator: MainOrchestratorAgent | None = None
     company_agent: CompanyAnalystAgent | None = None
     market_agent: MarketAnalystAgent | None = None
+    reddit_research_agent: RedditResearchAgent | None = None
     calculator_agent: CalculatorAgent | None = None
     scheduler_agent: SchedulerAgent | None = None
     log_diagnostic_agent: LogDiagnosticAgent | None = None
@@ -624,6 +626,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             proposal_service=runtime.proposal_service,
             scheduled_process_service=runtime.scheduled_process_service,
             log_diagnostic_agent=log_diagnostic_agent,
+            reddit_research_service=runtime.community_research_service,
             scheduler_default_timezone=runtime.settings.scheduler_default_timezone,
             scheduler_default_poll_every_seconds=_positive_int_setting(
                 runtime.settings.scheduler_default_poll_every_seconds,
@@ -679,6 +682,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
         runtime.specialist_agents = specialists
         runtime.company_agent = specialists.company
         runtime.market_agent = specialists.market
+        runtime.reddit_research_agent = specialists.reddit_research
         runtime.scheduler_agent = specialists.scheduler
         runtime.log_diagnostic_agent = specialists.log_diagnostic
         runtime.news_judge_agent = NewsIngestionJudgeAgent(
