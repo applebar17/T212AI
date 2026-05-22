@@ -48,7 +48,7 @@ def command_configure(args: argparse.Namespace) -> int:
     env_path = Path(args.env_file)
     existing_raw = parse_env_file(env_path) if env_path.exists() else {}
     io_runtime = TerminalIO()
-    io_runtime.write(render_banner("T212AI"))
+    io_runtime.write(render_banner("BrokerAI"))
     io_runtime.write("brokerai configuration wizard")
     io_runtime.write(f"Target env file: {env_path}")
     io_runtime.write("")

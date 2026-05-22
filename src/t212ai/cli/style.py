@@ -8,14 +8,12 @@ import sys
 import textwrap
 
 
-_BANNER_LINES = (
-    " _______  ___   ___  _______  _______  ___ ",
-    "|       ||   | |   ||       ||   _   ||   |",
-    "|_     _||   |_|   ||    ___||  |_|  ||   |",
-    "  |   |  |      _  ||   |___ |       ||   |",
-    "  |   |  |     |_  ||    ___||       ||   |",
-    "  |   |  |    _  | ||   |___ |   _   ||   |",
-    "  |___|  |___| |___||_______||__| |__||___|",
+_BROKER_BANNER_LINES = (
+    (" ____            _             ", "    _    ___ "),
+    ("| __ ) _ __ ___ | | _____ _ __ ", "   / \\  |_ _|"),
+    ("|  _ \\| '__/ _ \\| |/ / _ \\ '__|", "  / _ \\  | | "),
+    ("| |_) | | | (_) |   <  __/ |   ", " / ___ \\ | | "),
+    ("|____/|_|  \\___/|_|\\_\\___|_|   ", "/_/   \\_\\___|"),
 )
 
 
@@ -51,9 +49,14 @@ def paint(text: str, tone: str) -> str:
 
 
 def render_banner(label: str = "T212AI") -> str:
-    if label.strip().upper() != "T212AI":
+    normalized = label.strip().upper()
+    if normalized in {"T212AI", "BROKERAI"}:
+        return "\n".join(
+            paint(broker, Tone.TITLE) + paint(ai, Tone.ACCENT)
+            for broker, ai in _BROKER_BANNER_LINES
+        )
+    else:
         return paint(label, Tone.TITLE)
-    return "\n".join(paint(line, Tone.TITLE) for line in _BANNER_LINES)
 
 
 def render_box(text: str, *, title: str | None = None, width: int | None = None) -> str:

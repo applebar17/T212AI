@@ -305,7 +305,7 @@ def command_config_list(args: argparse.Namespace) -> int:
     if args.format == "json":
         print(json.dumps([key.to_dict() for key in keys], indent=2, sort_keys=True))
         return 0
-    print(render_banner("T212AI"))
+    print(render_banner("BrokerAI"))
     print("brokerai config list")
     current_section = ""
     for key in keys:
