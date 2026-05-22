@@ -47,6 +47,7 @@ from .config_wizard import (
     apply_configuration_wizard,
     build_managed_env_values,
     command_configure,
+    command_onboard,
     update_env_file,
 )
 from .doctor import command_doctor
@@ -127,6 +128,7 @@ __all__ = [
     "command_config_validate",
     "command_configure",
     "command_doctor",
+    "command_onboard",
     "command_run_alpaca_news_stream",
     "command_run_bot",
     "command_run_reconcile_once",

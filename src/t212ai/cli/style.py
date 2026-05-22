@@ -79,3 +79,29 @@ def render_box(text: str, *, title: str | None = None, width: int | None = None)
 def render_step_intro(title: str, description: str) -> str:
     heading = paint(f"> {title}", Tone.ACCENT)
     return f"{heading}\n{render_box(description, title=title)}"
+
+
+def render_security_notice() -> str:
+    return render_box(
+        "\n".join(
+            (
+                "Security warning - please read.",
+                "",
+                "T212AI is a local trading copilot. It can read broker state, "
+                "prepare broker actions, and send Telegram approval buttons when "
+                "execution providers are configured.",
+                "",
+                "Recommended baseline:",
+                "- Start with demo or paper credentials.",
+                "- Keep live trading disabled until doctor and smoke checks pass.",
+                "- Never expose .env, logs, database files, or guideline memory.",
+                "- Use TELEGRAM_ALLOWED_CHAT_ID and TELEGRAM_ALLOWED_USER_ID.",
+                "- Treat market/research data as context, not execution authority.",
+                "",
+                "Run regularly:",
+                "brokerai doctor --env-file .env",
+                "brokerai doctor --env-file .env --smoke",
+            )
+        ),
+        title="Security",
+    )

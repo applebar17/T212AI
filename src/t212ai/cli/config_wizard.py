@@ -41,7 +41,7 @@ from .constants import (
 )
 from .io import TerminalIO
 from .reports import render_configuration_review, render_provider_smoke_report
-from .style import render_banner, render_box, render_step_intro
+from .style import render_banner, render_box, render_security_notice, render_step_intro
 
 
 def command_configure(args: argparse.Namespace) -> int:
@@ -51,6 +51,15 @@ def command_configure(args: argparse.Namespace) -> int:
     io_runtime.write(render_banner("T212AI"))
     io_runtime.write("brokerai configuration wizard")
     io_runtime.write(f"Target env file: {env_path}")
+    io_runtime.write("")
+    io_runtime.write(render_security_notice())
+    io_runtime.write("")
+    if not io_runtime.confirm(
+        "I understand this can prepare broker actions. Continue?",
+        default=False,
+    ):
+        io_runtime.write("Configuration aborted. No changes were written.")
+        return 1
     if existing_raw:
         io_runtime.write(
             render_box(
@@ -85,6 +94,10 @@ def command_configure(args: argparse.Namespace) -> int:
     io_runtime.write("Provider readiness:")
     io_runtime.write(render_provider_smoke_report(smoke_results))
     return 0
+
+
+def command_onboard(args: argparse.Namespace) -> int:
+    return command_configure(args)
 
 
 def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:

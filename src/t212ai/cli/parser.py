@@ -14,7 +14,7 @@ from .config_metadata import (
     command_config_sample,
     command_config_validate,
 )
-from .config_wizard import command_configure
+from .config_wizard import command_configure, command_onboard
 from .doctor import command_doctor
 from .run import (
     command_run_alpaca_news_stream,
@@ -40,6 +40,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         description="brokerai operator CLI for configuring, validating, and running T212AI.",
         epilog=(
             "Examples:\n"
+            "  brokerai onboard --env-file .env\n"
             "  brokerai configure --env-file .env\n"
             "  brokerai config explain SCHEDULER_LEASE_SECONDS\n"
             "  brokerai config sample demo > .env\n"
@@ -61,6 +62,17 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         help="Path to the .env file to create or update.",
     )
     configure_parser.set_defaults(handler=command_configure)
+
+    onboard_parser = subparsers.add_parser(
+        "onboard",
+        help="Show the first-run safety notice and launch configuration.",
+    )
+    onboard_parser.add_argument(
+        "--env-file",
+        default=DEFAULT_ENV_FILE_NAME,
+        help="Path to the .env file to create or update.",
+    )
+    onboard_parser.set_defaults(handler=command_onboard)
 
     _add_config_parser(subparsers)
 

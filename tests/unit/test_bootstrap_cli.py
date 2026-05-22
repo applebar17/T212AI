@@ -29,6 +29,7 @@ def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
     parser = cli.build_parser("brokerai")
 
     assert parser.parse_args(["configure"]).handler is cli.command_configure
+    assert parser.parse_args(["onboard"]).handler is cli.command_onboard
     assert parser.parse_args(["doctor"]).handler is cli.command_doctor
     assert parser.parse_args(["config", "list"]).handler is cli.command_config_list
     assert (
@@ -261,6 +262,23 @@ def test_build_managed_env_values_preserves_context_settings() -> None:
     assert updates["SCHEDULER_EMBEDDED_WORKER_ENABLED"] == "false"
     assert updates["SCHEDULER_EMBEDDED_WORKER_POLL_EVERY_SECONDS"] == "30"
     assert updates["SCHEDULER_EMBEDDED_WORKER_LIMIT"] == "25"
+
+
+def test_configure_aborts_when_security_notice_is_declined(tmp_path, monkeypatch, capsys) -> None:
+    env_file = tmp_path / ".env"
+    terminal_io = cli.TerminalIO
+    monkeypatch.setattr(
+        "t212ai.cli.config_wizard.TerminalIO",
+        lambda: terminal_io(input_fn=lambda _prompt: "n", output=sys.stdout),
+    )
+
+    exit_code = cli.command_configure(SimpleNamespace(env_file=str(env_file)))
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Security warning" in output
+    assert "Configuration aborted" in output
+    assert not env_file.exists()
 
 
 def test_prompt_iana_timezone_accepts_configured_scheduler_timezone() -> None:
