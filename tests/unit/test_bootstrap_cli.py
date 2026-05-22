@@ -30,11 +30,23 @@ def test_cli_parser_routes_configure_doctor_and_run_bot() -> None:
 
     assert parser.parse_args(["configure"]).handler is cli.command_configure
     assert parser.parse_args(["doctor"]).handler is cli.command_doctor
+    assert parser.parse_args(["config", "list"]).handler is cli.command_config_list
+    assert (
+        parser.parse_args(["config", "explain", "DATABASE_URL"]).handler
+        is cli.command_config_explain
+    )
+    assert parser.parse_args(["config", "sample", "demo"]).handler is cli.command_config_sample
+    assert parser.parse_args(["config", "validate"]).handler is cli.command_config_validate
     assert parser.parse_args(["run", "bot"]).handler is cli.command_run_bot
     assert parser.parse_args(["run", "reconcile-once"]).handler is cli.command_run_reconcile_once
     assert parser.parse_args(["run", "scheduler-once"]).handler is cli.command_run_scheduler_once
     assert parser.parse_args(["run", "scheduler"]).handler is cli.command_run_scheduler_worker
+    assert (
+        parser.parse_args(["run", "scheduler-worker"]).handler
+        is cli.command_run_scheduler_worker
+    )
     assert parser.parse_args(["run", "worker"]).handler is cli.command_run_worker
+    assert parser.parse_args(["run", "reconcile-worker"]).handler is cli.command_run_worker
     assert parser.parse_args(["scheduler", "status"]).handler is cli.command_scheduler_status
     assert parser.parse_args(["scheduler", "list"]).handler is cli.command_scheduler_list
     assert (
@@ -545,6 +557,21 @@ def test_doctor_accepts_manual_reddit_provider_without_credentials(tmp_path, cap
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "Configuration status: valid" in output
+
+
+def test_config_commands_explain_list_and_sample(capsys) -> None:
+    explain_code = cli.main(["config", "explain", "DATABASE_URL"])
+    list_code = cli.main(["config", "list", "--section", "scheduler"])
+    sample_code = cli.main(["config", "sample", "demo"])
+
+    output = capsys.readouterr().out
+    assert explain_code == 0
+    assert list_code == 0
+    assert sample_code == 0
+    assert "Config explain" in output
+    assert "SQL database URL" in output
+    assert "SCHEDULER_LEASE_SECONDS" in output
+    assert "# brokerai config sample: demo" in output
 
 
 def test_run_bot_preflight_fails_cleanly_when_llm_is_missing(tmp_path, capsys) -> None:
