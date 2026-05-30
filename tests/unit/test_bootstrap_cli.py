@@ -88,9 +88,11 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
             "n",
         ]
     )
-    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+    output = StringIO()
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=output)
 
     cli.apply_configuration_wizard(io_runtime, updates)
+    rendered = output.getvalue()
 
     assert updates["LLM_PROVIDER"] == "openai"
     assert updates["OPENAI_API_KEY"] == "openai-key"
@@ -114,6 +116,11 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["ALPHA_VANTAGE_API_KEY"] == "alpha-key"
     assert updates["SEARXNG_ENABLED"] == "false"
     assert updates["LANGSMITH_TRACING"] == "false"
+    assert "LLM setup" in rendered
+    assert "OpenAI credentials" in rendered
+    assert "How the AI uses it" in rendered
+    assert "Telegram setup" in rendered
+    assert "Alpha Vantage credentials" in rendered
 
 
 def test_apply_configuration_wizard_supports_azure_without_reddit_prompts() -> None:
@@ -276,7 +283,9 @@ def test_configure_aborts_when_security_notice_is_declined(tmp_path, monkeypatch
 
     output = capsys.readouterr().out
     assert exit_code == 1
+    assert "Welcome to BrokerAI" in output
     assert "Security warning" in output
+    assert "Configuration purpose" in output
     assert "Configuration aborted" in output
     assert not env_file.exists()
 

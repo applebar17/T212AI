@@ -18,6 +18,11 @@ from t212ai.genai.context import (
 )
 
 from .common import _bool_to_env, _env_truthy, _safe_choice
+from .config_guidance import (
+    CONFIGURATION_GUIDES,
+    render_configuration_guide,
+    render_configuration_welcome,
+)
 from .constants import (
     ALPHA_VANTAGE_SECTION_KEYS,
     ALPACA_ENVIRONMENT_OPTIONS,
@@ -52,7 +57,11 @@ def command_configure(args: argparse.Namespace) -> int:
     io_runtime.write("brokerai configuration wizard")
     io_runtime.write(f"Target env file: {env_path}")
     io_runtime.write("")
+    io_runtime.write(render_configuration_welcome())
+    io_runtime.write("")
     io_runtime.write(render_security_notice())
+    io_runtime.write("")
+    _write_configuration_guide(io_runtime, "process")
     io_runtime.write("")
     if not io_runtime.confirm(
         "I understand this can prepare broker actions. Continue?",
@@ -420,6 +429,7 @@ def apply_configuration_wizard(
         "LLM configuration",
         "Choose the main reasoning provider and its credentials. "
         "If you use Azure OpenAI, the chat model fields below are deployment names.",
+        guide_key="llm",
     )
     if _should_update_section(io_runtime, existing, LLM_SECTION_KEYS):
         llm_provider = io_runtime.choose(
@@ -433,6 +443,7 @@ def apply_configuration_wizard(
         )
         updates["LLM_PROVIDER"] = llm_provider
         if llm_provider == "openai":
+            _write_configuration_guide(io_runtime, "openai")
             updates["AZURE_OPENAI_ENABLED"] = "false"
             updates["OPENAI_API_KEY"] = io_runtime.prompt(
                 "OPENAI_API_KEY",
@@ -503,6 +514,7 @@ def apply_configuration_wizard(
                 default=updates["OPENAI_EMBED_DIMENSIONS"],
             )
         elif llm_provider == "azure_openai":
+            _write_configuration_guide(io_runtime, "azure_openai")
             updates["AZURE_OPENAI_ENABLED"] = "true"
             updates["AZURE_OPENAI_ENDPOINT"] = io_runtime.prompt(
                 "AZURE_OPENAI_ENDPOINT",
@@ -586,6 +598,7 @@ def apply_configuration_wizard(
         "Observability",
         "LangSmith tracing is optional. Enable it if you want execution traces, "
         "provider-level runs, and tool traces while testing or operating the app.",
+        guide_key="observability",
     )
     if _should_update_section(io_runtime, existing, OBSERVABILITY_SECTION_KEYS):
         tracing_enabled = io_runtime.confirm(
@@ -594,6 +607,7 @@ def apply_configuration_wizard(
         )
         updates["LANGSMITH_TRACING"] = _bool_to_env(tracing_enabled)
         if tracing_enabled:
+            _write_configuration_guide(io_runtime, "langsmith")
             updates["LANGSMITH_ENDPOINT"] = io_runtime.prompt(
                 "LANGSMITH_ENDPOINT",
                 default=updates["LANGSMITH_ENDPOINT"],
@@ -611,6 +625,7 @@ def apply_configuration_wizard(
         io_runtime,
         "Broker configuration",
         "Pick the broker used for account-authoritative reads and order execution.",
+        guide_key="broker",
     )
     if _should_update_section(io_runtime, existing, BROKER_SECTION_KEYS):
         broker_provider = io_runtime.choose(
@@ -624,6 +639,7 @@ def apply_configuration_wizard(
         )
         updates["BROKER_PROVIDER"] = broker_provider
         if broker_provider == "trading212":
+            _write_configuration_guide(io_runtime, "trading212")
             updates["T212_ENVIRONMENT"] = io_runtime.choose(
                 "Trading 212 environment",
                 options=ENVIRONMENT_OPTIONS,
@@ -639,6 +655,7 @@ def apply_configuration_wizard(
             else:
                 updates["T212_LIVE_TRADING_ENABLED"] = "false"
         elif broker_provider == "alpaca":
+            _write_configuration_guide(io_runtime, "alpaca")
             updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
                 "Alpaca environment",
                 options=ALPACA_ENVIRONMENT_OPTIONS,
@@ -650,6 +667,7 @@ def apply_configuration_wizard(
         io_runtime,
         "Telegram configuration",
         "Set the bot token and the allowed chat ids if you want Telegram access now.",
+        guide_key="telegram",
     )
     if _should_update_section(io_runtime, existing, TELEGRAM_SECTION_KEYS):
         if io_runtime.confirm(
@@ -675,6 +693,7 @@ def apply_configuration_wizard(
         "Market data configuration",
         "Choose the market-data source used for quotes, bars, and chart context. "
         "Yahoo is the default baseline; Alpaca is optional if you prefer it.",
+        guide_key="market_data",
     )
     if _should_update_section(io_runtime, existing, MARKET_DATA_SECTION_KEYS):
         market_data_provider: str
@@ -708,6 +727,7 @@ def apply_configuration_wizard(
         updates["MARKET_DATA_PROVIDER"] = market_data_provider
         updates["YAHOO_ENABLED"] = _bool_to_env(market_data_provider == "yahoo")
         if market_data_provider == "alpaca" and broker_provider != "alpaca":
+            _write_configuration_guide(io_runtime, "alpaca")
             updates["ALPACA_ENVIRONMENT"] = io_runtime.choose(
                 "Alpaca environment",
                 options=ALPACA_ENVIRONMENT_OPTIONS,
@@ -720,6 +740,7 @@ def apply_configuration_wizard(
         "Market intelligence",
         "Optional active-movers and intelligence enrichment. Skip this if you only "
         "need the baseline market-data provider.",
+        guide_key="alpha_vantage",
     )
     if _should_update_section(io_runtime, existing, ALPHA_VANTAGE_SECTION_KEYS):
         alpha_enabled = io_runtime.confirm(
@@ -740,6 +761,7 @@ def apply_configuration_wizard(
         io_runtime,
         "Disclosure intelligence",
         "Optional SEC EDGAR context for official filing, insider, and stake activity.",
+        guide_key="sec_edgar",
     )
     if _should_update_section(io_runtime, existing, DISCLOSURE_SECTION_KEYS):
         disclosure_enabled = io_runtime.confirm(
@@ -759,12 +781,14 @@ def apply_configuration_wizard(
         "SearXNG is expected to be compose-managed, so this wizard does not prompt for it. "
         "Keep the current search settings as they are, or edit SEARCH_PROVIDER and "
         "SEARXNG_BASE_URL later.",
+        guide_key="search",
     )
 
     _write_step_intro(
         io_runtime,
         "Local storage",
         "Optionally override the default SQLite database path and guideline memory file path.",
+        guide_key="storage",
     )
     if _should_update_section(io_runtime, existing, STORAGE_SECTION_KEYS):
         if io_runtime.confirm(
@@ -805,6 +829,7 @@ def apply_configuration_wizard(
         "Scheduler defaults",
         "Set the user's default timezone for local schedule requests. Scheduler "
         "workers store and execute times in UTC after conversion.",
+        guide_key="scheduler",
     )
     if _should_update_section(io_runtime, existing, SCHEDULER_SECTION_KEYS):
         if io_runtime.confirm(
@@ -979,9 +1004,19 @@ def _write_step_intro(
     io_runtime: TerminalIO,
     title: str,
     description: str,
+    *,
+    guide_key: str | None = None,
 ) -> None:
     io_runtime.write("")
     io_runtime.write(render_step_intro(title, description))
+    if guide_key:
+        io_runtime.write("")
+        _write_configuration_guide(io_runtime, guide_key)
+
+
+def _write_configuration_guide(io_runtime: TerminalIO, guide_key: str) -> None:
+    guide = CONFIGURATION_GUIDES[guide_key]
+    io_runtime.write(render_configuration_guide(guide))
 
 
 def _section_has_existing_values(
