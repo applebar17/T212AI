@@ -6,6 +6,13 @@ The docs are organized by operating concern so design notes, current-state
 references, source API material, and active planning do not live in one flat
 folder.
 
+## Configuration
+
+- [CLI configuration walkthrough](./configuration/CLI_CONFIGURATION_WALKTHROUGH.md):
+  where to get each value prompted by `brokerai configure` or `brokerai
+  onboard`, including provider keys, broker secrets, Telegram ids, and local
+  runtime settings.
+
 ## Architecture
 
 - [Architecture status](./architecture/ARCHITECTURE_STATUS.md): current runtime
