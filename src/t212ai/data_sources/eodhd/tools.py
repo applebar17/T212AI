@@ -31,12 +31,15 @@ SYMBOL_REFERENCE_SEARCH_TOOL: ToolSpec = {
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Ticker, company name, or ISIN."},
+                "query": {
+                    "type": "string",
+                    "description": "Ticker, company name, or ISIN.",
+                },
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 500,
-                    "default": 15,
+                    "default": 10,
                     "description": "Maximum candidates to return.",
                 },
                 "asset_type": {
@@ -56,7 +59,7 @@ SYMBOL_REFERENCE_SEARCH_TOOL: ToolSpec = {
                     "description": "Whether to request only bonds.",
                 },
             },
-            "required": ["query", "limit", "asset_type", "exchange", "bonds_only"],
+            "required": ["query"],
             "additionalProperties": False,
         },
     },
@@ -84,11 +87,26 @@ SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL: ToolSpec = {
                     "type": ["string", "null"],
                     "description": "Exchange code filter, for example US, or null.",
                 },
-                "isin": {"type": ["string", "null"], "description": "ISIN filter or null."},
-                "figi": {"type": ["string", "null"], "description": "OpenFIGI filter or null."},
-                "lei": {"type": ["string", "null"], "description": "LEI filter or null."},
-                "cusip": {"type": ["string", "null"], "description": "CUSIP filter or null."},
-                "cik": {"type": ["string", "null"], "description": "CIK filter or null."},
+                "isin": {
+                    "type": ["string", "null"],
+                    "description": "ISIN filter or null.",
+                },
+                "figi": {
+                    "type": ["string", "null"],
+                    "description": "OpenFIGI filter or null.",
+                },
+                "lei": {
+                    "type": ["string", "null"],
+                    "description": "LEI filter or null.",
+                },
+                "cusip": {
+                    "type": ["string", "null"],
+                    "description": "CUSIP filter or null.",
+                },
+                "cik": {
+                    "type": ["string", "null"],
+                    "description": "CIK filter or null.",
+                },
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
@@ -146,7 +164,7 @@ def build_eodhd_tool_mapping(
 def symbol_reference_search(
     *,
     query: str,
-    limit: int = 15,
+    limit: int = 10,
     asset_type: str = "all",
     exchange: str | None = None,
     bonds_only: bool = False,
