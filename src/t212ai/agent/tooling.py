@@ -47,6 +47,8 @@ def _portfolio_summary(assessment: ConfigAssessment) -> str:
         facts.append("market data context")
     if assessment.capabilities["market_intelligence"].available:
         facts.append("active-movers intelligence")
+    if assessment.capabilities["symbol_reference"].available:
+        facts.append("symbol and ISIN reference lookup")
     if assessment.capabilities["disclosure"].available:
         facts.append("official disclosure activity")
     if assessment.capabilities["search"].available:
@@ -84,6 +86,8 @@ def _market_summary(toolbox: ToolBox) -> str:
         segments.append("market snapshot and relative-volume monitoring")
     if "alpha_vantage_most_actively_traded" in names:
         segments.append("active-movers intelligence")
+    if "symbol_reference_search" in names:
+        segments.append("symbol, ISIN, and identifier reference lookup")
     if "edgar_company_disclosure_snapshot" in names:
         segments.append("official disclosure activity")
     if "searxng_search" in names or "scrape_page" in names or "scrape_article" in names:
@@ -112,6 +116,8 @@ def _company_summary(
         facts.append("market data context")
     if assessment.capabilities["market_intelligence"].available:
         facts.append("market intelligence and fundamentals context")
+    if assessment.capabilities["symbol_reference"].available:
+        facts.append("symbol and identifier reference lookup")
     if assessment.capabilities["disclosure"].available:
         facts.append("official disclosure context")
     if research_toolbox and research_toolbox.tools:

@@ -9,12 +9,20 @@ from t212ai.capabilities import (
     BrokerReadService,
     CommunityResearchService,
     DisclosureService,
+    EodhdSymbolReferenceService,
     EdgarDisclosureService,
     MarketDataService,
     MarketIntelligenceService,
     SearchService,
     SearxngSearchService,
+    SymbolReferenceService,
     YahooMarketDataService,
+)
+from t212ai.data_sources.eodhd.models import (
+    EodhdIdentifierRecord,
+    EodhdIdMappingResult,
+    EodhdSearchCandidate,
+    EodhdSearchResult,
 )
 from t212ai.capabilities.market_data_models import (
     MarketPriceHistoryResult,
@@ -227,17 +235,37 @@ class _FakeAlpacaClient:
 
 class _FakeAlpacaBrokerClient:
     def get_account(self):
-        return {"account_number": "PA123", "currency": "USD", "buying_power": "1000", "portfolio_value": "1200"}
+        return {
+            "account_number": "PA123",
+            "currency": "USD",
+            "buying_power": "1000",
+            "portfolio_value": "1200",
+        }
 
     def list_positions(self):
         return []
 
-    def list_orders(self, *, status: str, limit: int | None = None, ticker: str | None = None, cursor=None):
+    def list_orders(
+        self,
+        *,
+        status: str,
+        limit: int | None = None,
+        ticker: str | None = None,
+        cursor=None,
+    ):
         del status, limit, ticker, cursor
         return []
 
     def get_order(self, order_ref: str):
-        return {"id": order_ref, "symbol": "AAPL", "qty": "1", "side": "buy", "status": "new", "type": "market", "time_in_force": "day"}
+        return {
+            "id": order_ref,
+            "symbol": "AAPL",
+            "qty": "1",
+            "side": "buy",
+            "status": "new",
+            "type": "market",
+            "time_in_force": "day",
+        }
 
     def place_order(self, payload):
         return {
@@ -256,6 +284,38 @@ class _FakeAlpacaBrokerClient:
 
 class _FakeAlphaClient:
     pass
+
+
+class _FakeEodhdClient:
+    def search(self, query: str, **_kwargs):
+        return EodhdSearchResult(
+            query=query,
+            candidates=[
+                EodhdSearchCandidate(
+                    code="AAPL",
+                    exchange="US",
+                    provider_symbol="AAPL.US",
+                    name="Apple Inc.",
+                    isin="US0378331005",
+                )
+            ],
+            request_params={"fmt": "json"},
+        )
+
+    def id_mapping(self, **_kwargs):
+        return EodhdIdMappingResult(
+            records=[
+                EodhdIdentifierRecord(
+                    provider_symbol="AAPL.US",
+                    isin="US0378331005",
+                    cusip="037833100",
+                )
+            ],
+            total=1,
+            limit=100,
+            offset=0,
+            request_params={"fmt": "json"},
+        )
 
 
 class _FakeEdgarManager:
@@ -357,6 +417,17 @@ def test_alpha_vantage_market_intelligence_service_delegates_to_tool(monkeypatch
         "limit": 7,
         "runtime_type": "AlphaVantageToolRuntime",
     }
+
+
+def test_eodhd_symbol_reference_service_satisfies_capability_protocol() -> None:
+    service = EodhdSymbolReferenceService(_FakeEodhdClient())  # type: ignore[arg-type]
+
+    assert isinstance(service, SymbolReferenceService)
+    search = service.search("apple")
+    mapping = service.map_identifiers(isin="US0378331005")
+    assert search.candidates[0]["provider_symbol"] == "AAPL.US"
+    assert search.meta["authority"] == "reference_data_only"
+    assert mapping.records[0]["cusip"] == "037833100"
 
 
 def test_edgar_disclosure_service_satisfies_capability_protocol() -> None:

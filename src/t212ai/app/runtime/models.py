@@ -43,8 +43,10 @@ if TYPE_CHECKING:
         MarketDataService,
         MarketIntelligenceService,
         SearchService,
+        SymbolReferenceService,
     )
     from t212ai.data_sources.alpha_vantage import AlphaVantageClient
+    from t212ai.data_sources.eodhd import EodhdClient
     from t212ai.data_sources.reddit import RedditClient, RedditResearchService
     from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
     from t212ai.data_sources.yahoo import YahooFinanceClient
@@ -112,6 +114,8 @@ class AppRuntime:
     market_data_service: MarketDataService | None = None
     alpha_vantage_client: AlphaVantageClient | None = None
     market_intelligence_service: MarketIntelligenceService | None = None
+    eodhd_client: EodhdClient | None = None
+    symbol_reference_service: SymbolReferenceService | None = None
     reddit_client: RedditClient | None = None
     reddit_service: RedditResearchService | None = None
     community_research_service: CommunityResearchService | None = None
@@ -144,6 +148,7 @@ class AppRuntime:
             for service in (
                 self.market_data_service,
                 self.market_intelligence_service,
+                self.symbol_reference_service,
                 self.community_research_service,
                 self.disclosure_service,
                 self.search_service,

@@ -114,6 +114,8 @@ def test_apply_configuration_wizard_handles_openai_and_optional_providers() -> N
     assert updates["YAHOO_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_ENABLED"] == "true"
     assert updates["ALPHA_VANTAGE_API_KEY"] == "alpha-key"
+    assert updates["SYMBOL_REFERENCE_PROVIDER"] == "none"
+    assert updates["EODHD_ENABLED"] == "false"
     assert updates["SEARXNG_ENABLED"] == "false"
     assert updates["LANGSMITH_TRACING"] == "false"
     assert "LLM setup" in rendered
@@ -175,6 +177,7 @@ def test_apply_configuration_wizard_supports_azure_without_reddit_prompts() -> N
     assert updates["LANGSMITH_PROJECT"] == "T212AI"
     assert updates["MARKET_DATA_PROVIDER"] == "none"
     assert updates["MARKET_INTELLIGENCE_PROVIDER"] == "none"
+    assert updates["SYMBOL_REFERENCE_PROVIDER"] == "none"
     assert updates["DISCLOSURE_PROVIDER"] == "none"
     assert updates["COMMUNITY_PROVIDER"] == "reddit"
     assert updates["SEARCH_PROVIDER"] == "none"
@@ -336,6 +339,34 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
     assert updates["ALPACA_LIVE_API_KEY"] == ""
     assert updates["ALPACA_LIVE_API_SECRET"] == ""
     assert updates["YAHOO_ENABLED"] == "false"
+
+
+def test_apply_configuration_wizard_supports_eodhd_symbol_reference() -> None:
+    updates = cli.build_managed_env_values({})
+    responses = iter(
+        [
+            "3",
+            "n",
+            "3",
+            "n",
+            "1",
+            "n",
+            "y",
+            "eodhd-token",
+            "",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+
+    cli.apply_configuration_wizard(io_runtime, updates)
+
+    assert updates["SYMBOL_REFERENCE_PROVIDER"] == "eodhd"
+    assert updates["EODHD_ENABLED"] == "true"
+    assert updates["EODHD_API_TOKEN"] == "eodhd-token"
+    assert updates["EODHD_BASE_URL"] == "https://eodhd.com/api"
 
 
 def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse() -> None:
@@ -570,6 +601,27 @@ def test_doctor_returns_zero_for_valid_but_incomplete_defaults(tmp_path, capsys)
     assert "- Scheduler market regime monitor: unavailable" in output
     assert "- Scheduler market signal capture: unavailable" in output
     assert "- Scheduler trade setup monitor: unavailable" in output
+
+
+def test_eodhd_config_readiness_and_secret_masking(tmp_path, capsys) -> None:
+    missing_token_file = tmp_path / "missing-token.env"
+    missing_token_file.write_text("SYMBOL_REFERENCE_PROVIDER=eodhd\n", encoding="utf-8")
+
+    exit_code = cli.main(["doctor", "--env-file", str(missing_token_file)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "- EODHD: misconfigured" in output
+    assert "missing: EODHD_API_TOKEN" in output
+    assert "- Symbol reference: unavailable" in output
+
+    updates = cli.build_managed_env_values({"EODHD_API_TOKEN": "secret-token"})
+    review = cli.render_configuration_review(updates)
+
+    assert updates["SYMBOL_REFERENCE_PROVIDER"] == "eodhd"
+    assert updates["EODHD_ENABLED"] == "true"
+    assert "EODHD_API_TOKEN=se********en" in review
+    assert "secret-token" not in review
 
 
 def test_doctor_accepts_manual_reddit_provider_without_credentials(tmp_path, capsys) -> None:

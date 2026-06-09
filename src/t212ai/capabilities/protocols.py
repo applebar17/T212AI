@@ -30,6 +30,10 @@ from .market_data_models import (
     MarketQuoteSnapshotResult,
     MarketSymbolSearchResult,
 )
+from .symbol_reference_models import (
+    SymbolIdentifierMappingResult,
+    SymbolReferenceSearchResult,
+)
 
 
 @runtime_checkable
@@ -166,6 +170,33 @@ class MarketIntelligenceService(Protocol):
         entitlement: str | None = None,
         limit: int = 20,
     ) -> ToolResult: ...
+
+
+@runtime_checkable
+class SymbolReferenceService(Protocol):
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 15,
+        asset_type: str = "all",
+        exchange: str | None = None,
+        bonds_only: bool = False,
+    ) -> SymbolReferenceSearchResult: ...
+
+    def map_identifiers(
+        self,
+        *,
+        symbol: str | None = None,
+        exchange: str | None = None,
+        isin: str | None = None,
+        figi: str | None = None,
+        lei: str | None = None,
+        cusip: str | None = None,
+        cik: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> SymbolIdentifierMappingResult: ...
 
 
 @runtime_checkable

@@ -30,6 +30,7 @@ class MarketAnalystAgent(BaseAgent):
         guideline_service: GuidelineMemoryService | None = None,
         *,
         market_data_service=None,
+        symbol_reference_service=None,
         market_signal_service=None,
         toolbox: ToolBox | None = None,
         toolbox_summary: str | None = None,
@@ -80,6 +81,7 @@ class MarketAnalystAgent(BaseAgent):
             guideline_service=guideline_service,
         )
         self.market_data_service = market_data_service
+        self.symbol_reference_service = symbol_reference_service
         self.market_signal_service = market_signal_service
         self.configurable_reasoner_agent = configurable_reasoner_agent
         self.configurable_planner_agent = configurable_planner_agent
@@ -301,6 +303,7 @@ class MarketAnalystAgent(BaseAgent):
         mapping = build_tool_mapping_for(
             self.profile.toolbox,
             market_data_service=self.market_data_service,
+            symbol_reference_service=self.symbol_reference_service,
             market_signal_service=self.market_signal_service,
         )
         if self.reddit_research_agent is not None:

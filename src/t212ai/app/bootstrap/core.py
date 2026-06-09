@@ -12,6 +12,7 @@ from .models import (
     VALID_MARKET_DATA_PROVIDERS,
     VALID_MARKET_INTELLIGENCE_PROVIDERS,
     VALID_SEARCH_PROVIDERS,
+    VALID_SYMBOL_REFERENCE_PROVIDERS,
     CapabilityAssessment,
     ConfigAssessment,
     ProviderAssessment,
@@ -28,6 +29,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         "yahoo": _assess_yahoo_provider(settings),
         "alpaca": _assess_alpaca_provider(settings),
         "alpha_vantage": _assess_alpha_vantage_provider(settings),
+        "eodhd": _assess_eodhd_provider(settings),
         "reddit": _assess_reddit_provider(settings),
         "searxng": _assess_searxng_provider(settings),
         "sec_edgar": _assess_sec_edgar_provider(settings),
@@ -35,6 +37,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
     selector_errors = _validate_selector_values(settings)
     market_data_capability = _build_market_data_capability(settings, providers)
     market_intelligence_capability = _build_market_intelligence_capability(settings, providers)
+    symbol_reference_capability = _build_symbol_reference_capability(settings, providers)
     disclosure_capability = _build_disclosure_capability(settings, providers)
     community_capability = CapabilityAssessment(
         name="research_community_context",
@@ -106,6 +109,7 @@ def assess_settings(settings: AppSettings) -> ConfigAssessment:
         ),
         "market_data": market_data_capability,
         "market_intelligence": market_intelligence_capability,
+        "symbol_reference": symbol_reference_capability,
         "disclosure": disclosure_capability,
         "research_community_context": community_capability,
         "search": search_capability,
@@ -728,6 +732,27 @@ def _assess_alpha_vantage_provider(settings: AppSettings) -> ProviderAssessment:
     )
 
 
+def _assess_eodhd_provider(settings: AppSettings) -> ProviderAssessment:
+    missing = _missing_keys({"EODHD_API_TOKEN": settings.eodhd_api_token})
+    enabled = settings.symbol_reference_provider == "eodhd"
+    return ProviderAssessment(
+        name="eodhd",
+        label="EODHD",
+        enabled=enabled,
+        optional=True,
+        configured=bool(settings.eodhd_api_token),
+        ready=enabled and not missing,
+        required_keys=("EODHD_API_TOKEN",),
+        missing_keys=missing if enabled else (),
+        errors=_provider_errors("EODHD", missing) if enabled else (),
+        notes=(
+            "EODHD is used for symbol and identifier reference data, not broker authority.",
+        )
+        if enabled
+        else ("EODHD symbol reference is disabled.",),
+    )
+
+
 def _assess_reddit_provider(settings: AppSettings) -> ProviderAssessment:
     enabled = settings.community_provider == "reddit"
     return ProviderAssessment(
@@ -908,6 +933,43 @@ def _build_market_intelligence_capability(
     )
 
 
+def _build_symbol_reference_capability(
+    settings: AppSettings,
+    providers: dict[str, ProviderAssessment],
+) -> CapabilityAssessment:
+    selected = str(settings.symbol_reference_provider or "").strip().lower()
+    if selected not in VALID_SYMBOL_REFERENCE_PROVIDERS:
+        return CapabilityAssessment(
+            name="symbol_reference",
+            label="Symbol reference",
+            available=False,
+            optional=True,
+            reasons=(
+                f"SYMBOL_REFERENCE_PROVIDER has unsupported value '{settings.symbol_reference_provider}'.",
+            ),
+        )
+    if selected == "none":
+        return CapabilityAssessment(
+            name="symbol_reference",
+            label="Symbol reference",
+            available=False,
+            optional=True,
+            reasons=("Symbol reference provider is disabled.",),
+        )
+    provider = providers["eodhd"]
+    return CapabilityAssessment(
+        name="symbol_reference",
+        label="Symbol reference",
+        available=provider.ready,
+        optional=True,
+        selected_provider="eodhd",
+        reasons=_reasons_for_capability(
+            provider.ready,
+            "Configure EODHD credentials or disable symbol reference.",
+        ),
+    )
+
+
 def _build_disclosure_capability(
     settings: AppSettings,
     providers: dict[str, ProviderAssessment],
@@ -1025,6 +1087,13 @@ def _validate_selector_values(settings: AppSettings) -> tuple[str, ...]:
     )
     errors.extend(
         _selector_error(
+            "SYMBOL_REFERENCE_PROVIDER",
+            settings.symbol_reference_provider,
+            VALID_SYMBOL_REFERENCE_PROVIDERS,
+        )
+    )
+    errors.extend(
+        _selector_error(
             "DISCLOSURE_PROVIDER",
             settings.disclosure_provider,
             VALID_DISCLOSURE_PROVIDERS,
@@ -1091,6 +1160,12 @@ def _smoke_probe_alpha_vantage(settings: AppSettings) -> None:
     AlphaVantageClient.from_settings(settings).market_status()
 
 
+def _smoke_probe_eodhd(settings: AppSettings) -> None:
+    from t212ai.data_sources.eodhd import EodhdClient
+
+    EodhdClient.from_settings(settings).search("AAPL", limit=1)
+
+
 def _smoke_probe_reddit(settings: AppSettings) -> None:
     from t212ai.data_sources.reddit import RedditClient
 
@@ -1121,6 +1196,7 @@ _PROVIDER_SMOKE_PROBES = {
     "yahoo": _smoke_probe_yahoo,
     "alpaca": _smoke_probe_alpaca,
     "alpha_vantage": _smoke_probe_alpha_vantage,
+    "eodhd": _smoke_probe_eodhd,
     "reddit": _smoke_probe_reddit,
     "searxng": _smoke_probe_searxng,
     "sec_edgar": _smoke_probe_sec_edgar,

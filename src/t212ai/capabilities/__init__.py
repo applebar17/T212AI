@@ -14,6 +14,11 @@ from .protocols import (
     MarketDataService,
     MarketIntelligenceService,
     SearchService,
+    SymbolReferenceService,
+)
+from .symbol_reference_models import (
+    SymbolIdentifierMappingResult,
+    SymbolReferenceSearchResult,
 )
 __all__ = [
     "AlpacaMarketDataService",
@@ -23,6 +28,7 @@ __all__ = [
     "CapabilityBinding",
     "CommunityResearchService",
     "DisclosureService",
+    "EodhdSymbolReferenceService",
     "EdgarDisclosureService",
     "MarketDataService",
     "MarketPriceHistoryResult",
@@ -31,6 +37,9 @@ __all__ = [
     "MarketIntelligenceService",
     "SearchService",
     "SearxngSearchService",
+    "SymbolIdentifierMappingResult",
+    "SymbolReferenceSearchResult",
+    "SymbolReferenceService",
     "YahooMarketDataService",
 ]
 
@@ -39,6 +48,7 @@ def __getattr__(name: str):
     if name in {
         "AlpacaMarketDataService",
         "AlphaVantageMarketIntelligenceService",
+        "EodhdSymbolReferenceService",
         "EdgarDisclosureService",
         "SearxngSearchService",
         "YahooMarketDataService",
@@ -46,6 +56,7 @@ def __getattr__(name: str):
         from .services import (
             AlpacaMarketDataService,
             AlphaVantageMarketIntelligenceService,
+            EodhdSymbolReferenceService,
             EdgarDisclosureService,
             SearxngSearchService,
             YahooMarketDataService,
@@ -54,6 +65,7 @@ def __getattr__(name: str):
         return {
             "AlpacaMarketDataService": AlpacaMarketDataService,
             "AlphaVantageMarketIntelligenceService": AlphaVantageMarketIntelligenceService,
+            "EodhdSymbolReferenceService": EodhdSymbolReferenceService,
             "EdgarDisclosureService": EdgarDisclosureService,
             "SearxngSearchService": SearxngSearchService,
             "YahooMarketDataService": YahooMarketDataService,

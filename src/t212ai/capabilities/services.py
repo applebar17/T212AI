@@ -11,6 +11,7 @@ from t212ai.data_sources.alpha_vantage import (
     AlphaVantageToolRuntime,
     alpha_vantage_most_actively_traded,
 )
+from t212ai.data_sources.eodhd import EodhdClient
 from t212ai.data_sources.sec_edgar import EdgarInsiderManager
 from t212ai.data_sources.yahoo import (
     YahooFinanceClient,
@@ -25,6 +26,10 @@ from .market_data_models import (
     MarketPriceHistoryResult,
     MarketQuoteSnapshotResult,
     MarketSymbolSearchResult,
+)
+from .symbol_reference_models import (
+    SymbolIdentifierMappingResult,
+    SymbolReferenceSearchResult,
 )
 
 
@@ -382,6 +387,77 @@ class AlphaVantageMarketIntelligenceService:
             entitlement=entitlement,
             limit=limit,
             runtime=AlphaVantageToolRuntime(client=self.client),
+        )
+
+
+@dataclass(slots=True)
+class EodhdSymbolReferenceService:
+    client: EodhdClient
+    provider_name: str = "eodhd"
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 15,
+        asset_type: str = "all",
+        exchange: str | None = None,
+        bonds_only: bool = False,
+    ) -> SymbolReferenceSearchResult:
+        result = self.client.search(
+            query,
+            limit=limit,
+            asset_type=asset_type,
+            exchange=exchange,
+            bonds_only=bonds_only,
+        )
+        return SymbolReferenceSearchResult(
+            query=result.query,
+            candidates=[candidate.to_dict() for candidate in result.candidates],
+            meta={
+                "provider": self.provider_name,
+                "request_params": result.request_params,
+                "endpoint": result.endpoint,
+                "authority": "reference_data_only",
+            },
+        )
+
+    def map_identifiers(
+        self,
+        *,
+        symbol: str | None = None,
+        exchange: str | None = None,
+        isin: str | None = None,
+        figi: str | None = None,
+        lei: str | None = None,
+        cusip: str | None = None,
+        cik: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> SymbolIdentifierMappingResult:
+        result = self.client.id_mapping(
+            symbol=symbol,
+            exchange=exchange,
+            isin=isin,
+            figi=figi,
+            lei=lei,
+            cusip=cusip,
+            cik=cik,
+            limit=limit,
+            offset=offset,
+        )
+        return SymbolIdentifierMappingResult(
+            records=[record.to_dict() for record in result.records],
+            total=result.total,
+            limit=result.limit,
+            offset=result.offset,
+            next_url=result.next_url,
+            meta={
+                "provider": self.provider_name,
+                "request_params": result.request_params,
+                "endpoint": result.endpoint,
+                "authority": "reference_data_only",
+            },
         )
 
 

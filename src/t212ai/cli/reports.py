@@ -45,6 +45,7 @@ def render_doctor_report(
         "yahoo",
         "alpaca",
         "alpha_vantage",
+        "eodhd",
         "reddit",
         "searxng",
         "sec_edgar",
@@ -61,6 +62,7 @@ def render_doctor_report(
         "broker_execution_eligibility",
         "market_data",
         "market_intelligence",
+        "symbol_reference",
         "disclosure",
         "research_community_context",
         "search",
@@ -115,6 +117,7 @@ def render_doctor_report(
     lines.append(
         f"Market intelligence provider selection: {settings.market_intelligence_provider}"
     )
+    lines.append(f"Symbol reference provider selection: {settings.symbol_reference_provider}")
     lines.append(f"Disclosure provider selection: {settings.disclosure_provider}")
     lines.append(f"Community provider selection: {settings.community_provider}")
     lines.append(f"Search provider selection: {settings.search_provider}")

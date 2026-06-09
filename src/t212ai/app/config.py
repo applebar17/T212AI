@@ -107,6 +107,7 @@ class AppSettings:
     broker_provider: str = "none"
     market_data_provider: str = "yahoo"
     market_intelligence_provider: str = "none"
+    symbol_reference_provider: str = "none"
     disclosure_provider: str = "sec_edgar"
     community_provider: str = "none"
     search_provider: str = "none"
@@ -146,6 +147,8 @@ class AppSettings:
     telegram_allowed_user_id: str | None = None
     alpha_vantage_api_key: str | None = None
     alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
+    eodhd_api_token: str | None = None
+    eodhd_base_url: str = "https://eodhd.com/api"
     alpaca_paper_api_key: str | None = None
     alpaca_paper_api_secret: str | None = None
     alpaca_live_api_key: str | None = None
@@ -168,6 +171,7 @@ class AppSettings:
     sec_edgar_tickers_url: str = "https://www.sec.gov/files/company_tickers.json"
     yahoo_enabled: bool = False
     alpha_vantage_enabled: bool = False
+    eodhd_enabled: bool = False
     reddit_enabled: bool = False
     searxng_enabled: bool = False
     app_log_level: str = "INFO"
@@ -238,6 +242,7 @@ def get_app_settings(
         broker_provider=_resolve_broker_provider(source),
         market_data_provider=_resolve_market_data_provider(source),
         market_intelligence_provider=_resolve_market_intelligence_provider(source),
+        symbol_reference_provider=_resolve_symbol_reference_provider(source),
         disclosure_provider=_resolve_disclosure_provider(source),
         community_provider=_resolve_community_provider(source),
         search_provider=_resolve_search_provider(source),
@@ -318,6 +323,8 @@ def get_app_settings(
             "ALPHA_VANTAGE_BASE_URL",
             "https://www.alphavantage.co/query",
         ),
+        eodhd_api_token=source.get("EODHD_API_TOKEN"),
+        eodhd_base_url=source.get("EODHD_BASE_URL", "https://eodhd.com/api"),
         alpaca_paper_api_key=source.get("ALPACA_PAPER_API_KEY"),
         alpaca_paper_api_secret=source.get("ALPACA_PAPER_API_SECRET"),
         alpaca_live_api_key=source.get("ALPACA_LIVE_API_KEY"),
@@ -365,6 +372,7 @@ def get_app_settings(
         yahoo_enabled=_resolve_market_data_provider(source) == "yahoo",
         alpha_vantage_enabled=_resolve_market_intelligence_provider(source)
         == "alpha_vantage",
+        eodhd_enabled=_resolve_symbol_reference_provider(source) == "eodhd",
         reddit_enabled=_resolve_community_provider(source) == "reddit",
         searxng_enabled=_resolve_search_provider(source) == "searxng",
         app_log_level=source.get("APP_LOG_LEVEL", "INFO"),
@@ -603,6 +611,20 @@ def _resolve_market_intelligence_provider(source: Mapping[str, str]) -> str:
         fallback_keys=("ALPHA_VANTAGE_API_KEY",),
     ):
         return "alpha_vantage"
+    return "none"
+
+
+def _resolve_symbol_reference_provider(source: Mapping[str, str]) -> str:
+    explicit = str(source.get("SYMBOL_REFERENCE_PROVIDER", "")).strip().lower()
+    if explicit:
+        return explicit
+    if _env_bool_or_fallback(
+        source,
+        "EODHD_ENABLED",
+        False,
+        fallback_keys=("EODHD_API_TOKEN",),
+    ):
+        return "eodhd"
     return "none"
 
 

@@ -27,6 +27,13 @@ from t212ai.capabilities import (
     DisclosureService,
     MarketDataService,
     MarketIntelligenceService,
+    SymbolReferenceService,
+)
+from t212ai.data_sources.eodhd.models import (
+    EodhdIdentifierRecord,
+    EodhdIdMappingResult,
+    EodhdSearchCandidate,
+    EodhdSearchResult,
 )
 from t212ai.telegram.bridge import build_agent_message_handler_if_configured
 from t212ai.telegram.models import TelegramInboundMessage, TelegramOutboundMessage
@@ -171,6 +178,37 @@ class FakeAlphaVantageClient:
     def from_settings(cls, settings=None):
         del settings
         return cls()
+
+
+class FakeEodhdClient:
+    @classmethod
+    def from_settings(cls, settings=None):
+        del settings
+        return cls()
+
+    def search(self, query: str, **_kwargs):
+        return EodhdSearchResult(
+            query=query,
+            candidates=[
+                EodhdSearchCandidate(
+                    code="AAPL",
+                    exchange="US",
+                    provider_symbol="AAPL.US",
+                    name="Apple Inc.",
+                    isin="US0378331005",
+                )
+            ],
+        )
+
+    def id_mapping(self, **_kwargs):
+        return EodhdIdMappingResult(
+            records=[
+                EodhdIdentifierRecord(
+                    provider_symbol="AAPL.US",
+                    isin="US0378331005",
+                )
+            ],
+        )
 
 
 class FakeAlpacaMarketDataClient:
@@ -366,6 +404,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.market_data_service is not None
     assert isinstance(runtime.market_data_service, MarketDataService)
     assert runtime.market_intelligence_service is None
+    assert runtime.symbol_reference_service is None
     assert runtime.community_research_service is None
     assert runtime.disclosure_service is not None
     assert isinstance(runtime.disclosure_service, DisclosureService)
@@ -374,6 +413,7 @@ def test_build_runtime_records_genai_error_when_llm_is_missing(tmp_path: Path) -
     assert runtime.broker_execution_service is None
     assert runtime.capability_registry["market_data"].selected_provider == "yahoo"
     assert runtime.capability_registry["market_data"].ready
+    assert not runtime.capability_registry["symbol_reference"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["scheduled_processes"].ready
     assert not runtime.capability_registry["scheduler_notifications"].ready
@@ -557,6 +597,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     monkeypatch.setattr(runtime_module, "GenAIClient", FakeRuntimeGenAIClient)
     monkeypatch.setattr(runtime_module, "Trading212Client", FakeTrading212Client)
     monkeypatch.setattr(runtime_module, "AlphaVantageClient", FakeAlphaVantageClient)
+    monkeypatch.setattr(runtime_module, "EodhdClient", FakeEodhdClient)
     monkeypatch.setattr(runtime_module, "RedditClient", FakeRedditClient)
     settings = get_app_settings(
         env={
@@ -568,6 +609,8 @@ def test_build_runtime_builds_optional_provider_stacks(
             "YAHOO_ENABLED": "true",
             "ALPHA_VANTAGE_ENABLED": "true",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
+            "SYMBOL_REFERENCE_PROVIDER": "eodhd",
+            "EODHD_API_TOKEN": "eodhd-token",
             "COMMUNITY_PROVIDER": "reddit",
             "REDDIT_USER_AGENT": "server:t212ai:test (by /u/tester)",
             "TELEGRAM_BOT_TOKEN": "telegram-token",
@@ -598,6 +641,9 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.alpha_vantage_client is not None
     assert runtime.market_intelligence_service is not None
     assert isinstance(runtime.market_intelligence_service, MarketIntelligenceService)
+    assert runtime.eodhd_client is not None
+    assert runtime.symbol_reference_service is not None
+    assert isinstance(runtime.symbol_reference_service, SymbolReferenceService)
     assert runtime.reddit_client is not None
     assert runtime.reddit_service is not None
     assert runtime.community_research_service is not None
@@ -614,6 +660,7 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.capability_registry["broker_read"].ready
     assert runtime.capability_registry["broker_execution"].ready
     assert runtime.capability_registry["market_intelligence"].ready
+    assert runtime.capability_registry["symbol_reference"].ready
     assert runtime.capability_registry["market_signal_memory"].ready
     assert runtime.capability_registry["scheduled_processes"].ready
     assert runtime.capability_registry["scheduler_instrument_monitor"].ready
@@ -627,6 +674,8 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert not runtime.capability_registry["search"].ready
     market_tools = runtime.toolboxes["market_analyst"].tools_by_name
     assert "alpha_vantage_most_actively_traded" in market_tools
+    assert "symbol_reference_search" in market_tools
+    assert "symbol_reference_map_identifiers" in market_tools
     assert "market_signal_search" in market_tools
     assert "searxng_search" not in market_tools
     assert runtime.specialist_tooling is not None
@@ -634,6 +683,9 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.specialist_tooling.order_toolbox.name == "broker_order_actions"
     assert "Alpha Vantage" not in runtime.specialist_tooling.market_toolbox_summary
     assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
+    assert "symbol, ISIN, and identifier reference lookup" in (
+        runtime.specialist_tooling.market_toolbox_summary
+    )
     assert "yahoo_market_context" not in runtime.toolboxes
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime

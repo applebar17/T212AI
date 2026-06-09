@@ -122,6 +122,28 @@ _CONFIG_NOTES: dict[str, dict[str, str]] = {
         "example": "alpha_vantage",
         "scenario": "Enable when you want richer analysis beyond raw quote data.",
     },
+    "SYMBOL_REFERENCE_PROVIDER": {
+        "purpose": "Selects optional symbol and identifier reference lookup.",
+        "example": "eodhd",
+        "scenario": (
+            "Enable EODHD when you want ticker, company-name, ISIN, CUSIP, FIGI, "
+            "LEI, or CIK resolution before broker verification."
+        ),
+    },
+    "EODHD_API_TOKEN": {
+        "purpose": "API token for EODHD symbol reference and identifier mapping.",
+        "example": "...",
+        "scenario": (
+            "Required when SYMBOL_REFERENCE_PROVIDER=eodhd. Doctor smoke checks "
+            "consume one EODHD Search API call."
+        ),
+        "required_when": "Required when EODHD symbol reference is enabled.",
+    },
+    "EODHD_BASE_URL": {
+        "purpose": "Base URL for EODHD API requests.",
+        "example": "https://eodhd.com/api",
+        "scenario": "Keep the default unless testing a compatible EODHD endpoint.",
+    },
     "DISCLOSURE_PROVIDER": {
         "purpose": "Selects official disclosure/filing context provider.",
         "example": "sec_edgar",
@@ -239,6 +261,8 @@ _SAMPLE_PROFILES: dict[str, tuple[str, ...]] = {
         "MARKET_DATA_PROVIDER=yahoo",
         "MARKET_INTELLIGENCE_PROVIDER=alpha_vantage",
         "ALPHA_VANTAGE_API_KEY=...",
+        "SYMBOL_REFERENCE_PROVIDER=eodhd",
+        "EODHD_API_TOKEN=...",
         "DISCLOSURE_PROVIDER=sec_edgar",
         "SEARCH_PROVIDER=searxng",
         "SEARXNG_BASE_URL=http://localhost:8080",

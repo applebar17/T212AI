@@ -47,6 +47,10 @@ from .market_data import (
 from .scrape_article import SCRAPE_ARTICLE_TOOL, SCRAPE_PAGE_TOOL, scrape_article, scrape_page
 from .search_registry import SearchResultRegistry
 from .searxng import SEARXNG_SEARCH_TOOL, searxng_search
+from .symbol_reference import (
+    SYMBOL_REFERENCE_TOOLS,
+    build_symbol_reference_tool_mapping,
+)
 from .yahoo_finance import (
     YAHOO_MARKET_CONTEXT_TOOLS,
     YahooFinanceClient,
@@ -63,6 +67,7 @@ from .yahoo_finance import (
 
 if TYPE_CHECKING:
     from t212ai.capabilities.protocols import MarketDataService
+    from t212ai.capabilities.protocols import SymbolReferenceService
     from t212ai.market_signals import MarketSignalService
 
 
@@ -71,6 +76,16 @@ def _market_data_provider_ready(
     assessment: ConfigAssessment,
 ) -> bool:
     selected = _selected_provider(settings.market_data_provider)
+    if selected == "none":
+        return False
+    return _provider_ready(assessment, selected)
+
+
+def _symbol_reference_provider_ready(
+    settings: AppSettings,
+    assessment: ConfigAssessment,
+) -> bool:
+    selected = _selected_provider(settings.symbol_reference_provider)
     if selected == "none":
         return False
     return _provider_ready(assessment, selected)
@@ -131,6 +146,26 @@ def _resolve_market_data_service(
     return None
 
 
+def _resolve_symbol_reference_service(
+    *,
+    symbol_reference_service: "SymbolReferenceService | None",
+    settings: AppSettings | None,
+    assessment: ConfigAssessment | None,
+) -> "SymbolReferenceService | None":
+    if symbol_reference_service is not None:
+        return symbol_reference_service
+    resolved_settings, resolved_assessment = _resolve_toolbox_context(settings, assessment)
+    selected_provider = _selected_provider(resolved_settings.symbol_reference_provider)
+    if not _symbol_reference_provider_ready(resolved_settings, resolved_assessment):
+        return None
+    if selected_provider == "eodhd":
+        from t212ai.capabilities.services import EodhdSymbolReferenceService
+        from t212ai.data_sources.eodhd import EodhdClient
+
+        return EodhdSymbolReferenceService(EodhdClient.from_settings(resolved_settings))
+    return None
+
+
 def build_chat_toolbox(
     *,
     settings: AppSettings | None = None,
@@ -140,6 +175,8 @@ def build_chat_toolbox(
     tools: list[ToolSpec] = []
     if _market_data_provider_ready(resolved_settings, resolved_assessment):
         tools.append(_build_chat_market_chart_tool())
+    if _symbol_reference_provider_ready(resolved_settings, resolved_assessment):
+        tools.extend(SYMBOL_REFERENCE_TOOLS)
     if (
         _selected_provider(resolved_settings.search_provider) == "searxng"
         and _provider_ready(resolved_assessment, "searxng")
@@ -164,6 +201,8 @@ def build_research_toolbox(
         _market_data_provider_ready(resolved_settings, resolved_assessment)
     ):
         tools.append(MARKET_GET_MARKET_SNAPSHOT_TOOL)
+    if _symbol_reference_provider_ready(resolved_settings, resolved_assessment):
+        tools.extend(SYMBOL_REFERENCE_TOOLS)
     return ToolBox(name="research", tools=tools, tools_by_name=build_tool_index(tools))
 
 
@@ -235,6 +274,8 @@ def build_market_analyst_toolbox(
         and _provider_ready(resolved_assessment, "searxng")
     ):
         tools.extend([SEARXNG_SEARCH_TOOL, SCRAPE_PAGE_TOOL, SCRAPE_ARTICLE_TOOL])
+    if _symbol_reference_provider_ready(resolved_settings, resolved_assessment):
+        tools.extend(SYMBOL_REFERENCE_TOOLS)
     if resolved_assessment.capabilities["market_signal_memory"].available:
         tools.extend(MARKET_SIGNAL_TOOLS)
     return ToolBox(
@@ -281,6 +322,7 @@ def build_tool_mapping(
     settings: AppSettings | None = None,
     assessment: ConfigAssessment | None = None,
     market_data_service: MarketDataService | None = None,
+    symbol_reference_service: "SymbolReferenceService | None" = None,
     market_signal_service: MarketSignalService | None = None,
     **_unused: Any,
 ) -> dict[str, Callable[..., Any]]:
@@ -289,6 +331,11 @@ def build_tool_mapping(
     searxng_base_url = os.getenv("SEARXNG_BASE_URL")
     resolved_market_data_service = _resolve_market_data_service(
         market_data_service=market_data_service,
+        settings=settings,
+        assessment=assessment,
+    )
+    resolved_symbol_reference_service = _resolve_symbol_reference_service(
+        symbol_reference_service=symbol_reference_service,
         settings=settings,
         assessment=assessment,
     )
@@ -326,6 +373,7 @@ def build_tool_mapping(
         ),
     }
     mapping.update(build_market_data_tool_mapping(resolved_market_data_service))
+    mapping.update(build_symbol_reference_tool_mapping(resolved_symbol_reference_service))
     if yahoo_client is not None:
         mapping.update(
             {

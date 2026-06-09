@@ -67,6 +67,7 @@ SECRET_KEYS = frozenset(
         "ALPACA_LIVE_API_SECRET",
         "ALPACA_API_KEY",
         "ALPACA_API_SECRET",
+        "EODHD_API_TOKEN",
         "TELEGRAM_BOT_TOKEN",
     }
 )
@@ -78,11 +79,13 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "BROKER_PROVIDER",
             "MARKET_DATA_PROVIDER",
             "MARKET_INTELLIGENCE_PROVIDER",
+            "SYMBOL_REFERENCE_PROVIDER",
             "DISCLOSURE_PROVIDER",
             "COMMUNITY_PROVIDER",
             "SEARCH_PROVIDER",
             "YAHOO_ENABLED",
             "ALPHA_VANTAGE_ENABLED",
+            "EODHD_ENABLED",
             "SEARXNG_ENABLED",
         ),
     ),
@@ -161,6 +164,13 @@ MANAGED_ENV_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "ALPHA_VANTAGE_API_KEY",
             "ALPHA_VANTAGE_BASE_URL",
+        ),
+    ),
+    (
+        "EODHD symbol reference",
+        (
+            "EODHD_API_TOKEN",
+            "EODHD_BASE_URL",
         ),
     ),
     (
@@ -283,6 +293,13 @@ ALPHA_VANTAGE_SECTION_KEYS = (
     "MARKET_INTELLIGENCE_PROVIDER",
     "ALPHA_VANTAGE_ENABLED",
     "ALPHA_VANTAGE_API_KEY",
+)
+
+SYMBOL_REFERENCE_SECTION_KEYS = (
+    "SYMBOL_REFERENCE_PROVIDER",
+    "EODHD_ENABLED",
+    "EODHD_API_TOKEN",
+    "EODHD_BASE_URL",
 )
 
 DISCLOSURE_SECTION_KEYS = (

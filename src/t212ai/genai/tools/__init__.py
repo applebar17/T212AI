@@ -75,6 +75,11 @@ __all__ = [
     "market_signal_search",
     "market_signal_create",
     "market_signal_archive",
+    "SYMBOL_REFERENCE_SEARCH_TOOL",
+    "SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL",
+    "SYMBOL_REFERENCE_TOOLS",
+    "symbol_reference_search",
+    "symbol_reference_map_identifiers",
 ]
 
 
@@ -237,6 +242,30 @@ def __getattr__(name: str) -> Any:
             "market_signal_search": market_signal_search,
             "market_signal_create": market_signal_create,
             "market_signal_archive": market_signal_archive,
+        }
+        return exports[name]
+
+    if name in {
+        "SYMBOL_REFERENCE_SEARCH_TOOL",
+        "SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL",
+        "SYMBOL_REFERENCE_TOOLS",
+        "symbol_reference_search",
+        "symbol_reference_map_identifiers",
+    }:
+        from .symbol_reference import (
+            SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL,
+            SYMBOL_REFERENCE_SEARCH_TOOL,
+            SYMBOL_REFERENCE_TOOLS,
+            symbol_reference_map_identifiers,
+            symbol_reference_search,
+        )
+
+        exports = {
+            "SYMBOL_REFERENCE_SEARCH_TOOL": SYMBOL_REFERENCE_SEARCH_TOOL,
+            "SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL": SYMBOL_REFERENCE_MAP_IDENTIFIERS_TOOL,
+            "SYMBOL_REFERENCE_TOOLS": SYMBOL_REFERENCE_TOOLS,
+            "symbol_reference_search": symbol_reference_search,
+            "symbol_reference_map_identifiers": symbol_reference_map_identifiers,
         }
         return exports[name]
 

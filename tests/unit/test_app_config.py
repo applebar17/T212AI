@@ -68,6 +68,10 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
                 "YAHOO_ENABLED=true",
                 "ALPHA_VANTAGE_ENABLED=true",
                 "ALPHA_VANTAGE_API_KEY=alpha-key",
+                "SYMBOL_REFERENCE_PROVIDER=eodhd",
+                "EODHD_ENABLED=true",
+                "EODHD_API_TOKEN=eodhd-token",
+                "EODHD_BASE_URL=https://eodhd.example/api",
                 "REDDIT_BASE_URL=https://reddit.example",
                 "REDDIT_USER_AGENT=server:t212ai:test (by /u/tester)",
                 "SEARXNG_ENABLED=true",
@@ -96,6 +100,10 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
         "YAHOO_ENABLED",
         "ALPHA_VANTAGE_ENABLED",
         "ALPHA_VANTAGE_API_KEY",
+        "SYMBOL_REFERENCE_PROVIDER",
+        "EODHD_ENABLED",
+        "EODHD_API_TOKEN",
+        "EODHD_BASE_URL",
         "REDDIT_BASE_URL",
         "REDDIT_USER_AGENT",
         "SEARXNG_ENABLED",
@@ -131,6 +139,10 @@ def test_get_app_settings_loads_values_from_env_file(tmp_path, monkeypatch) -> N
     assert settings.yahoo_enabled
     assert settings.alpha_vantage_enabled
     assert settings.alpha_vantage_api_key == "alpha-key"
+    assert settings.symbol_reference_provider == "eodhd"
+    assert settings.eodhd_enabled
+    assert settings.eodhd_api_token == "eodhd-token"
+    assert settings.eodhd_base_url == "https://eodhd.example/api"
     assert settings.reddit_enabled
     assert settings.reddit_base_url == "https://reddit.example"
     assert settings.reddit_user_agent == "server:t212ai:test (by /u/tester)"
@@ -161,6 +173,7 @@ def test_get_app_settings_uses_default_guideline_memory_path() -> None:
     assert settings.market_data_provider == "yahoo"
     assert settings.disclosure_provider == "sec_edgar"
     assert settings.market_intelligence_provider == "none"
+    assert settings.symbol_reference_provider == "none"
     assert settings.community_provider == "none"
     assert settings.search_provider == "none"
     assert settings.yahoo_enabled
@@ -253,6 +266,7 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
             "OPENAI_API_KEY": "openai-key",
             "T212_LIVE_API_SECRET": "secret",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
+            "EODHD_API_TOKEN": "eodhd-token",
             "COMMUNITY_PROVIDER": "reddit",
             "SEARXNG_BASE_URL": "https://search.example",
         }
@@ -262,10 +276,12 @@ def test_get_app_settings_infers_provider_selectors_from_existing_keys() -> None
     assert settings.broker_provider == "trading212"
     assert settings.market_data_provider == "yahoo"
     assert settings.market_intelligence_provider == "alpha_vantage"
+    assert settings.symbol_reference_provider == "eodhd"
     assert settings.community_provider == "reddit"
     assert settings.search_provider == "searxng"
     assert settings.disclosure_provider == "sec_edgar"
     assert settings.alpha_vantage_enabled
+    assert settings.eodhd_enabled
     assert settings.reddit_enabled
     assert settings.searxng_enabled
 
@@ -353,9 +369,12 @@ def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() 
             "COMMUNITY_PROVIDER": "none",
             "SEARCH_PROVIDER": "none",
             "MARKET_INTELLIGENCE_PROVIDER": "none",
+            "SYMBOL_REFERENCE_PROVIDER": "none",
             "YAHOO_ENABLED": "true",
             "ALPHA_VANTAGE_ENABLED": "true",
             "ALPHA_VANTAGE_API_KEY": "alpha-key",
+            "EODHD_ENABLED": "true",
+            "EODHD_API_TOKEN": "eodhd-token",
             "SEARXNG_ENABLED": "true",
             "SEARXNG_BASE_URL": "https://search.example",
         }
@@ -364,9 +383,11 @@ def test_get_app_settings_explicit_capability_selectors_override_legacy_flags() 
     assert settings.market_data_provider == "none"
     assert settings.disclosure_provider == "none"
     assert settings.market_intelligence_provider == "none"
+    assert settings.symbol_reference_provider == "none"
     assert settings.community_provider == "none"
     assert settings.search_provider == "none"
     assert not settings.yahoo_enabled
     assert not settings.alpha_vantage_enabled
+    assert not settings.eodhd_enabled
     assert not settings.reddit_enabled
     assert not settings.searxng_enabled

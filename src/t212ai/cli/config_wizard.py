@@ -41,6 +41,7 @@ from .constants import (
     OPENAI_SMART_MODEL_OPTIONS,
     SCHEDULER_SECTION_KEYS,
     STORAGE_SECTION_KEYS,
+    SYMBOL_REFERENCE_SECTION_KEYS,
     TELEGRAM_SECTION_KEYS,
     _MODEL_CONTEXT_REGISTRY,
 )
@@ -118,11 +119,13 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "BROKER_PROVIDER": settings.broker_provider,
         "MARKET_DATA_PROVIDER": settings.market_data_provider,
         "MARKET_INTELLIGENCE_PROVIDER": settings.market_intelligence_provider,
+        "SYMBOL_REFERENCE_PROVIDER": settings.symbol_reference_provider,
         "DISCLOSURE_PROVIDER": settings.disclosure_provider,
         "COMMUNITY_PROVIDER": settings.community_provider,
         "SEARCH_PROVIDER": settings.search_provider,
         "YAHOO_ENABLED": _bool_to_env(settings.yahoo_enabled),
         "ALPHA_VANTAGE_ENABLED": _bool_to_env(settings.alpha_vantage_enabled),
+        "EODHD_ENABLED": _bool_to_env(settings.eodhd_enabled),
         "SEARXNG_ENABLED": _bool_to_env(settings.searxng_enabled),
         "OPENAI_API_KEY": existing_raw.get("OPENAI_API_KEY", settings.openai_api_key or ""),
         "OPENAI_CHAT_MODEL_DEFAULT": existing_raw.get(
@@ -253,6 +256,14 @@ def build_managed_env_values(existing_raw: Mapping[str, str]) -> dict[str, str]:
         "ALPHA_VANTAGE_BASE_URL": existing_raw.get(
             "ALPHA_VANTAGE_BASE_URL",
             settings.alpha_vantage_base_url,
+        ),
+        "EODHD_API_TOKEN": existing_raw.get(
+            "EODHD_API_TOKEN",
+            settings.eodhd_api_token or "",
+        ),
+        "EODHD_BASE_URL": existing_raw.get(
+            "EODHD_BASE_URL",
+            settings.eodhd_base_url,
         ),
         "ALPACA_ENVIRONMENT": existing_raw.get("ALPACA_ENVIRONMENT", alpaca_environment),
         "ALPACA_PAPER_API_KEY": existing_raw.get(
@@ -755,6 +766,30 @@ def apply_configuration_wizard(
             updates["ALPHA_VANTAGE_API_KEY"] = io_runtime.prompt(
                 "ALPHA_VANTAGE_API_KEY",
                 default=updates["ALPHA_VANTAGE_API_KEY"],
+            )
+
+    _write_step_intro(
+        io_runtime,
+        "Symbol reference",
+        "Optional symbol, ISIN, and identifier lookup. Use this to resolve "
+        "ambiguous instruments before broker-native verification.",
+        guide_key="eodhd",
+    )
+    if _should_update_section(io_runtime, existing, SYMBOL_REFERENCE_SECTION_KEYS):
+        eodhd_enabled = io_runtime.confirm(
+            "Enable EODHD symbol reference? The configure smoke check consumes one API call.",
+            default=_env_truthy(updates["EODHD_ENABLED"]),
+        )
+        updates["SYMBOL_REFERENCE_PROVIDER"] = "eodhd" if eodhd_enabled else "none"
+        updates["EODHD_ENABLED"] = _bool_to_env(eodhd_enabled)
+        if eodhd_enabled:
+            updates["EODHD_API_TOKEN"] = io_runtime.prompt(
+                "EODHD_API_TOKEN",
+                default=updates["EODHD_API_TOKEN"],
+            )
+            updates["EODHD_BASE_URL"] = io_runtime.prompt(
+                "EODHD_BASE_URL",
+                default=updates["EODHD_BASE_URL"],
             )
 
     _write_step_intro(

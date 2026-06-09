@@ -2,9 +2,45 @@
 
 ## Purpose
 
-These principles guide how AI features should be designed and implemented in My Digital Brain. The project should stay agentic and dynamic, but graph writes, source handling, privacy, and tool execution must remain structured and guarded.
+These principles guide how AI features should be designed and implemented in T212AI. The project should stay agentic and dynamic, but broker actions, source handling, privacy, and tool execution must remain structured and guarded.
 
 The goal is not to make every flow deterministic. The goal is to use model reasoning where it is valuable, while keeping enough structure around it to make the system reliable, debuggable, and safe.
+
+## Provider Service Organization
+
+T212AI separates provider services by authority and usage. Agent tools should
+preserve these boundaries:
+
+- Broker services are account-authoritative. Trading 212 and Alpaca provide
+  portfolio, order, broker instrument resolution, and execution preparation.
+  Any order workflow must verify symbols through broker tools before preparing
+  or submitting broker actions.
+- Market-data services provide quote, bar, chart, and volume context. Yahoo and
+  Alpaca market data are convenience context, not broker authority.
+- Market-intelligence services provide optional research enrichment such as
+  Alpha Vantage movers and activity context.
+- Symbol-reference services resolve instrument identity. EODHD is the v1
+  provider and exposes `symbol_reference_search` plus
+  `symbol_reference_map_identifiers`.
+- Disclosure services provide official filing context through SEC EDGAR.
+- Community research services provide social/contextual discussion through
+  Reddit when configured.
+- Web search services provide source discovery and scraping through SearXNG;
+  they are not a substitute for primary-source inspection.
+- Market-signal memory, scheduler services, calculator services, pending
+  actions, proposals, and reconciliation are local runtime services and should
+  not be confused with external provider authority.
+
+EODHD symbol reference is configured with
+`SYMBOL_REFERENCE_PROVIDER=eodhd`, `EODHD_ENABLED=true`,
+`EODHD_API_TOKEN`, and `EODHD_BASE_URL=https://eodhd.com/api`.
+The Search API accepts ticker, company-name, or ISIN queries and returns
+instrument candidates with fields such as code, exchange, name, type, country,
+currency, ISIN, previous close, previous close date, and primary-listing flag.
+The ID Mapping API maps between EODHD symbols and identifiers such as ISIN,
+CUSIP, FIGI, LEI, and CIK, with pagination metadata. Both endpoints are
+reference data only; they can reduce ambiguity but cannot prove broker
+tradability or execution eligibility.
 
 ## Core Principles
 

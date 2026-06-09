@@ -35,6 +35,7 @@ from t212ai.capabilities import (
     CapabilityBinding,
     CommunityResearchService,
     DisclosureService,
+    EodhdSymbolReferenceService,
     EdgarDisclosureService,
     MarketDataService,
     MarketIntelligenceService,
@@ -43,6 +44,7 @@ from t212ai.capabilities import (
     YahooMarketDataService,
 )
 from t212ai.data_sources.alpha_vantage import AlphaVantageClient
+from t212ai.data_sources.eodhd import EodhdClient
 from t212ai.data_sources.reddit import RedditClient, RedditResearchService
 from t212ai.data_sources.sec_edgar import EdgarInsiderManager, SecEdgarClient
 from t212ai.data_sources.yahoo import YahooFinanceClient
@@ -243,6 +245,12 @@ def _build_data_source_stack(runtime: AppRuntime) -> None:
         except Exception as exc:
             runtime.component_errors["alpha_vantage"] = str(exc)
 
+    if runtime.settings.eodhd_enabled:
+        try:
+            runtime.eodhd_client = EodhdClient.from_settings(runtime.settings)
+        except Exception as exc:
+            runtime.component_errors["eodhd"] = str(exc)
+
     if runtime.settings.reddit_enabled:
         try:
             client = RedditClient.from_settings(runtime.settings)
@@ -303,6 +311,12 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
         )
 
     if (
+        runtime.config_assessment.capabilities["symbol_reference"].available
+        and runtime.eodhd_client is not None
+    ):
+        runtime.symbol_reference_service = EodhdSymbolReferenceService(runtime.eodhd_client)
+
+    if (
         runtime.config_assessment.capabilities["disclosure"].available
         and runtime.insider_manager is not None
     ):
@@ -344,6 +358,12 @@ def _build_capability_stack(runtime: AppRuntime) -> None:
             selected_provider=_capability_provider(runtime, "market_intelligence"),
             ready=runtime.market_intelligence_service is not None,
             implementation=runtime.market_intelligence_service,
+        ),
+        "symbol_reference": CapabilityBinding(
+            capability="symbol_reference",
+            selected_provider=_capability_provider(runtime, "symbol_reference"),
+            ready=runtime.symbol_reference_service is not None,
+            implementation=runtime.symbol_reference_service,
         ),
         "disclosure": CapabilityBinding(
             capability="disclosure",
@@ -523,6 +543,7 @@ def _build_agent_stack(runtime: AppRuntime) -> None:
             broker_read_service=runtime.broker_read_service,
             broker_execution_service=runtime.broker_execution_service,
             market_data_service=runtime.market_data_service,
+            symbol_reference_service=runtime.symbol_reference_service,
             market_signal_service=runtime.market_signal_service,
             configurable_reasoner_agent=runtime.configurable_reasoner_agent,
             configurable_planner_agent=runtime.configurable_planner_agent,

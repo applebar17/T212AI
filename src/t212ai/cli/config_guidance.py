@@ -250,6 +250,25 @@ CONFIGURATION_GUIDES: dict[str, ConfigurationGuide] = {
             "https://www.alphavantage.co/documentation/",
         ),
     ),
+    "eodhd": ConfigurationGuide(
+        title="EODHD symbol reference",
+        purpose="Enable optional symbol, ISIN, and identifier reference lookup.",
+        ai_usage=(
+            "The AI uses EODHD to resolve ambiguous tickers, company names, ISINs, "
+            "CUSIPs, FIGIs, LEIs, and CIKs before analysis. EODHD is reference "
+            "context only; broker tools remain authoritative for tradability and orders."
+        ),
+        obtain=(
+            "Create or sign in to an EODHD account.",
+            "Copy the API token into EODHD_API_TOKEN.",
+            "Keep EODHD_BASE_URL at the default unless testing a compatible endpoint.",
+            "Remember that the configure/doctor smoke probe performs one Search API call.",
+        ),
+        references=(
+            "https://eodhd.com/financial-apis/search-api-for-stocks-etfs-mutual-funds-and-indices/",
+            "https://eodhd.com/financial-apis/id-mapping-api-cusip-isin-figi-lei-cik-%E2%86%94-symbol",
+        ),
+    ),
     "sec_edgar": ConfigurationGuide(
         title="SEC EDGAR setup",
         purpose="Enable official filing, insider, and company disclosure context.",
