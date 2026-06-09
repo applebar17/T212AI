@@ -84,6 +84,7 @@ def build_specialist_agents(
             broker_read_service=broker_read_service,
             broker_execution_service=broker_execution_service,
             market_data_service=market_data_service,
+            symbol_reference_service=symbol_reference_service,
             broker_provider=broker_provider,
             pending_action_service=pending_action_service,
             proposal_service=proposal_service,

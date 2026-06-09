@@ -681,14 +681,23 @@ def test_build_runtime_builds_optional_provider_stacks(
     assert runtime.specialist_tooling is not None
     assert runtime.specialist_tooling.order_toolbox is not None
     assert runtime.specialist_tooling.order_toolbox.name == "broker_order_actions"
+    order_tools = runtime.specialist_tooling.order_toolbox.tools_by_name
+    assert "symbol_reference_search" in order_tools
+    assert "symbol_reference_map_identifiers" not in order_tools
+    search_description = order_tools["symbol_reference_search"]["function"]["description"]
+    assert "order generation" in search_description
+    assert "ISIN code" in search_description
     assert "Alpha Vantage" not in runtime.specialist_tooling.market_toolbox_summary
     assert "official disclosure activity" in runtime.specialist_tooling.market_toolbox_summary
     assert "symbol, ISIN, and identifier reference lookup" in (
         runtime.specialist_tooling.market_toolbox_summary
     )
+    assert "reference ISIN lookup" in runtime.specialist_tooling.order_toolbox_summary
     assert "yahoo_market_context" not in runtime.toolboxes
     assert runtime.has_broker_runtime
     assert runtime.has_market_data_runtime
+    assert runtime.specialist_agents is not None
+    assert runtime.specialist_agents.order.symbol_reference_service is runtime.symbol_reference_service
 
 
 def test_build_runtime_selects_alpaca_market_data_when_configured(
@@ -749,6 +758,9 @@ def test_build_runtime_selects_alpaca_broker_when_configured(
     assert runtime.reconciliation_service is not None
     assert runtime.capability_registry["broker_read"].selected_provider == "alpaca"
     assert runtime.capability_registry["broker_read"].ready
+    assert runtime.specialist_tooling is not None
+    assert runtime.specialist_tooling.order_toolbox is not None
+    assert "symbol_reference_search" not in runtime.specialist_tooling.order_toolbox.tools_by_name
 
 
 def test_runtime_backed_agent_handler_reuses_runtime_history(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from t212ai.genai.models import ToolResult
+from t212ai.genai.tools.symbol_reference import symbol_reference_search
 
 from .orders import (
     broker_cancel_order,
@@ -25,7 +26,7 @@ from .runtime import BrokerToolRuntime
 
 
 def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[..., ToolResult]]:
-    return {
+    mapping: dict[str, Callable[..., ToolResult]] = {
         "broker_get_portfolio_snapshot": lambda: broker_get_portfolio_snapshot(runtime=runtime),
         "broker_list_pending_orders": lambda: broker_list_pending_orders(runtime=runtime),
         "broker_get_order": lambda order_ref: broker_get_order(order_ref=order_ref, runtime=runtime),
@@ -52,4 +53,10 @@ def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[
         ),
         "broker_place_order": lambda **kwargs: broker_place_order(runtime=runtime, **kwargs),
         "broker_cancel_order": lambda **kwargs: broker_cancel_order(runtime=runtime, **kwargs),
-}
+    }
+    if runtime.symbol_reference_service is not None:
+        mapping["symbol_reference_search"] = lambda **kwargs: symbol_reference_search(
+            service=runtime.symbol_reference_service,
+            **kwargs,
+        )
+    return mapping

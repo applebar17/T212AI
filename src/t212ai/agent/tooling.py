@@ -62,10 +62,18 @@ def _order_summary(
 ) -> str:
     del settings
     if assessment.capabilities["broker_execution_eligibility"].available:
+        symbol_reference_note = (
+            " Includes symbol_reference_search for EODHD reference ISIN lookup when "
+            "broker order generation hits symbol ambiguity; broker tools remain "
+            "authoritative for tradability and order preparation."
+            if assessment.capabilities["symbol_reference"].available
+            else ""
+        )
         return (
             "Broker portfolio, pending orders, order lookup, instrument resolution "
             "and instrument snapshots, order/cancellation preparation tools, plus "
             "deterministic approval/execution through Telegram buttons."
+            + symbol_reference_note
         )
     return (
         "Broker order tools are unavailable because no ready broker provider is configured. "
@@ -76,7 +84,9 @@ def _order_summary(
 def _order_toolbox(assessment: ConfigAssessment) -> ToolBox | None:
     if not assessment.capabilities["broker_execution_eligibility"].available:
         return None
-    return build_broker_order_action_toolbox()
+    return build_broker_order_action_toolbox(
+        include_symbol_reference_search=assessment.capabilities["symbol_reference"].available,
+    )
 
 
 def _market_summary(toolbox: ToolBox) -> str:

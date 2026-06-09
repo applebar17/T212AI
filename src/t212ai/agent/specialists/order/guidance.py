@@ -15,6 +15,8 @@ def _broker_order_reasoning_guidelines() -> list[str]:
         "depends on the buy being submitted and filled; do not prepare the sell before live broker holdings show the position.",
         "Record unresolved or ambiguous broker instruments as required evidence, not assumptions; "
         "broker-native tradable identifiers come from broker tools or broker portfolio context.",
+        "When symbol_reference_search is available, treat it as reference-only help for checking ISIN "
+        "or symbol identity during broker resolution complications, not as tradability authority.",
         "Approval and rejection are Telegram callback-button events; typed chat text is ordinary conversation.",
         "Numeric broker fields must be resolved decimal values before order preparation.",
     ]
@@ -37,8 +39,10 @@ def _broker_order_planning_guidelines() -> list[str]:
         "instrument type, fractional support, shortability, or provider-specific instrument metadata.",
         "Skip instrument-resolution when a prior broker tool output already provides the exact "
         "broker-native ticker; depend on that output instead.",
-        "If broker_resolve_instrument returns ambiguous or not_found, stop before order preparation and ask for "
-        "confirmation or a more precise ticker/exchange/currency rather than guessing.",
+        "If broker_resolve_instrument returns ambiguous or not_found and symbol_reference_search is available, "
+        "use it as a reference-only step to check ISIN or symbol identity before retrying broker_resolve_instrument.",
+        "If broker_resolve_instrument remains ambiguous or not_found after any available reference lookup, stop before "
+        "order preparation and ask for confirmation or a more precise ticker/exchange/currency rather than guessing.",
         "If broker_prepare_order_action returns an instrument-resolution error, use the tool output as the final "
         "failure explanation: no order was prepared, no approval was created, and the user must choose or provide "
         "a broker-native ticker.",
@@ -86,9 +90,12 @@ def _broker_order_planning_examples() -> list[str]:
             "Example grouped plan for public-symbol buy: "
             "group 1 sequential action broker_resolve_instrument with query set to the "
             "user-provided symbol/name and output_key=instrument_resolution; "
-            "group 2 sequential action broker_prepare_order_action depending on "
-            "instrument_resolution, using resolvedTicker only when resolution.status is resolved. "
-            "If resolution is ambiguous or not_found, stop before order preparation and ask for confirmation."
+            "optional sequential action symbol_reference_search only if broker resolution is ambiguous "
+            "or not_found and the tool is available, then retry broker_resolve_instrument with the discovered ISIN "
+            "or more precise symbol; "
+            "final sequential action broker_prepare_order_action depending on "
+            "the broker resolution, using resolvedTicker only when resolution.status is resolved. "
+            "If broker resolution remains ambiguous or not_found, stop before order preparation and ask for confirmation."
         ),
         (
             "Example grouped plan for ISIN input: "

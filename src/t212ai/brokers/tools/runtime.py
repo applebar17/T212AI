@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from t212ai.capabilities.protocols import BrokerExecutionService, BrokerReadService, MarketDataService
+from t212ai.capabilities.protocols import (
+    BrokerExecutionService,
+    BrokerReadService,
+    MarketDataService,
+    SymbolReferenceService,
+)
 from t212ai.pending_actions import PendingActionService
 
 from ..references import BrokerReferenceMap
@@ -19,6 +24,7 @@ class BrokerToolRuntime:
     allow_state_changes: bool = False
     pending_action_service: PendingActionService | None = None
     market_data_service: MarketDataService | None = None
+    symbol_reference_service: SymbolReferenceService | None = None
     chat_id: str | None = None
     user_id: int | None = None
     user_message: str | None = None

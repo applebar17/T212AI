@@ -25,6 +25,8 @@ from t212ai.brokers.models import (
 from t212ai.brokers.tools import (
     _BROKER_ORDER_ARGUMENTS_SCHEMA,
     BrokerToolRuntime,
+    build_broker_order_action_toolbox,
+    build_broker_tool_mapping,
     broker_cancel_order,
     broker_get_order,
     broker_get_instrument_snapshot,
@@ -36,6 +38,7 @@ from t212ai.brokers.tools import (
     broker_resolve_instrument,
 )
 from t212ai.capabilities.market_data_models import MarketQuoteSnapshotResult
+from t212ai.capabilities.symbol_reference_models import SymbolReferenceSearchResult
 
 
 class FakeProviderError(RuntimeError):
@@ -282,6 +285,34 @@ class AppleMarketDataService:
         )
 
 
+class AppleSymbolReferenceService:
+    provider_name = "eodhd"
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 15,
+        asset_type: str = "all",
+        exchange: str | None = None,
+        bonds_only: bool = False,
+    ) -> SymbolReferenceSearchResult:
+        del limit, asset_type, exchange, bonds_only
+        return SymbolReferenceSearchResult(
+            query=query,
+            candidates=[
+                {
+                    "code": "AAPL",
+                    "exchange": "US",
+                    "provider_symbol": "AAPL.US",
+                    "name": "Apple Inc.",
+                    "isin": "US0378331005",
+                }
+            ],
+            meta={"provider": "eodhd"},
+        )
+
+
 def test_generic_broker_snapshot_returns_structured_provider_error() -> None:
     runtime = BrokerToolRuntime(
         broker_read_service=FailingBrokerReadService(),
@@ -491,6 +522,38 @@ def test_generic_broker_get_instrument_snapshot_returns_broker_metadata() -> Non
     assert snapshot["tradable"] is True
     assert snapshot["orderable"] is True
     assert snapshot["assetClass"] == "STOCK"
+
+
+def test_broker_order_toolbox_can_include_symbol_reference_search_for_isin_lookup() -> None:
+    toolbox = build_broker_order_action_toolbox(include_symbol_reference_search=True)
+    names = toolbox.tools_by_name
+
+    assert "symbol_reference_search" in names
+    assert "symbol_reference_map_identifiers" not in names
+    description = names["symbol_reference_search"]["function"]["description"]
+    assert "order generation" in description
+    assert "ISIN code" in description
+    assert "broker_resolve_instrument" in description
+
+
+def test_broker_tool_mapping_binds_symbol_reference_search_when_service_exists() -> None:
+    runtime = BrokerToolRuntime(symbol_reference_service=AppleSymbolReferenceService())
+
+    mapping = build_broker_tool_mapping(runtime)
+    result = mapping["symbol_reference_search"](query="Apple", limit=1)
+
+    assert "symbol_reference_search" in mapping
+    assert "symbol_reference_map_identifiers" not in mapping
+    assert result.status == "ok"
+    assert result.data["authority"] == "reference_data_only"
+    assert result.data["candidates"][0]["isin"] == "US0378331005"
+    assert "ISIN=US0378331005" in result.output
+
+
+def test_broker_tool_mapping_omits_symbol_reference_search_without_service() -> None:
+    mapping = build_broker_tool_mapping(BrokerToolRuntime())
+
+    assert "symbol_reference_search" not in mapping
 
 
 def test_generic_broker_prepare_order_returns_structured_resolution_error() -> None:
