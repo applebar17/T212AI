@@ -252,19 +252,29 @@ CONFIGURATION_GUIDES: dict[str, ConfigurationGuide] = {
     ),
     "eodhd": ConfigurationGuide(
         title="EODHD symbol reference",
-        purpose="Enable optional symbol, ISIN, and identifier reference lookup.",
+        purpose=(
+            "Enable optional symbol, ISIN, and identifier reference lookup for "
+            "instrument identity checks."
+        ),
         ai_usage=(
             "The AI uses EODHD to resolve ambiguous tickers, company names, ISINs, "
-            "CUSIPs, FIGIs, LEIs, and CIKs before analysis. EODHD is reference "
-            "context only; broker tools remain authoritative for tradability and orders."
+            "CUSIPs, FIGIs, LEIs, and CIKs before analysis or when broker order "
+            "generation needs an ISIN check. EODHD is reference context only; "
+            "broker tools remain authoritative for tradability, broker-native "
+            "tickers, account state, and orders."
         ),
         obtain=(
             "Create or sign in to an EODHD account.",
-            "Copy the API token into EODHD_API_TOKEN.",
+            "Open the EODHD account dashboard or control panel.",
+            "Find the API token or API key area for your account.",
+            "Create or copy the active personal API token.",
+            "Paste that token into EODHD_API_TOKEN.",
             "Keep EODHD_BASE_URL at the default unless testing a compatible endpoint.",
-            "Remember that the configure/doctor smoke probe performs one Search API call.",
+            "Remember that configure and doctor --smoke perform one Search API call for AAPL.",
+            "Review your EODHD plan limits before using symbol lookup in frequent scheduler jobs.",
         ),
         references=(
+            "https://eodhd.com/financial-apis/",
             "https://eodhd.com/financial-apis/search-api-for-stocks-etfs-mutual-funds-and-indices/",
             "https://eodhd.com/financial-apis/id-mapping-api-cusip-isin-figi-lei-cik-%E2%86%94-symbol",
         ),

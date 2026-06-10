@@ -343,6 +343,7 @@ def test_apply_configuration_wizard_supports_alpaca_market_data() -> None:
 
 def test_apply_configuration_wizard_supports_eodhd_symbol_reference() -> None:
     updates = cli.build_managed_env_values({})
+    output = StringIO()
     responses = iter(
         [
             "3",
@@ -359,7 +360,7 @@ def test_apply_configuration_wizard_supports_eodhd_symbol_reference() -> None:
             "n",
         ]
     )
-    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=StringIO())
+    io_runtime = cli.TerminalIO(input_fn=lambda _prompt: next(responses), output=output)
 
     cli.apply_configuration_wizard(io_runtime, updates)
 
@@ -367,6 +368,12 @@ def test_apply_configuration_wizard_supports_eodhd_symbol_reference() -> None:
     assert updates["EODHD_ENABLED"] == "true"
     assert updates["EODHD_API_TOKEN"] == "eodhd-token"
     assert updates["EODHD_BASE_URL"] == "https://eodhd.com/api"
+    rendered = output.getvalue()
+    assert "EODHD symbol reference" in rendered
+    assert "instrument identity checks" in rendered
+    assert "account dashboard or control panel" in rendered
+    assert "API token or API key area" in rendered
+    assert "one Search API call for AAPL" in rendered
 
 
 def test_apply_configuration_wizard_supports_alpaca_broker_and_market_data_reuse() -> None:

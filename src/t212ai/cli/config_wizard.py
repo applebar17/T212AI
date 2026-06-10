@@ -784,7 +784,7 @@ def apply_configuration_wizard(
         updates["EODHD_ENABLED"] = _bool_to_env(eodhd_enabled)
         if eodhd_enabled:
             updates["EODHD_API_TOKEN"] = io_runtime.prompt(
-                "EODHD_API_TOKEN",
+                "EODHD_API_TOKEN from the EODHD account dashboard",
                 default=updates["EODHD_API_TOKEN"],
             )
             updates["EODHD_BASE_URL"] = io_runtime.prompt(

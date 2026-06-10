@@ -24,10 +24,11 @@ The interactive wizard walks through these sections:
 4. Telegram configuration
 5. Market data configuration
 6. Market intelligence
-7. Disclosure intelligence
-8. Search integration
-9. Local storage
-10. Scheduler defaults
+7. Symbol reference
+8. Disclosure intelligence
+9. Search integration
+10. Local storage
+11. Scheduler defaults
 
 Some prompts only appear when you enable a provider or choose to customize an
 optional section.
@@ -297,6 +298,77 @@ Prompted variables:
 
 Use Alpha Vantage as research enrichment, not broker-authoritative account or
 order state.
+
+## Symbol Reference
+
+### EODHD
+
+EODHD is the optional symbol-reference provider. It is used when the agent needs
+help resolving ticker, company-name, ISIN, CUSIP, FIGI, LEI, or CIK ambiguity.
+It is especially useful when a broker order flow cannot confidently map a public
+symbol or company name to the broker-native instrument. EODHD is reference data
+only: broker tools must still verify tradability, currency, broker-native
+ticker, and order eligibility before any order action is prepared.
+
+Official setup links:
+
+- [EODHD financial APIs](https://eodhd.com/financial-apis/)
+- [EODHD Search API](https://eodhd.com/financial-apis/search-api-for-stocks-etfs-mutual-funds-and-indices/)
+- [EODHD ID Mapping API](https://eodhd.com/financial-apis/id-mapping-api-cusip-isin-figi-lei-cik-%E2%86%94-symbol)
+
+What the service provides:
+
+- `symbol_reference_search`: searches EODHD reference data by ticker, company
+  name, or ISIN and returns instrument candidates. Results may include code,
+  exchange, provider symbol, name, instrument type, country, currency, ISIN,
+  previous close, previous close date, and primary-listing metadata.
+- `symbol_reference_map_identifiers`: maps between EODHD symbols and identifiers
+  such as ISIN, CUSIP, FIGI, LEI, and CIK.
+- Broker order toolboxes expose only `symbol_reference_search`, and only when
+  EODHD is configured. This gives the order agent a reference-only ISIN check
+  during symbol-resolution complications without making EODHD execution
+  authority.
+
+Token walkthrough:
+
+1. Create or sign in to an EODHD account.
+2. Open the account dashboard or control panel.
+3. Find the API token or API key area for your account.
+4. Create or copy the active API token.
+5. Store the token securely; treat it like a secret.
+6. Enter it as `EODHD_API_TOKEN` in the wizard.
+7. Keep `EODHD_BASE_URL` at `https://eodhd.com/api` unless you are testing a
+   compatible endpoint.
+8. Review the plan limits for Search and ID Mapping before using EODHD in
+   frequent scheduler jobs.
+
+Prompted variables:
+
+- `SYMBOL_REFERENCE_PROVIDER`: set to `eodhd` when enabled.
+- `EODHD_ENABLED`: `true` when EODHD is enabled.
+- `EODHD_API_TOKEN`: EODHD API token from the account dashboard.
+- `EODHD_BASE_URL`: base API URL, default `https://eodhd.com/api`.
+
+Expected wizard interaction:
+
+```text
+Enable EODHD symbol reference? The configure smoke check consumes one API call. [y/N]: y
+EODHD_API_TOKEN: eodhd-token
+EODHD_BASE_URL [https://eodhd.com/api]:
+```
+
+Expected `.env` values:
+
+```env
+SYMBOL_REFERENCE_PROVIDER=eodhd
+EODHD_ENABLED=true
+EODHD_API_TOKEN=...
+EODHD_BASE_URL=https://eodhd.com/api
+```
+
+`brokerai configure` and `brokerai doctor --smoke` run an EODHD smoke probe
+when EODHD is enabled. The probe calls Search with `AAPL` and `limit=1`, so it
+consumes one EODHD Search API call.
 
 ## Disclosure Intelligence
 
