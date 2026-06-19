@@ -146,6 +146,22 @@ def _resolve_timezone_name(
     return raw
 
 
+def _resolve_timezone_name_best_effort(
+    value: str | None,
+    default_timezone: str | None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    fallback = str(default_timezone or "UTC").strip() or "UTC"
+    raw = str(value or "").strip()
+    if not raw or raw == fallback:
+        return fallback
+    try:
+        return _resolve_timezone_name(raw, fallback, now=now)
+    except ValueError:
+        return fallback
+
+
 def _positive_int(value: int | None, *, fallback: int, field_name: str) -> int:
     resolved = fallback if value is None else value
     try:
@@ -200,8 +216,8 @@ def _matches_timezone_abbreviation(
     *,
     now: datetime | None,
 ) -> bool:
-    raw = str(value or "").strip().upper()
-    if not raw:
+    tokens = _timezone_abbreviation_tokens(value)
+    if not tokens:
         return False
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
@@ -217,7 +233,20 @@ def _matches_timezone_abbreviation(
         for sample in samples
         if (abbreviation := sample.astimezone(zone).tzname())
     }
-    return raw in abbreviations
+    return all(token in abbreviations for token in tokens)
+
+
+def _timezone_abbreviation_tokens(value: str) -> list[str]:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        return []
+    for separator in ("/", ",", ";", "|", "(", ")", "[", "]", "{", "}"):
+        normalized = normalized.replace(separator, " ")
+    return [
+        token
+        for token in normalized.split()
+        if token and token not in {"AND", "OR"}
+    ]
 
 
 def _process_payload(process: ScheduledProcess) -> dict[str, Any]:

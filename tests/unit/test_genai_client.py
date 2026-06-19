@@ -20,7 +20,7 @@ from t212ai.genai.context import (
     parse_context_token_value,
     parse_context_tokens_by_model_json,
 )
-from t212ai.genai.models import ToolResult
+from t212ai.genai.models import ToolError, ToolResult
 from t212ai.genai.tokenizer import TokenCounter
 from t212ai.genai.tools.base import ToolBox, build_tool_index, render_tool_descriptions
 
@@ -349,6 +349,42 @@ def test_execute_tool_call_logs_structured_tool_events(caplog) -> None:
     assert records[-1].event_fields["status"] == "ok"
     assert records[-1].event_fields["arg_keys"] == ["value"]
     assert "abc" not in str(records[-1].event_fields)
+
+
+def test_execute_tool_call_logs_structured_tool_error_message(caplog) -> None:
+    client = GenAIClient.__new__(GenAIClient)
+    client.logger = logging.getLogger("tests.genai.tool_error_logging")
+
+    def tool_fn(value: str) -> ToolResult:
+        return ToolResult(
+            status="error",
+            error=ToolError(
+                message="timezone must be a valid IANA timezone: Europe/Rome.",
+                code="invalid_alpaca_news_monitor_spec",
+                type="ValueError",
+                hint="Use duration_minutes with timezone=null for relative windows.",
+            ),
+        )
+
+    tool_call = SimpleNamespace(
+        id="call_1",
+        function=SimpleNamespace(name="example_tool", arguments='{"value":"Europe/Rome"}'),
+    )
+
+    with caplog.at_level(logging.INFO, logger="tests.genai.tool_error_logging"):
+        client._execute_tool_call(
+            tool_call,
+            tools_mapping={"example_tool": tool_fn},
+            tools_by_name={"example_tool": {}},
+        )
+
+    records = [record for record in caplog.records if getattr(record, "event", None)]
+    assert [record.event for record in records] == ["tool.call.start", "tool.call.error"]
+    fields = records[-1].event_fields
+    assert fields["error_message"] == "timezone must be a valid IANA timezone: Europe/Rome."
+    assert fields["error_hint"] == "Use duration_minutes with timezone=null for relative windows."
+    assert fields["arg_keys"] == ["value"]
+    assert '"value":"Europe/Rome"' not in str(fields)
 
 
 def test_provider_error_details_extracts_azure_content_filter_metadata() -> None:

@@ -47,11 +47,11 @@ def render_timezone_context(
         "timezone, treat it as local time in the configured user timezone. When the "
         "schedule time comes from an external source or event that has its own "
         "timezone, preserve that source timezone and convert the final run time to UTC. "
-        "Do not use timezone abbreviations such as CET, CEST, EST, or PST in tool "
+        "Do not use timezone abbreviations such as CET, CEST, CET/CEST, EST, or PST in tool "
         "arguments; use the configured IANA timezone or pass null so the tool uses the "
         "configured default. For relative windows such as next hour or next 30 minutes, "
-        "use the current time and configured timezone without asking the user to confirm "
-        "a timezone."
+        "pass start_at=null, end_at=null, duration_minutes set to the requested duration, "
+        "and timezone=null without asking the user to confirm a timezone."
     )
 
 

@@ -873,7 +873,7 @@ def test_scheduler_alpaca_news_monitor_create_maps_default_timezone_abbreviation
         clock=lambda: datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
     )
 
-    for abbreviation in ("CET", "CEST"):
+    for abbreviation in ("CET", "CEST", "CET/CEST", "CEST/CET", "CET or CEST"):
         result = scheduler_alpaca_news_monitor_create(
             title=None,
             description="Monitor all news for the next hour.",
@@ -894,6 +894,70 @@ def test_scheduler_alpaca_news_monitor_create_maps_default_timezone_abbreviation
         process = service.get_process(result.data["process"]["processId"])
         assert process is not None
         assert process.inputs["timezone"] == "Europe/Rome"
+
+
+def test_scheduler_alpaca_news_monitor_create_uses_default_timezone_for_relative_window(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="Europe/Rome",
+        clock=lambda: datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
+    )
+
+    result = scheduler_alpaca_news_monitor_create(
+        title=None,
+        description="Monitor all news for the next hour.",
+        symbols=["*"],
+        start_at=None,
+        end_at=None,
+        duration_minutes=60,
+        timezone="not a timezone",
+        task_guidelines="Come back with anything relevant.",
+        order_proposals_enabled=False,
+        max_events_per_minute=30,
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "ok"
+    process = service.get_process(result.data["process"]["processId"])
+    assert process is not None
+    assert process.inputs["timezone"] == "Europe/Rome"
+    assert process.inputs["startAt"] == "2026-05-12T09:00:00+00:00"
+    assert process.inputs["endAt"] == "2026-05-12T10:00:00+00:00"
+
+
+def test_scheduler_alpaca_news_monitor_create_rejects_invalid_timezone_for_naive_datetime(
+    tmp_path: Path,
+) -> None:
+    runtime = SchedulerManagementRuntime(
+        service=_service(tmp_path),
+        default_timezone="Europe/Rome",
+    )
+
+    result = scheduler_alpaca_news_monitor_create(
+        title=None,
+        description="Monitor all news from a local start time.",
+        symbols=["*"],
+        start_at="2026-05-12T11:00:00",
+        end_at=None,
+        duration_minutes=60,
+        timezone="not a timezone",
+        task_guidelines="Come back with anything relevant.",
+        order_proposals_enabled=False,
+        max_events_per_minute=30,
+        notification_enabled=True,
+        broker_actions_allowed=False,
+        runtime=runtime,
+    )
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "invalid_alpaca_news_monitor_spec"
+    assert "timezone must be a valid IANA timezone" in result.error.message
 
 
 def test_scheduler_alpaca_news_monitor_create_rejects_missing_window(
@@ -989,11 +1053,15 @@ def test_alpaca_news_monitor_tool_description_defaults_missing_symbols_to_wildca
     function = SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL["function"]
 
     assert "set symbols=['*']" in function["description"]
+    assert "start_at=null, end_at=null, duration_minutes" in function["description"]
     assert function["parameters"]["properties"]["symbols"]["default"] == ["*"]
     assert (
         "If the user omitted ticker symbols, use ['*']"
         in function["parameters"]["properties"]["symbols"]["description"]
     )
+    assert "use 60 for 'next hour'" in function["parameters"]["properties"][
+        "duration_minutes"
+    ]["description"]
 
 
 def test_scheduler_agent_tool_mapping_is_constrained(tmp_path: Path) -> None:

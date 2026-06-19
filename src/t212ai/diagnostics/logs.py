@@ -27,6 +27,8 @@ LOG_FIELD_NAMES = (
     "status",
     "error_type",
     "error_code",
+    "error_message",
+    "error_hint",
     "chat_id",
     "message_id",
     "request_id",
@@ -60,6 +62,8 @@ class LogRecordView(BaseModel):
     status: str | None = None
     error_type: str | None = None
     error_code: str | None = None
+    error_message: str | None = None
+    error_hint: str | None = None
     chat_id: str | None = None
     message_id: str | None = None
     request_id: str | None = None

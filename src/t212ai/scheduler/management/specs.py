@@ -709,6 +709,9 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
             "kind=alpaca_news_monitor, executionMode=llm_assisted, manual schedule, "
             "and a stream worker that invokes the News Ingestion Judge for each "
             "received news event in scope. Provide either end_at or duration_minutes. "
+            "For requests like 'next hour' or 'for 30 minutes', set start_at=null, "
+            "end_at=null, duration_minutes to the requested number of minutes, and "
+            "timezone=null. "
             "If the user does not specify ticker symbols, do not ask for clarification; "
             "set symbols=['*'] to monitor all Alpaca news. Broker order proposals may "
             "be prepared by downstream agents, but any execution still requires "
@@ -742,13 +745,17 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                     "default": None,
                     "description": (
                         "Optional ISO-8601 start datetime. If omitted, monitoring "
-                        "starts as soon as the supervisor sees the process."
+                        "starts as soon as the supervisor sees the process. For relative "
+                        "requests like next hour, pass null."
                     ),
                 },
                 "end_at": {
                     "type": ["string", "null"],
                     "default": None,
-                    "description": "Optional ISO-8601 end datetime for the stream window.",
+                    "description": (
+                        "Optional ISO-8601 end datetime for the stream window. For relative "
+                        "requests like next hour, pass null and use duration_minutes."
+                    ),
                 },
                 "duration_minutes": {
                     "type": ["integer", "null"],
@@ -756,7 +763,7 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                     "default": None,
                     "description": (
                         "Alternative bounded duration in minutes. Required when "
-                        "end_at is omitted."
+                        "end_at is omitted; use 60 for 'next hour'."
                     ),
                 },
                 "timezone": {
@@ -765,7 +772,8 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                     "description": (
                         "IANA timezone for naive start/end datetimes. For relative windows "
                         "such as next hour, pass null and duration_minutes; the tool uses the "
-                        "configured scheduler timezone. Do not pass abbreviations like CET or CEST."
+                        "configured scheduler timezone. Do not pass abbreviations like CET, CEST, or CET/CEST. "
+                        "If start_at and end_at are null, timezone is not needed."
                     ),
                 },
                 "task_guidelines": {

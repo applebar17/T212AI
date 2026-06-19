@@ -93,6 +93,8 @@ class GenAIToolExecutionMixin:
                 status="error",
                 duration_ms=int((time.monotonic() - start) * 1000),
                 error_code=error.code,
+                error_message=error.message,
+                error_hint=error.hint,
             )
             return self._tool_message(
                 tool_call.id,
@@ -119,6 +121,8 @@ class GenAIToolExecutionMixin:
                 status="error",
                 duration_ms=int((time.monotonic() - start) * 1000),
                 error_code=error.code,
+                error_message=error.message,
+                error_hint=error.hint,
             )
             return self._tool_message(
                 tool_call.id,
@@ -149,6 +153,8 @@ class GenAIToolExecutionMixin:
                 duration_ms=int((time.monotonic() - start) * 1000),
                 error_type=exc.__class__.__name__,
                 error_code=error.code,
+                error_message=error.message,
+                error_hint=error.hint,
             )
             return self._tool_message(
                 tool_call.id,
@@ -186,6 +192,8 @@ class GenAIToolExecutionMixin:
             duration_ms=duration_ms,
             error_type=result.error.type if result.error else None,
             error_code=result.error.code if result.error else None,
+            error_message=result.error.message if result.error else None,
+            error_hint=result.error.hint if result.error else None,
             arg_keys=sorted(args.keys()),
         )
         return self._tool_message(

@@ -37,6 +37,7 @@ from .utils import (
     _resolve_run_at,
     _resolve_stream_end_at,
     _resolve_timezone_name,
+    _resolve_timezone_name_best_effort,
 )
 
 
@@ -446,7 +447,11 @@ def _create_alpaca_news_monitor(
             "approval-gated proposals but never execute broker actions."
         )
     resolved_symbols = _clean_symbols(symbols) or ["*"]
-    tz_name = _resolve_timezone_name(
+    uses_local_datetime = bool(str(start_at or "").strip() or str(end_at or "").strip())
+    timezone_resolver = (
+        _resolve_timezone_name if uses_local_datetime else _resolve_timezone_name_best_effort
+    )
+    tz_name = timezone_resolver(
         timezone_name,
         runtime.default_timezone,
         now=runtime.clock(),
