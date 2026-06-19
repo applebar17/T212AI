@@ -863,6 +863,39 @@ def test_scheduler_alpaca_news_monitor_create_builds_manual_monitor(tmp_path: Pa
     assert "Broker execution remains approval-button gated." in result.output
 
 
+def test_scheduler_alpaca_news_monitor_create_maps_default_timezone_abbreviation(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(
+        service=service,
+        default_timezone="Europe/Rome",
+        clock=lambda: datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
+    )
+
+    for abbreviation in ("CET", "CEST"):
+        result = scheduler_alpaca_news_monitor_create(
+            title=None,
+            description="Monitor all news for the next hour.",
+            symbols=["*"],
+            start_at=None,
+            end_at=None,
+            duration_minutes=60,
+            timezone=abbreviation,
+            task_guidelines="Come back with anything relevant.",
+            order_proposals_enabled=False,
+            max_events_per_minute=30,
+            notification_enabled=True,
+            broker_actions_allowed=False,
+            runtime=runtime,
+        )
+
+        assert result.status == "ok"
+        process = service.get_process(result.data["process"]["processId"])
+        assert process is not None
+        assert process.inputs["timezone"] == "Europe/Rome"
+
+
 def test_scheduler_alpaca_news_monitor_create_rejects_missing_window(
     tmp_path: Path,
 ) -> None:

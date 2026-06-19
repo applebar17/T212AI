@@ -127,6 +127,25 @@ def _resolve_stream_end_at(
     return start + timedelta(minutes=minutes)
 
 
+def _resolve_timezone_name(
+    value: str | None,
+    default_timezone: str | None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    fallback = str(default_timezone or "UTC").strip() or "UTC"
+    fallback_zone = _zone_info(fallback)
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    if raw == fallback:
+        return fallback
+    if _matches_timezone_abbreviation(raw, fallback_zone, now=now):
+        return fallback
+    _zone_info(raw)
+    return raw
+
+
 def _positive_int(value: int | None, *, fallback: int, field_name: str) -> int:
     resolved = fallback if value is None else value
     try:
@@ -173,6 +192,32 @@ def _zone_info(timezone_name: str) -> ZoneInfo:
         return ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"timezone must be a valid IANA timezone: {timezone_name}.") from exc
+
+
+def _matches_timezone_abbreviation(
+    value: str,
+    zone: ZoneInfo,
+    *,
+    now: datetime | None,
+) -> bool:
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return False
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    reference = reference.astimezone(timezone.utc)
+    samples = [
+        reference,
+        datetime(reference.year, 1, 15, 12, tzinfo=timezone.utc),
+        datetime(reference.year, 7, 15, 12, tzinfo=timezone.utc),
+    ]
+    abbreviations = {
+        abbreviation.upper()
+        for sample in samples
+        if (abbreviation := sample.astimezone(zone).tzname())
+    }
+    return raw in abbreviations
 
 
 def _process_payload(process: ScheduledProcess) -> dict[str, Any]:

@@ -762,7 +762,11 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                 "timezone": {
                     "type": ["string", "null"],
                     "default": None,
-                    "description": "Timezone for naive start/end datetimes.",
+                    "description": (
+                        "IANA timezone for naive start/end datetimes. For relative windows "
+                        "such as next hour, pass null and duration_minutes; the tool uses the "
+                        "configured scheduler timezone. Do not pass abbreviations like CET or CEST."
+                    ),
                 },
                 "task_guidelines": {
                     "type": "string",

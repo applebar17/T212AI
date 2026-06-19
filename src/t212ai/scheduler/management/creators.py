@@ -36,7 +36,7 @@ from .utils import (
     _resolve_optional_datetime,
     _resolve_run_at,
     _resolve_stream_end_at,
-    _zone_info,
+    _resolve_timezone_name,
 )
 
 
@@ -83,7 +83,11 @@ def _create_instrument_monitor(
         fallback=runtime.default_poll_every_seconds,
         field_name="poll_every_seconds",
     )
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
     resolved_title = str(title or "").strip()
     if not resolved_title:
@@ -141,8 +145,11 @@ def _create_company_event_analyst(
     if resolved_schedule_type not in COMPANY_EVENT_SCHEDULE_TYPES:
         raise ValueError("schedule_type must be one_shot or recurring.")
 
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
-    _zone_info(tz_name)
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     if resolved_schedule_type == "one_shot":
         schedule = {
             "type": "one_shot",
@@ -243,7 +250,11 @@ def _create_market_regime_monitor(
         fallback=runtime.default_poll_every_seconds,
         field_name="poll_every_seconds",
     )
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
     resolved_lookback_period = str(lookback_period or "1mo").strip() or "1mo"
     resolved_lookback_interval = str(lookback_interval or "1d").strip() or "1d"
@@ -337,8 +348,11 @@ def _create_market_signal_capture(
     resolved_schedule_type = str(schedule_type or "").strip()
     if resolved_schedule_type not in MARKET_SIGNAL_CAPTURE_SCHEDULE_TYPES:
         raise ValueError("schedule_type must be polling or recurring.")
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
-    _zone_info(tz_name)
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     if resolved_schedule_type == "polling":
         poll_seconds = _positive_int(
             poll_every_seconds,
@@ -432,8 +446,11 @@ def _create_alpaca_news_monitor(
             "approval-gated proposals but never execute broker actions."
         )
     resolved_symbols = _clean_symbols(symbols) or ["*"]
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
-    _zone_info(tz_name)
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     start = _resolve_optional_datetime(
         start_at,
         timezone_name=tz_name,
@@ -558,7 +575,11 @@ def _create_trade_setup_monitor(
         fallback=runtime.default_poll_every_seconds,
         field_name="poll_every_seconds",
     )
-    tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
+    tz_name = _resolve_timezone_name(
+        timezone_name,
+        runtime.default_timezone,
+        now=runtime.clock(),
+    )
     expiry = _resolve_expires_at(expires_at, timezone_name=tz_name, runtime=runtime)
     action: dict[str, Any] = {
         "type": "notify_or_propose",
