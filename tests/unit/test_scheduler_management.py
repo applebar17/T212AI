@@ -863,7 +863,7 @@ def test_scheduler_alpaca_news_monitor_create_builds_manual_monitor(tmp_path: Pa
     assert "Broker execution remains approval-button gated." in result.output
 
 
-def test_scheduler_alpaca_news_monitor_create_rejects_missing_window_or_symbols(
+def test_scheduler_alpaca_news_monitor_create_rejects_missing_window(
     tmp_path: Path,
 ) -> None:
     runtime = SchedulerManagementRuntime(service=_service(tmp_path))
@@ -883,15 +883,44 @@ def test_scheduler_alpaca_news_monitor_create_rejects_missing_window_or_symbols(
         "runtime": runtime,
     }
 
-    missing_symbols = scheduler_alpaca_news_monitor_create(**{**base, "symbols": []})
     missing_window = scheduler_alpaca_news_monitor_create(
         **{**base, "duration_minutes": None}
     )
 
-    for result in (missing_symbols, missing_window):
-        assert result.status == "error"
-        assert result.error is not None
-        assert result.error.code == "invalid_alpaca_news_monitor_spec"
+    assert missing_window.status == "error"
+    assert missing_window.error is not None
+    assert missing_window.error.code == "invalid_alpaca_news_monitor_spec"
+
+
+def test_scheduler_alpaca_news_monitor_create_defaults_missing_symbols_to_wildcard(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    runtime = SchedulerManagementRuntime(service=service)
+    base = {
+        "title": None,
+        "description": "",
+        "start_at": None,
+        "end_at": None,
+        "duration_minutes": 30,
+        "timezone": None,
+        "task_guidelines": "Recap every streamed item.",
+        "order_proposals_enabled": False,
+        "max_events_per_minute": 10,
+        "notification_enabled": True,
+        "broker_actions_allowed": False,
+        "runtime": runtime,
+    }
+
+    omitted = scheduler_alpaca_news_monitor_create(**base)
+    empty = scheduler_alpaca_news_monitor_create(**{**base, "symbols": []})
+
+    for result in (omitted, empty):
+        assert result.status == "ok"
+        process = service.get_process(result.data["process"]["processId"])
+        assert process is not None
+        assert process.inputs["symbols"] == ["*"]
+        assert process.trigger == {"type": "alpaca_news_stream", "symbols": ["*"]}
 
 
 def test_scheduler_alpaca_news_monitor_create_accepts_wildcard_scope(
@@ -927,6 +956,7 @@ def test_alpaca_news_monitor_tool_description_defaults_missing_symbols_to_wildca
     function = SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL["function"]
 
     assert "set symbols=['*']" in function["description"]
+    assert function["parameters"]["properties"]["symbols"]["default"] == ["*"]
     assert (
         "If the user omitted ticker symbols, use ['*']"
         in function["parameters"]["properties"]["symbols"]["description"]

@@ -313,8 +313,9 @@ def _alpaca_news_monitor_exception(exc: Exception) -> ToolResult:
             code="invalid_alpaca_news_monitor_spec",
             type=exc.__class__.__name__,
             hint=(
-                "Provide at least one ticker symbol and a bounded stream window "
-                "using end_at or duration_minutes. Keep broker_actions_allowed=false."
+                "Provide a bounded stream window using end_at or duration_minutes. "
+                "If no ticker symbols are specified, the monitor defaults to ['*']. "
+                "Keep broker_actions_allowed=false."
             ),
             retryable=False,
         ),
