@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
             capture_alpaca_news_stream(
                 client,
                 args.output,
-                symbols=args.symbols or [],
+                symbols=args.symbols or ["*"],
                 max_events=args.max_events,
                 seconds=args.seconds,
                 sandbox=bool(args.sandbox),
