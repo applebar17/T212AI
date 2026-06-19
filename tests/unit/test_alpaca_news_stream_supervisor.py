@@ -112,7 +112,34 @@ def test_supervisor_records_relevant_background_news_in_history(tmp_path: Path) 
 
 def test_supervisor_wildcard_monitor_accepts_all_packet_symbols() -> None:
     assert _subscription_symbols(["*"]) == ["*"]
+    assert _subscription_symbols([]) == ["*"]
     assert _symbol_filter_matches(["*"], ["AAPL"])
     assert _symbol_filter_matches([], ["AAPL"])
     assert _symbol_filter_matches(["MP", "USAR"], ["MP"])
     assert not _symbol_filter_matches(["MP", "USAR"], ["AAPL"])
+
+
+def test_monitor_spec_defaults_legacy_empty_symbols_to_wildcard(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    process = service.create_process(
+        title="Legacy empty-symbol news monitor",
+        description="Old records may have stored an empty symbol list.",
+        kind="alpaca_news_monitor",
+        execution_mode="llm_assisted",
+        schedule={"type": "manual"},
+        trigger={"type": "alpaca_news_stream", "symbols": []},
+        inputs={
+            "symbols": [],
+            "startAt": "2026-05-12T09:00:00+00:00",
+            "endAt": "2026-05-12T09:30:00+00:00",
+            "timezone": "UTC",
+            "maxEventsPerMinute": 10,
+        },
+        llm_scope={},
+        action={"type": "judge_news"},
+        notification={"enabled": True},
+        lifecycle={"completionPolicy": "complete_on_first_run"},
+        safety={"brokerActionsAllowed": False},
+    )
+
+    assert _monitor_spec(process).symbols == ["*"]

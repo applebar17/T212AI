@@ -731,6 +731,7 @@ SCHEDULER_ALPACA_NEWS_MONITOR_CREATE_TOOL: ToolSpec = {
                 "symbols": {
                     "type": "array",
                     "items": {"type": "string"},
+                    "default": ["*"],
                     "description": (
                         "Ticker symbols to subscribe/filter for the stream. "
                         "If the user omitted ticker symbols, use ['*'] to cover all news."

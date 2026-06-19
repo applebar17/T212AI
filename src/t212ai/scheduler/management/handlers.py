@@ -347,7 +347,7 @@ def scheduler_alpaca_news_monitor_create(
     *,
     title: str | None,
     description: str,
-    symbols: list[str],
+    symbols: list[str] | None = None,
     start_at: str | None,
     end_at: str | None,
     duration_minutes: int | None,

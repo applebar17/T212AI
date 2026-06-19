@@ -414,7 +414,7 @@ def _create_alpaca_news_monitor(
     *,
     title: str | None,
     description: str,
-    symbols: list[str],
+    symbols: list[str] | None,
     start_at: str | None,
     end_at: str | None,
     duration_minutes: int | None,
@@ -431,9 +431,7 @@ def _create_alpaca_news_monitor(
             "broker_actions_allowed must be false; stream monitors may prepare "
             "approval-gated proposals but never execute broker actions."
         )
-    resolved_symbols = _clean_symbols(symbols)
-    if not resolved_symbols:
-        raise ValueError("At least one symbol is required for Alpaca news monitoring.")
+    resolved_symbols = _clean_symbols(symbols) or ["*"]
     tz_name = str(timezone_name or runtime.default_timezone or "UTC").strip() or "UTC"
     _zone_info(tz_name)
     start = _resolve_optional_datetime(

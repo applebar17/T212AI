@@ -507,7 +507,7 @@ async def _next_event_with_timeout(
 
 def _monitor_spec(process: ScheduledProcess) -> _MonitorSpec:
     inputs = process.inputs
-    symbols = _clean_symbols(inputs.get("symbols") or [])
+    symbols = _clean_symbols(inputs.get("symbols") or []) or ["*"]
     return _MonitorSpec(
         symbols=symbols,
         start_at=_parse_utc(inputs.get("startAt")),
@@ -542,7 +542,7 @@ def _allow_event(rate_window: deque[float], max_events_per_minute: int) -> bool:
 
 
 def _subscription_symbols(symbols: list[str]) -> list[str]:
-    return ["*"] if _has_wildcard(symbols) else symbols
+    return ["*"] if not symbols or _has_wildcard(symbols) else symbols
 
 
 def _symbol_filter_matches(monitor_symbols: list[str], packet_symbols: list[str]) -> bool:
