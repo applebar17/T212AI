@@ -13,13 +13,16 @@ services:
       TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:?Set TELEGRAM_ALLOWED_CHAT_ID in .env before building/running Docker.}
       GUIDELINE_MEMORY_PATH: ${GUIDELINE_MEMORY_PATH:-data/guidelines/guidelines.json}
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/t212ai.db}
+      APP_LOG_FILE_PATH: ${APP_LOG_FILE_PATH:-logs/log_trace.jsonl}
+      APP_LOG_FORMAT: ${APP_LOG_FORMAT:-json}
       SEARXNG_ENABLED: ${SEARXNG_ENABLED:-true}
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       - searxng
-    command: ["python", "-m", "t212ai", "run", "bot"]
+    command: ["/bin/sh", "scripts/docker_entrypoint.sh"]
 
   searxng:
     image: searxng/searxng:latest

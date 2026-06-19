@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
 from t212ai.agent.history import ChatHistoryManager
 from t212ai.agent.schemas import AgentResponse
+from t212ai.alpaca.streaming import AlpacaStreamEvent
 from t212ai.alpaca.news import CleanedNewsPacket
 from t212ai.app.alpaca_news_stream_supervisor import (
     AlpacaNewsStreamSupervisor,
     _monitor_spec,
+    _next_event_with_timeout,
     _subscription_symbols,
     _symbol_filter_matches,
 )
@@ -117,6 +120,41 @@ def test_supervisor_wildcard_monitor_accepts_all_packet_symbols() -> None:
     assert _symbol_filter_matches([], ["AAPL"])
     assert _symbol_filter_matches(["MP", "USAR"], ["MP"])
     assert not _symbol_filter_matches(["MP", "USAR"], ["AAPL"])
+
+
+def test_next_event_timeout_keeps_pending_stream_read_alive() -> None:
+    async def _run() -> None:
+        async def _stream():
+            await asyncio.sleep(0.03)
+            yield AlpacaStreamEvent(
+                stream="news",
+                message_type="success",
+                symbol=None,
+                raw={},
+                received_at="2026-05-12T09:00:00Z",
+            )
+
+        iterator = _stream().__aiter__()
+        event, pending_task, stream_ended = await _next_event_with_timeout(
+            iterator,
+            None,
+            timeout_seconds=0.001,
+        )
+        assert event is None
+        assert pending_task is not None
+        assert not pending_task.done()
+        assert stream_ended is False
+
+        event, pending_task, stream_ended = await _next_event_with_timeout(
+            iterator,
+            pending_task,
+            timeout_seconds=0.1,
+        )
+        assert event is not None
+        assert pending_task is None
+        assert stream_ended is False
+
+    asyncio.run(_run())
 
 
 def test_monitor_spec_defaults_legacy_empty_symbols_to_wildcard(tmp_path: Path) -> None:

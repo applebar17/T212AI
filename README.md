@@ -129,6 +129,10 @@ docker compose build
 docker compose up
 ```
 
+Compose writes structured JSON app logs to `logs/log_trace.jsonl` by default.
+The app service truncates that configured log file on startup, so a fresh
+`docker compose up --build` starts with a clean application trace.
+
 The app service fails fast when these minimum bot variables are empty:
 
 - `LLM_PROVIDER`

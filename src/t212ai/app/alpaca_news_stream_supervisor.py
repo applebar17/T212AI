@@ -213,6 +213,7 @@ class AlpacaNewsStreamSupervisor:
             stream="news",
         )
         iterator = stream.__aiter__()
+        pending_event_task: asyncio.Task[Any] | None = None
         status = "completed"
         error_message: str | None = None
         try:
@@ -226,11 +227,15 @@ class AlpacaNewsStreamSupervisor:
                     lease_seconds=self.lease_seconds,
                     now=now,
                 )
-                event = await _next_event_with_timeout(
+                event, pending_event_task, stream_ended = await _next_event_with_timeout(
                     iterator,
+                    pending_event_task,
                     timeout_seconds=min(15.0, max(1.0, self.lease_seconds / 2)),
                 )
+                if stream_ended:
+                    break
                 if event is None:
+                    stats.idle_timeouts += 1
                     continue
                 if event.news is None:
                     continue
@@ -306,6 +311,12 @@ class AlpacaNewsStreamSupervisor:
                 error_type=exc.__class__.__name__,
             )
         finally:
+            if pending_event_task is not None and not pending_event_task.done():
+                pending_event_task.cancel()
+                try:
+                    await pending_event_task
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
             close = getattr(stream, "aclose", None)
             if callable(close):
                 await close()
@@ -479,6 +490,7 @@ class _MonitorStats:
     duplicate: int = 0
     skipped_symbol: int = 0
     rate_limited: int = 0
+    idle_timeouts: int = 0
 
     def metadata(self) -> dict[str, object]:
         return {
@@ -489,20 +501,25 @@ class _MonitorStats:
             "duplicate": self.duplicate,
             "skippedSymbol": self.skipped_symbol,
             "rateLimited": self.rate_limited,
+            "idleTimeouts": self.idle_timeouts,
         }
 
 
 async def _next_event_with_timeout(
     iterator: Any,
+    pending_task: asyncio.Task[Any] | None,
     *,
     timeout_seconds: float,
-) -> AlpacaStreamEvent | None:
+) -> tuple[AlpacaStreamEvent | None, asyncio.Task[Any] | None, bool]:
+    if pending_task is None:
+        pending_task = asyncio.create_task(iterator.__anext__())
+    done, _pending = await asyncio.wait({pending_task}, timeout=timeout_seconds)
+    if not done:
+        return None, pending_task, False
     try:
-        return await asyncio.wait_for(iterator.__anext__(), timeout=timeout_seconds)
-    except TimeoutError:
-        return None
+        return pending_task.result(), None, False
     except StopAsyncIteration:
-        return None
+        return None, None, True
 
 
 def _monitor_spec(process: ScheduledProcess) -> _MonitorSpec:
