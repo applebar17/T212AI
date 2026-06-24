@@ -6,8 +6,6 @@ from typing import Any
 
 from t212ai.genai.models import ToolSpec
 
-
-
 T212_GET_PORTFOLIO_SNAPSHOT_TOOL: ToolSpec = {
     "type": "function",
     "function": {
@@ -16,9 +14,7 @@ T212_GET_PORTFOLIO_SNAPSHOT_TOOL: ToolSpec = {
             "Read-only Trading 212 portfolio snapshot. Returns account summary, "
             "open positions with order-management identifiers where available, "
             "and pending orders. Use top_positions_limit only to limit the "
-            "human-readable position summary to the largest N open positions by "
-            "current value; it does not limit the Trading 212 API fetch or the "
-            "structured snapshot data."
+            "position summary to the largest N open positions by current value."
         ),
         "strict": True,
         "parameters": {
@@ -31,8 +27,7 @@ T212_GET_PORTFOLIO_SNAPSHOT_TOOL: ToolSpec = {
                     "description": (
                         "Optional display limit for summarizing open positions. Pass null to "
                         "show all open positions. Pass a positive integer N to summarize only "
-                        "the top N open positions by current value/portfolio weight. This is "
-                        "a presentation limit, not an API fetch limit; identifiers are still "
+                        "the top N open positions by current value/portfolio weight. Identifiers are "
                         "returned for open positions in the structured snapshot data."
                     ),
                 },
