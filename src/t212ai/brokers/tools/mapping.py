@@ -27,7 +27,10 @@ from .runtime import BrokerToolRuntime
 
 def build_broker_tool_mapping(runtime: BrokerToolRuntime) -> dict[str, Callable[..., ToolResult]]:
     mapping: dict[str, Callable[..., ToolResult]] = {
-        "broker_get_portfolio_snapshot": lambda: broker_get_portfolio_snapshot(runtime=runtime),
+        "broker_get_portfolio_snapshot": lambda **kwargs: broker_get_portfolio_snapshot(
+            runtime=runtime,
+            **kwargs,
+        ),
         "broker_list_pending_orders": lambda: broker_list_pending_orders(runtime=runtime),
         "broker_get_order": lambda order_ref: broker_get_order(order_ref=order_ref, runtime=runtime),
         "broker_list_historical_orders": lambda **kwargs: broker_list_historical_orders(

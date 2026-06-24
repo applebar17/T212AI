@@ -59,7 +59,12 @@ class FakeTrading212Api:
 
     def list_positions(self, *, ticker: str | None = None) -> list[Position]:
         position = Position(
-            instrument=Instrument(ticker="AAPL_US_EQ", name="Apple", currency="USD"),
+            instrument=Instrument(
+                ticker="AAPL_US_EQ",
+                name="Apple",
+                currency="USD",
+                isin="US0378331005",
+            ),
             quantity=Decimal("2"),
             current_price=Decimal("200"),
             wallet_impact=PositionWalletImpact(
@@ -194,9 +199,77 @@ def test_portfolio_snapshot_tool_returns_llm_readable_context() -> None:
     assert result.output is not None
     assert "broker-authoritative" in result.output
     assert "available_to_trade=1000 EUR" in result.output
+    assert "Positions: 1 open position(s); showing all 1 by current value." in result.output
     assert "AAPL_US_EQ (Apple)" in result.output
+    assert "identifier=US0378331005" in result.output
     assert "Pending orders: 1 active/pending order(s)." in result.output
     assert result.data["account"]["currency"] == "EUR"
+
+
+def test_portfolio_snapshot_tool_limits_readable_positions_only() -> None:
+    class MultiPositionApi(FakeTrading212Api):
+        def list_positions(self, *, ticker: str | None = None) -> list[Position]:
+            del ticker
+            return [
+                Position(
+                    instrument=Instrument(
+                        ticker="AAPL_US_EQ",
+                        name="Apple",
+                        currency="USD",
+                        isin="US0378331005",
+                    ),
+                    quantity=Decimal("2"),
+                    current_price=Decimal("200"),
+                    wallet_impact=PositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("400"),
+                    ),
+                ),
+                Position(
+                    instrument=Instrument(
+                        ticker="NVDA_US_EQ",
+                        name="NVIDIA",
+                        currency="USD",
+                        isin="US67066G1040",
+                    ),
+                    quantity=Decimal("3"),
+                    current_price=Decimal("300"),
+                    wallet_impact=PositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("900"),
+                    ),
+                ),
+                Position(
+                    instrument=Instrument(
+                        ticker="TSM_US_EQ",
+                        name="TSMC",
+                        currency="USD",
+                        isin="US8740391003",
+                    ),
+                    quantity=Decimal("1"),
+                    current_price=Decimal("100"),
+                    wallet_impact=PositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("100"),
+                    ),
+                ),
+            ]
+
+    service = Trading212BrokerService(MultiPositionApi())
+    runtime = Trading212ToolRuntime(service=service)
+
+    result = t212_get_portfolio_snapshot(
+        runtime=runtime,
+        top_positions_limit=1,
+    )
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "Positions: 3 open position(s); showing top 1 by current value." in result.output
+    assert "NVDA_US_EQ (NVIDIA)" in result.output
+    assert "identifier=US67066G1040" in result.output
+    assert "AAPL_US_EQ" not in result.output
+    assert len(result.data["positions"]) == 3
 
 
 def test_portfolio_snapshot_tool_returns_actionable_error_context() -> None:

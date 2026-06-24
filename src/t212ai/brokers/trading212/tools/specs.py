@@ -14,13 +14,30 @@ T212_GET_PORTFOLIO_SNAPSHOT_TOOL: ToolSpec = {
         "name": "t212_get_portfolio_snapshot",
         "description": (
             "Read-only Trading 212 portfolio snapshot. Returns account summary, "
-            "open positions, and pending orders."
+            "open positions with order-management identifiers where available, "
+            "and pending orders. Use top_positions_limit only to limit the "
+            "human-readable position summary to the largest N open positions by "
+            "current value; it does not limit the Trading 212 API fetch or the "
+            "structured snapshot data."
         ),
         "strict": True,
         "parameters": {
             "type": "object",
-            "properties": {},
-            "required": [],
+            "properties": {
+                "top_positions_limit": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "default": None,
+                    "description": (
+                        "Optional display limit for summarizing open positions. Pass null to "
+                        "show all open positions. Pass a positive integer N to summarize only "
+                        "the top N open positions by current value/portfolio weight. This is "
+                        "a presentation limit, not an API fetch limit; identifiers are still "
+                        "returned for open positions in the structured snapshot data."
+                    ),
+                },
+            },
+            "required": ["top_positions_limit"],
             "additionalProperties": False,
         },
     },

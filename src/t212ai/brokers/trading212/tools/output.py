@@ -8,7 +8,11 @@ from ..models import Order, PortfolioSnapshot, Position
 from .formatting import _format_money, _format_value
 
 
-def _format_portfolio_snapshot_output(snapshot: PortfolioSnapshot) -> str:
+def _format_portfolio_snapshot_output(
+    snapshot: PortfolioSnapshot,
+    *,
+    top_positions_limit: int | None = None,
+) -> str:
     account = snapshot.account
     cash = account.cash
     investments = account.investments
@@ -40,7 +44,12 @@ def _format_portfolio_snapshot_output(snapshot: PortfolioSnapshot) -> str:
             f"realized_pnl={_format_money(investments.realized_profit_loss, account.currency)}."
         )
 
-    lines.extend(_format_positions(snapshot.positions))
+    lines.extend(
+        _format_positions(
+            snapshot.positions,
+            top_positions_limit=top_positions_limit,
+        )
+    )
     lines.extend(_format_pending_orders(snapshot.pending_orders))
     lines.append(
         "Decision note: use this as the source of truth for broker state, but fetch fresh "
@@ -50,12 +59,29 @@ def _format_portfolio_snapshot_output(snapshot: PortfolioSnapshot) -> str:
     return "\n".join(lines)
 
 
-def _format_positions(positions: list[Position]) -> list[str]:
+def _format_positions(
+    positions: list[Position],
+    *,
+    top_positions_limit: int | None = None,
+) -> list[str]:
     if not positions:
         return ["Positions: no open positions returned by Trading 212."]
 
-    lines = [f"Positions: {len(positions)} open position(s)."]
-    for position in positions:
+    displayed_positions = _select_positions_for_display(
+        positions,
+        top_positions_limit=top_positions_limit,
+    )
+    if top_positions_limit is not None and len(displayed_positions) < len(positions):
+        lines = [
+            f"Positions: {len(positions)} open position(s); "
+            f"showing top {len(displayed_positions)} by current value."
+        ]
+    else:
+        lines = [
+            f"Positions: {len(positions)} open position(s); "
+            f"showing all {len(displayed_positions)} by current value."
+        ]
+    for position in displayed_positions:
         instrument = position.instrument
         wallet = position.wallet_impact
         ticker = position.ticker if hasattr(position, "ticker") else None
@@ -64,10 +90,15 @@ def _format_positions(positions: list[Position]) -> list[str]:
         currency = (wallet.currency if wallet else None) or (
             instrument.currency if instrument else None
         )
+        broker_position_ref = _native_position_ref(position)
+        isin = instrument.isin if instrument else None
         lines.append(
             "- "
             f"{_format_value(ticker)}"
             f"{f' ({name})' if name else ''}: "
+            f"identifier={_format_value(_position_identifier(position))}, "
+            f"broker_position_ref={_format_value(broker_position_ref)}, "
+            f"isin={_format_value(isin)}, "
             f"quantity={_format_value(position.quantity)}, "
             f"available={_format_value(position.quantity_available_for_trading)}, "
             f"in_pies={_format_value(position.quantity_in_pies)}, "
@@ -80,6 +111,47 @@ def _format_positions(positions: list[Position]) -> list[str]:
             f"fx_impact={_format_money(wallet.fx_impact if wallet else None, currency)}."
         )
     return lines
+
+
+def _select_positions_for_display(
+    positions: list[Position],
+    *,
+    top_positions_limit: int | None,
+) -> list[Position]:
+    sorted_positions = sorted(
+        positions,
+        key=lambda position: _position_current_value(position) or 0,
+        reverse=True,
+    )
+    if top_positions_limit is None or top_positions_limit <= 0:
+        return sorted_positions
+    return sorted_positions[:top_positions_limit]
+
+
+def _position_current_value(position: Position) -> Any:
+    wallet = getattr(position, "wallet_impact", None)
+    return getattr(wallet, "current_value", None) if wallet is not None else None
+
+
+def _native_position_ref(position: Position) -> str | None:
+    for attr in ("id", "position_id", "positionId"):
+        value = getattr(position, attr, None)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _position_identifier(position: Position) -> str | None:
+    broker_position_ref = _native_position_ref(position)
+    if broker_position_ref is not None:
+        return broker_position_ref
+    instrument = getattr(position, "instrument", None)
+    if instrument is not None:
+        for attr in ("isin", "ticker"):
+            value = getattr(instrument, attr, None)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    return None
 
 
 def _format_pending_orders(orders: list[Order]) -> list[str]:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from t212ai.genai.tracing import set_trace_metadata, set_trace_name, traceable
 from t212ai.guidelines.service import GuidelineMemoryService
 from t212ai.workflows import PortfolioSummaryWorkflow, WorkflowExecutionError
@@ -63,7 +65,6 @@ class PortfolioAnalystAgent(BaseAgent):
         task_complexity: TaskComplexity,
         plan,
     ) -> AgentResponse | None:
-        del request
         set_trace_name(f"{self.__class__.__name__}.execute")
         set_trace_metadata(
             agent_name=self.name,
@@ -79,8 +80,11 @@ class PortfolioAnalystAgent(BaseAgent):
         ):
             return None
 
+        top_positions_limit = _extract_top_positions_limit(request.user_message)
         try:
-            summary = self.portfolio_summary_workflow.run()
+            summary = self.portfolio_summary_workflow.run(
+                top_positions_limit=top_positions_limit,
+            )
         except WorkflowExecutionError as exc:
             return AgentResponse(
                 final_answer=(
@@ -106,6 +110,12 @@ class PortfolioAnalystAgent(BaseAgent):
                 "workflow_status": "ok",
                 "position_count": str(summary.position_count),
                 "pending_order_count": str(summary.pending_order_count),
+                "top_positions_limit": (
+                    str(summary.top_positions_limit)
+                    if summary.top_positions_limit is not None
+                    else "none"
+                ),
+                "displayed_position_count": str(summary.displayed_position_count),
             },
             artifacts={
                 "workflow": "portfolio_summary",
@@ -113,3 +123,17 @@ class PortfolioAnalystAgent(BaseAgent):
             },
         )
 
+
+
+def _extract_top_positions_limit(message: str) -> int | None:
+    text = str(message or "").lower()
+    for pattern in (
+        r"\btop\s+(\d{1,3})\b",
+        r"\b(?:largest|biggest)\s+(\d{1,3})\b",
+    ):
+        match = re.search(pattern, text)
+        if match is None:
+            continue
+        value = int(match.group(1))
+        return value if value > 0 else None
+    return None

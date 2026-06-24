@@ -16,7 +16,11 @@ from .references import _dump_order_with_public_ref, _dump_snapshot_with_public_
 from .runtime import BrokerToolRuntime
 
 
-def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
+def broker_get_portfolio_snapshot(
+    *,
+    runtime: BrokerToolRuntime,
+    top_positions_limit: int | None = None,
+) -> ToolResult:
     set_trace_metadata(provider=runtime.broker_provider, tool_name="broker_get_portfolio_snapshot")
     if runtime.broker_read_service is None:
         return _tool_error(
@@ -38,6 +42,7 @@ def broker_get_portfolio_snapshot(*, runtime: BrokerToolRuntime) -> ToolResult:
             snapshot,
             provider=runtime.broker_provider,
             runtime=runtime,
+            top_positions_limit=top_positions_limit,
         ),
         data={
             "provider": runtime.broker_provider,

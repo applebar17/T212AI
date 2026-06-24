@@ -10,7 +10,11 @@ from .output import _format_portfolio_snapshot_output
 from .runtime import Trading212ToolRuntime
 
 
-def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult:
+def t212_get_portfolio_snapshot(
+    *,
+    runtime: Trading212ToolRuntime,
+    top_positions_limit: int | None = None,
+) -> ToolResult:
     set_trace_metadata(provider="trading212", tool_name="t212_get_portfolio_snapshot")
     try:
         snapshot = runtime.service.get_portfolio_snapshot()
@@ -29,7 +33,10 @@ def t212_get_portfolio_snapshot(*, runtime: Trading212ToolRuntime) -> ToolResult
 
     return ToolResult(
         status="ok",
-        output=_format_portfolio_snapshot_output(snapshot),
+        output=_format_portfolio_snapshot_output(
+            snapshot,
+            top_positions_limit=top_positions_limit,
+        ),
         data=snapshot.model_dump(by_alias=True, exclude_none=True, mode="json"),
     )
 

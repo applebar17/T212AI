@@ -45,7 +45,12 @@ class FakeWorkflowBroker:
             ),
             positions=[
                 Position(
-                    instrument=Instrument(ticker="AAPL_US_EQ", name="Apple", currency="EUR"),
+                    instrument=Instrument(
+                        ticker="AAPL_US_EQ",
+                        name="Apple",
+                        currency="EUR",
+                        isin="US0378331005",
+                    ),
                     quantity=Decimal("6"),
                     average_price_paid=Decimal("150"),
                     current_price=Decimal("200"),
@@ -57,7 +62,12 @@ class FakeWorkflowBroker:
                     ),
                 ),
                 Position(
-                    instrument=Instrument(ticker="NVDA_US_EQ", name="NVIDIA", currency="EUR"),
+                    instrument=Instrument(
+                        ticker="NVDA_US_EQ",
+                        name="NVIDIA",
+                        currency="EUR",
+                        isin="US67066G1040",
+                    ),
                     quantity=Decimal("2"),
                     average_price_paid=Decimal("400"),
                     current_price=Decimal("350"),
@@ -69,7 +79,12 @@ class FakeWorkflowBroker:
                     ),
                 ),
                 Position(
-                    instrument=Instrument(ticker="TSM_US_EQ", name="TSMC", currency="EUR"),
+                    instrument=Instrument(
+                        ticker="TSM_US_EQ",
+                        name="TSMC",
+                        currency="EUR",
+                        isin="US8740391003",
+                    ),
                     quantity=Decimal("5"),
                     average_price_paid=Decimal("90"),
                     current_price=Decimal("100"),
@@ -125,17 +140,41 @@ class FakeWorkflowBroker:
         ]
 
 
-def test_portfolio_summary_workflow_returns_ranked_summary() -> None:
+def test_portfolio_summary_workflow_returns_all_ranked_positions_by_default() -> None:
     workflow = PortfolioSummaryWorkflow(FakeWorkflowBroker())
 
     result = workflow.run()
 
     assert result.position_count == 3
+    assert result.displayed_position_count == 3
+    assert result.top_positions_limit is None
     assert result.pending_order_count == 1
     assert result.top_positions[0].ticker == "AAPL_US_EQ"
+    assert result.top_positions[0].isin == "US0378331005"
     assert any("Largest position AAPL_US_EQ" in item for item in result.highlights)
-    assert "Trading 212 portfolio summary." in result.render_text()
-    assert "Top positions by current value:" in result.render_text()
+    rendered = result.render_text()
+    assert "Trading 212 portfolio summary." in rendered
+    assert "Open positions: 3. Showing all 3 by current value." in rendered
+    assert "Open positions by current value:" in rendered
+    assert "identifier=US0378331005" in rendered
+
+
+def test_portfolio_summary_workflow_limits_to_top_positions_when_requested() -> None:
+    workflow = PortfolioSummaryWorkflow(FakeWorkflowBroker())
+
+    result = workflow.run(top_positions_limit=2)
+
+    assert result.position_count == 3
+    assert result.displayed_position_count == 2
+    assert result.top_positions_limit == 2
+    assert [position.ticker for position in result.top_positions] == [
+        "AAPL_US_EQ",
+        "NVDA_US_EQ",
+    ]
+    rendered = result.render_text()
+    assert "Open positions: 3. Showing top 2 by current value." in rendered
+    assert "Top 2 positions by current value:" in rendered
+    assert "TSM_US_EQ" not in rendered
 
 
 def test_pending_orders_review_workflow_flags_old_and_partial_orders() -> None:

@@ -24,6 +24,7 @@ from t212ai.brokers.models import (
 )
 from t212ai.brokers.tools import (
     _BROKER_ORDER_ARGUMENTS_SCHEMA,
+    BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL,
     BrokerToolRuntime,
     build_broker_order_action_toolbox,
     build_broker_tool_mapping,
@@ -46,6 +47,17 @@ class FakeProviderError(RuntimeError):
         super().__init__("bad api key")
         self.status_code = 401
         self.body = '{"error":"Bad API key"}'
+
+
+def test_broker_portfolio_tool_schema_exposes_display_limit() -> None:
+    parameters = BROKER_GET_PORTFOLIO_SNAPSHOT_TOOL["function"]["parameters"]
+    schema = parameters["properties"]["top_positions_limit"]
+
+    assert "top_positions_limit" in parameters["required"]
+    assert schema["type"] == ["integer", "null"]
+    assert schema["default"] is None
+    assert "presentation limit" in schema["description"]
+    assert "not an API fetch limit" in schema["description"]
 
 
 def test_broker_order_tool_schema_requires_resolved_notional_amount() -> None:
@@ -265,12 +277,64 @@ class PortfolioWithAppleReadService(WorkingBrokerReadService):
                         name="Apple Inc.",
                         ticker="AAPL_US_EQ",
                         currency="USD",
+                        isin="US0378331005",
                     ),
                     quantity=Decimal("2"),
                     quantity_available_for_trading=Decimal("2"),
                     current_price=Decimal("200"),
                     wallet_impact=BrokerPositionWalletImpact(currency="USD"),
                 )
+            ],
+        )
+
+
+class MultiPositionReadService(WorkingBrokerReadService):
+    def get_portfolio_snapshot(self):
+        return BrokerPortfolioSnapshot(
+            account=BrokerAccountSummary(id="acct-1", currency="EUR"),
+            positions=[
+                BrokerPosition(
+                    instrument=BrokerInstrument(
+                        name="Apple Inc.",
+                        ticker="AAPL_US_EQ",
+                        currency="USD",
+                        isin="US0378331005",
+                    ),
+                    quantity=Decimal("2"),
+                    current_price=Decimal("200"),
+                    wallet_impact=BrokerPositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("400"),
+                    ),
+                ),
+                BrokerPosition(
+                    instrument=BrokerInstrument(
+                        name="NVIDIA Corp.",
+                        ticker="NVDA_US_EQ",
+                        currency="USD",
+                        isin="US67066G1040",
+                    ),
+                    quantity=Decimal("3"),
+                    current_price=Decimal("300"),
+                    wallet_impact=BrokerPositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("900"),
+                    ),
+                ),
+                BrokerPosition(
+                    instrument=BrokerInstrument(
+                        name="Taiwan Semiconductor",
+                        ticker="TSM_US_EQ",
+                        currency="USD",
+                        isin="US8740391003",
+                    ),
+                    quantity=Decimal("1"),
+                    current_price=Decimal("100"),
+                    wallet_impact=BrokerPositionWalletImpact(
+                        currency="USD",
+                        current_value=Decimal("100"),
+                    ),
+                ),
             ],
         )
 
@@ -374,9 +438,31 @@ def test_generic_broker_snapshot_exposes_public_position_refs() -> None:
 
     assert result.status == "ok"
     assert result.output is not None
+    assert "Positions: 1 open position(s); showing all 1 by current value." in result.output
     assert "POSITION_000001" in result.output
+    assert "identifier=US0378331005" in result.output
     position = result.data["snapshot"]["positions"][0]
     assert position["publicPositionRef"] == "POSITION_000001"
+
+
+def test_generic_broker_snapshot_limits_readable_positions_only() -> None:
+    runtime = BrokerToolRuntime(
+        broker_read_service=MultiPositionReadService(),
+        broker_provider="trading212",
+    )
+
+    result = broker_get_portfolio_snapshot(
+        runtime=runtime,
+        top_positions_limit=1,
+    )
+
+    assert result.status == "ok"
+    assert result.output is not None
+    assert "Positions: 3 open position(s); showing top 1 by current value." in result.output
+    assert "NVDA_US_EQ" in result.output
+    assert "US67066G1040" in result.output
+    assert "AAPL_US_EQ" not in result.output
+    assert len(result.data["snapshot"]["positions"]) == 3
 
 
 def test_generic_broker_pending_orders_exposes_public_order_refs() -> None:

@@ -6,7 +6,11 @@ from typing import Any
 
 from ..models import BrokerOrder, PreparedBrokerOrder
 from .formatting import _display_broker_name, _enum_value, _format_money, _format_value
-from .references import _register_order_public_ref, _register_position_public_ref
+from .references import (
+    _native_position_ref,
+    _register_order_public_ref,
+    _register_position_public_ref,
+)
 from .runtime import BrokerToolRuntime
 
 
@@ -87,6 +91,7 @@ def _format_portfolio_snapshot_output(
     *,
     provider: str,
     runtime: BrokerToolRuntime,
+    top_positions_limit: int | None = None,
 ) -> str:
     account = snapshot.account
     cash = account.cash
@@ -120,8 +125,21 @@ def _format_portfolio_snapshot_output(
             f"realized_pnl={_format_money(investments.realized_profit_loss, account.currency)}."
         )
     if snapshot.positions:
-        lines.append(f"Positions: {len(snapshot.positions)} open position(s).")
-        for index, position in enumerate(snapshot.positions):
+        displayed_positions = _select_positions_for_display(
+            snapshot.positions,
+            top_positions_limit=top_positions_limit,
+        )
+        if top_positions_limit is not None and len(displayed_positions) < len(snapshot.positions):
+            lines.append(
+                f"Positions: {len(snapshot.positions)} open position(s); "
+                f"showing top {len(displayed_positions)} by current value."
+            )
+        else:
+            lines.append(
+                f"Positions: {len(snapshot.positions)} open position(s); "
+                f"showing all {len(displayed_positions)} by current value."
+            )
+        for index, position in displayed_positions:
             instrument = position.instrument
             public_ref = _register_position_public_ref(
                 position,
@@ -130,12 +148,23 @@ def _format_portfolio_snapshot_output(
             )
             if public_ref is None:
                 continue
+            currency = (
+                position.wallet_impact.currency
+                if position.wallet_impact and position.wallet_impact.currency
+                else instrument.currency if instrument else None
+            )
+            broker_position_ref = _native_position_ref(position)
+            isin = instrument.isin if instrument else None
             lines.append(
                 f"- {public_ref}: "
-                f"{_format_value(instrument.ticker if instrument else None)}, "
+                f"ticker={_format_value(instrument.ticker if instrument else None)}, "
+                f"identifier={_format_value(_position_identifier(position))}, "
+                f"broker_position_ref={_format_value(broker_position_ref)}, "
+                f"isin={_format_value(isin)}, "
                 f"quantity={_format_value(position.quantity)}, "
                 f"available={_format_value(position.quantity_available_for_trading)}, "
-                f"current_price={_format_money(position.current_price, instrument.currency if instrument else None)}"
+                f"current_price={_format_money(position.current_price, currency)}, "
+                f"current_value={_format_money(_position_current_value(position), currency)}"
             )
     else:
         lines.append(f"Positions: no open positions returned by {provider_name}.")
@@ -155,6 +184,40 @@ def _format_portfolio_snapshot_output(
     else:
         lines.append(f"Pending orders: no active/pending orders returned by {provider_name}.")
     return "\n".join(lines)
+
+
+def _select_positions_for_display(
+    positions: list[Any],
+    *,
+    top_positions_limit: int | None,
+) -> list[tuple[int, Any]]:
+    indexed_positions = list(enumerate(positions))
+    sorted_positions = sorted(
+        indexed_positions,
+        key=lambda item: _position_current_value(item[1]) or 0,
+        reverse=True,
+    )
+    if top_positions_limit is None or top_positions_limit <= 0:
+        return sorted_positions
+    return sorted_positions[:top_positions_limit]
+
+
+def _position_current_value(position: Any) -> Any:
+    wallet = getattr(position, "wallet_impact", None)
+    return getattr(wallet, "current_value", None) if wallet is not None else None
+
+
+def _position_identifier(position: Any) -> str | None:
+    broker_position_ref = _native_position_ref(position)
+    if broker_position_ref is not None:
+        return broker_position_ref
+    instrument = getattr(position, "instrument", None)
+    if instrument is not None:
+        for attr in ("isin", "ticker"):
+            value = getattr(instrument, attr, None)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    return None
 
 
 def _format_prepared_order_action_summary(

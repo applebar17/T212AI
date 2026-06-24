@@ -21,7 +21,10 @@ def build_trading212_tool_mapping(
     runtime: Trading212ToolRuntime,
 ) -> dict[str, Callable[..., ToolResult]]:
     return {
-        "t212_get_portfolio_snapshot": lambda: t212_get_portfolio_snapshot(runtime=runtime),
+        "t212_get_portfolio_snapshot": lambda **kwargs: t212_get_portfolio_snapshot(
+            runtime=runtime,
+            **kwargs,
+        ),
         "t212_list_pending_orders": lambda: t212_list_pending_orders(runtime=runtime),
         "t212_get_order": lambda order_id: t212_get_order(
             order_id=order_id,

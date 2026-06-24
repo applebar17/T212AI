@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,8 @@ from .errors import WorkflowExecutionError
 
 
 class PortfolioPositionSummary(BaseModel):
+    broker_position_ref: str | None = None
+    isin: str | None = None
     ticker: str | None = None
     name: str | None = None
     quantity: Decimal | None = None
@@ -41,6 +44,8 @@ class PortfolioSummaryResult(BaseModel):
     unrealized_profit_loss: Decimal | None = None
     realized_profit_loss: Decimal | None = None
     position_count: int = 0
+    displayed_position_count: int = 0
+    top_positions_limit: int | None = None
     pending_order_count: int = 0
     top_positions: list[PortfolioPositionSummary] = Field(default_factory=list)
     highlights: list[str] = Field(default_factory=list)
@@ -71,16 +76,18 @@ class PortfolioSummaryResult(BaseModel):
             ),
             (
                 f"Open positions: {self.position_count}. "
+                f"{self._render_position_scope()}"
                 f"Pending orders: {self.pending_order_count}."
             ),
         ]
         if self.top_positions:
-            lines.append("Top positions by current value:")
+            lines.append(self._render_positions_heading())
             for position in self.top_positions:
                 lines.append(
                     "- "
                     f"{_format_value(position.ticker)}"
                     f"{f' ({position.name})' if position.name else ''}: "
+                    f"identifier={_format_identifier(position)}, "
                     f"quantity={_format_value(position.quantity)}, "
                     f"current_value={_format_money(position.current_value, position.currency)}, "
                     f"weight={_format_pct(position.weight_pct)}, "
@@ -94,15 +101,37 @@ class PortfolioSummaryResult(BaseModel):
             lines.extend(f"- {item}" for item in self.highlights)
         return "\n".join(lines)
 
+    def _render_position_scope(self) -> str:
+        if self.position_count == 0:
+            return ""
+        if (
+            self.top_positions_limit is not None
+            and self.displayed_position_count < self.position_count
+        ):
+            return f"Showing top {self.displayed_position_count} by current value. "
+        return f"Showing all {self.displayed_position_count} by current value. "
+
+    def _render_positions_heading(self) -> str:
+        if (
+            self.top_positions_limit is not None
+            and self.displayed_position_count < self.position_count
+        ):
+            return f"Top {self.displayed_position_count} positions by current value:"
+        return "Open positions by current value:"
+
 
 @dataclass(slots=True)
 class PortfolioSummaryWorkflow:
     broker: BrokerReadService
     provider_label: str = "Trading 212"
-    max_positions: int = 5
+    top_positions_limit: int | None = None
 
     @traceable(name="Portfolio Summary Workflow", run_type="chain")
-    def run(self) -> PortfolioSummaryResult:
+    def run(
+        self,
+        *,
+        top_positions_limit: int | None = None,
+    ) -> PortfolioSummaryResult:
         set_trace_metadata(workflow="portfolio_summary", provider=self.provider_label.lower())
         try:
             snapshot = self.broker.get_portfolio_snapshot()
@@ -119,9 +148,14 @@ class PortfolioSummaryWorkflow:
                     "error": str(exc),
                 },
             ) from exc
+        resolved_top_positions_limit = _normalize_top_positions_limit(
+            top_positions_limit
+            if top_positions_limit is not None
+            else self.top_positions_limit
+        )
         return _build_portfolio_summary(
             snapshot,
-            max_positions=self.max_positions,
+            top_positions_limit=resolved_top_positions_limit,
             provider_label=self.provider_label,
         )
 
@@ -129,7 +163,7 @@ class PortfolioSummaryWorkflow:
 def _build_portfolio_summary(
     snapshot: BrokerPortfolioSnapshot,
     *,
-    max_positions: int,
+    top_positions_limit: int | None,
     provider_label: str,
 ) -> PortfolioSummaryResult:
     account = snapshot.account
@@ -146,9 +180,14 @@ def _build_portfolio_summary(
         or _positive_or_none(account.total_value)
     )
 
+    selected_positions = (
+        positions
+        if top_positions_limit is None
+        else positions[:top_positions_limit]
+    )
     top_positions = [
         _summarize_position(position, denominator=denominator)
-        for position in positions[:max_positions]
+        for position in selected_positions
     ]
 
     highlights: list[str] = []
@@ -180,7 +219,7 @@ def _build_portfolio_summary(
     ]
     if negative_positions:
         highlights.append(
-            f"{len(negative_positions)} of the top {len(top_positions)} position(s) show negative unrealized P/L."
+            f"{len(negative_positions)} of the displayed {len(top_positions)} position(s) show negative unrealized P/L."
         )
 
     return PortfolioSummaryResult(
@@ -196,6 +235,8 @@ def _build_portfolio_summary(
         unrealized_profit_loss=investments.unrealized_profit_loss if investments else None,
         realized_profit_loss=investments.realized_profit_loss if investments else None,
         position_count=len(snapshot.positions),
+        displayed_position_count=len(top_positions),
+        top_positions_limit=top_positions_limit,
         pending_order_count=len(snapshot.pending_orders),
         top_positions=top_positions,
         highlights=highlights,
@@ -215,6 +256,8 @@ def _summarize_position(
     if current_value is not None and denominator and denominator > 0:
         weight_pct = (current_value / denominator) * Decimal("100")
     return PortfolioPositionSummary(
+        broker_position_ref=_native_position_ref(position),
+        isin=instrument.isin if instrument else None,
         ticker=instrument.ticker if instrument else None,
         name=instrument.name if instrument else None,
         quantity=position.quantity,
@@ -226,6 +269,44 @@ def _summarize_position(
         currency=currency,
         weight_pct=weight_pct,
     )
+
+
+def _normalize_top_positions_limit(value: int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError):
+        return None
+    return resolved if resolved > 0 else None
+
+
+def _native_position_ref(position: BrokerPosition) -> str | None:
+    for attr in ("id", "position_id", "positionId"):
+        resolved = _non_empty_str(getattr(position, attr, None))
+        if resolved is not None:
+            return resolved
+    raw_payload = getattr(position, "raw_provider_payload", None)
+    if isinstance(raw_payload, dict):
+        for key in ("id", "position_id", "positionId"):
+            resolved = _non_empty_str(raw_payload.get(key))
+            if resolved is not None:
+                return resolved
+    return None
+
+
+def _format_identifier(position: PortfolioPositionSummary) -> str:
+    return (
+        position.broker_position_ref
+        or position.isin
+        or position.ticker
+        or "unknown"
+    )
+
+
+def _non_empty_str(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    return raw or None
 
 
 def _sum_position_values(positions: list[BrokerPosition]) -> Decimal | None:
